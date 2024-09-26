@@ -8,10 +8,10 @@ from shapely.geometry import Point, Polygon
 carleton_path = 'D:\\data'   ### Set path to Carleton et al.'s folder
 ir = gpd.read_file(f'{carleton_path}'+'\\2_projection\\1_regions\\ir_shp\\impact-region.shp')
 
-''' Load temperature data file '''
+''' Load temperature data file and define model specs'''
 model = ''
-year = 
-scenario = '' ### Set the climate model name here
+year = '' # Set year in int format
+scenario = '' # Set the climate model name here
 model_path =  ''   # Set the path to the climate model data here
 tas_SSP = xr.open_dataset(f'{model_path}')
 temperatura = tas_SSP['tas']
