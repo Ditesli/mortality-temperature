@@ -58,4 +58,23 @@ for group, df_group in zip(groups, df_groups): # Iterate for each age group
 
 
 
+''' Generate Tmin (minimum of the response functions per impact region)
+This step is useful for Adaptation Responde Functions and Hot&Cold Mortality '''
 
+t = np.arange(-50, 60.1, 0.1)
+t = t.round(1)
+
+def get_tmin(tas1, tas2, tas3, tas4, t):
+    raw = tas1*t + tas2*t**2 + tas3*t**3 + tas4*t**4   
+    tmin = t[np.argmin(raw[np.where(np.isclose(t, 10.0, atol=0.05))[0][0]:np.where(np.isclose(t, 30.0, atol=0.05))[0][0]]) + np.where(np.isclose(t, 10.0, atol=0.05))[0][0]]    
+    return tmin
+
+df = pd.DataFrame(oldest['region'])
+df['Tmin oldest'] = ''; df['Tmin older']= ''; df['Tmin young'] = ''
+
+for i in range(len(oldest)):
+    df.iloc[i,1] = get_tmin(oldest['tas'][i], oldest['tas2'][i], oldest['tas3'][i], oldest['tas4'][i], t)
+    df.iloc[i,2] = get_tmin(older['tas'][i], older['tas2'][i], older['tas3'][i], older['tas4'][i], t)
+    df.iloc[i,3] = get_tmin(young['tas'][i], young['tas2'][i], young['tas3'][i], young['tas4'][i], t)
+
+df.to_csv(os.path.join(os.getcwd(), '2_Response_functions', f'RF_T_min.csv'))
