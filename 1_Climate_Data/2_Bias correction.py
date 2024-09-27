@@ -8,6 +8,7 @@ import os
 
 sys.path.append(os.path.join(os.getcwd(), '0_Params')) # Append the path
 import relationship_temp_to_ir # Import relationship to match the 
+import climate_models_info
 
 
 ''' Load .shp Carleton's file with impact regions '''
@@ -33,11 +34,6 @@ df.to_csv('Intermediate_ERA5_NSAT_PresentDay.csv') ### Optional: Save the file w
 '''Calculate Present Day NSAT (1990-2020) for climate models'''
 
 # This requires having the .nc data of the desired model ensemble to calculate the GSAT. See example below
-climate_models_dic = {'AWI-CM-1-1-MR':['r1i1p1f1', 'gn'], 'BCC-CSM2-MR':['r1i1p1f1', 'gn'], 'CAMS-CSM1-0':['r1i1p1f1', 'gn'], 'CESM2':['r4i1p1f1', 'gn'],
-                       'CESM2-WACCM':['r1i1p1f1', 'gn'], 'CMCC-CM2-SR5':['r1i1p1f1', 'gn'], 'CMCC-ESM2':['r1i1p1f1', 'gn'], 
-                       'CNRM-CM6-1-HR':['r1i1p1f2', 'gr'],  'EC-Earth3':['r4i1p1f1', 'gr'],  'EC-Earth3-Veg':['r1i1p1f1', 'gr'], 
-                       'GFDL-ESM4':['r1i1p1f1', 'gr1'], 'INM-CM4-8':['r1i1p1f1', 'gr1'], 'INM-CM5-0':['r1i1p1f1', 'gr1'], 
-                       'MPI-ESM1-2-HR':['r1i1p1f1', 'gn'], 'MRI-ESM2-0':['r1i1p1f1', 'gn'], 'NorESM2-MM':['r1i1p1f1', 'gn'], 'TaiESM1':['r1i1p1f1', 'gn']}
 
 scenarios = ['ssp126', 'ssp245', 'ssp370', 'ssp585'] ### Data from 2015 to 2020 is generated per scenario so we use all the scenarios
 
@@ -56,13 +52,13 @@ def generate_present_nsat(climate_model, label, grid):  ### The entries of this 
     temp = temp.tas
     temp.to_netcdf(f'D:\\Climate Models - Present Day NSAT\\tas_Amon_{climate_model}_present_{label}_{grid}_1990-2020.nc') # Save the result as a new netCDF file
 
-for climate_model in climate_models_dic: ### Run the function for every climate model
-    generate_present_nsat(climate_model, climate_models_dic[climate_model][0], climate_models_dic[climate_model][1])
+for climate_model in climate_models_info.climate_models_dic: ### Run the function for every climate model
+    generate_present_nsat(climate_model, climate_models_info.climate_models_dic[climate_model][0], climate_models_info.climate_models_dic[climate_model][1])
 
 
 ''' Calculate NSAT bias between Climate Models and ERA5 data '''
 # df = pd.read_csv('Intermediate_ERA5_NSAT_PresentDay.csv', index_col=[0])
-bias = pd.DataFrame(columns=climate_models_dic.keys())
+bias = pd.DataFrame(columns=climate_models_info.climate_models_dic.keys())
 bias['hierid'] = df['hierid'] 
 
 def calculate_bias(climate_model, label, grid):
@@ -74,8 +70,8 @@ def calculate_bias(climate_model, label, grid):
     bias = df['T_mean'] - result
     return bias
 
-for climate_model in climate_models_dic:
-    bias.loc[:,climate_model] = calculate_bias(climate_model, climate_models_dic[climate_model][0], climate_models_dic[climate_model][1])
+for climate_model in climate_models_info.climate_models_dic:
+    bias.loc[:,climate_model] = calculate_bias(climate_model, climate_models_info.climate_models_dic[climate_model][0], climate_models_info.climate_models_dic[climate_model][1])
 
 #bias.to_csv('Bias_Correction.csv') ### Save file
 
