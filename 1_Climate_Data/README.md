@@ -19,3 +19,5 @@ T_{\text{corr}_{r,t,i}} = T_{r,t,i} + \Delta T \\
 $$
 
 And $r$ the grid cell, $t$ the year and $i$ the climate model. This means that each spatial and temporal unit of every climate model is added the $\Delta T$ to correct the bias that temperatures in the models can be consistently too low or too high. Please note that $\Delta T$ is a single value per model, meaning that it represents Global Surface Air Temperature GSAT for the mean 1990-2020.
+
+Please note that the final function of this script requires a large capacity of storage.
