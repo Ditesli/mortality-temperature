@@ -5,7 +5,7 @@ import geopandas as gpd
 
 def relationship(ir, longitud, latitud, temperatura, extended=False):
     
-    def create_square(lon, lat):
+    def create_square(lon, lat): ### function only works for climate data with squared grids
         return Polygon([
             (lon, lat),
             (lon + longitud, lat),
@@ -32,8 +32,8 @@ def relationship(ir, longitud, latitud, temperatura, extended=False):
     relationship = gpd.sjoin(points_gdf, ir, how='inner', predicate='intersects') #Make spatial join only once
     relationship = relationship[['geometry','index_right']]
     
-    temperatures = temperatura.values.flatten() - 273.15
-    relationship['temperature'] = temperatures[relationship.index]
-    result = relationship.groupby('index_right')['temperature'].mean()
+    #temperatures = temperatura.values.flatten() - 273.15
+    #relationship['temperature'] = temperatures[relationship.index]
+    #result = relationship.groupby('index_right')['temperature'].mean()
 
-    return result
+    return relationship
