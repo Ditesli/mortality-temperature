@@ -28,7 +28,7 @@ result_ERA5 = relationship_temp_to_ir.relationship(ir, longitud_ERA5, latitud_ER
 df_copy = ir.copy()
 df_copy['T_mean'] = result_ERA5
 df = df_copy[['hierid','T_mean']]
-df.to_csv('Intermediate_ERA5_NSAT_PresentDay.csv') ### Optional: Save the file with ERA5 NSAT per impact region
+df.to_csv(os.path.join(os.getcwd(), '1_Climate_Data', 'Intermediate_ERA5_NSAT_PresentDay.csv')) ### Optional: Save the file with ERA5 NSAT per impact region
 
 
 '''Calculate Present Day NSAT (1990-2020) for climate models'''

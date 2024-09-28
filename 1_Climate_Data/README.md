@@ -1,4 +1,4 @@
-This folder contains the necesary code to correct the bias of the model ensemble and generate the daily temperature at the impact region level.
+This folder contains the necesary code to correct the bias of the model ensemble and generate the daily temperature at the impact region level. Some intermediate, small output files are included in the folder.
 
 
 ### 1_Impact region temperature.py
