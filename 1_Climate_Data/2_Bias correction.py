@@ -3,37 +3,42 @@ import xarray as xr
 import pandas as pd
 from shapely.geometry import Point, Polygon
 import geopandas as gpd
-import sys
-import os
-
+import sys, os
 sys.path.append(os.path.join(os.getcwd(), '0_Params')) # Append the path
 import relationship_temp_to_ir # Import relationship to match the 
 import climate_models_info
 
+base_path = 'C:/Users/Nayeli/Documents/' ### Select main path to store output 
 
 ''' Load .shp Carleton's file with impact regions '''
 carleton_path = 'D:\\data'   ### Set path to Carleton et al.'s folder
 ir = gpd.read_file(f'{carleton_path}'+'\\2_projection\\1_regions\\ir_shp\\impact-region.shp')
 
 
-'''Calculate Present Day NSAT from reanalysis data for each impact region and save file'''
+'''Calculate Present Day NSAT from reanalysis data ERA5'''
 temp = xr.open_dataset('D:ERA5\\ERA5_Amon_tas_1990-2020.nc') ### This script uses ERA5 reanalysis data (see README)
 temperatura_ERA5 = temp.mean('time').t2m  ### Select correct variable
 
 latitud_ERA5 = -((temperatura_ERA5.latitude.values[1]-temperatura_ERA5.latitude.values[0]) + (temperatura_ERA5.latitude.values[2]-temperatura_ERA5.latitude.values[1]))/2
 longitud_ERA5 = ((temperatura_ERA5.longitude.values[1]-temperatura_ERA5.longitude.values[0]) + (temperatura_ERA5.longitude.values[2]-temperatura_ERA5.longitude.values[1]))/2
 
-result_ERA5 = relationship_temp_to_ir.relationship(ir, longitud_ERA5, latitud_ERA5, temperatura_ERA5, extended=True) ### Use relationship function
+relation = relationship_temp_to_ir.relationship(ir, longitud_ERA5, latitud_ERA5, temperatura_ERA5, extended=True) ### Use relationship function
+temperatures = temperatura_ERA5.values.flatten() - 273.15
+relation['temperature'] = temperatures[relation.index]
+result_ERA5 = relation.groupby('index_right')['temperature'].mean()
 
 df_copy = ir.copy()
 df_copy['T_mean'] = result_ERA5
-df = df_copy[['hierid','T_mean']]
-df.to_csv(os.path.join(os.getcwd(), '1_Climate_Data', 'Intermediate_ERA5_NSAT_PresentDay.csv')) ### Optional: Save the file with ERA5 NSAT per impact region
+df_rounded = df_copy.round(2)
+df = df_rounded[['hierid','T_mean']]
+folder_path = f'{base_path}/Main folder/Climate Data/'
+if not os.path.exists(folder_path):
+    os.makedirs(folder_path)
+df.to_csv(f'{folder_path}/ERA5_NSAT_PresentDay.csv') ### Optional: Save the file with ERA5 NSAT per impact region
 
 
 '''Calculate Present Day NSAT (1990-2020) for climate models'''
-
-# This requires having the .nc data of the desired model ensemble to calculate the GSAT. See example below
+# This requires having the .nc data of the desired model ensemble from 1990 to 2020 to calculate the GSAT
 
 scenarios = ['ssp126', 'ssp245', 'ssp370', 'ssp585'] ### Data from 2015 to 2020 is generated per scenario so we use all the scenarios
 
@@ -50,7 +55,10 @@ def generate_present_nsat(climate_model, label, grid):  ### The entries of this 
     temp_ssp_mean = temp_ssp_concat.mean(dim='scenario') # Calculate the average temperature for all scenarios
     temp = xr.concat([temp_hist, temp_ssp_mean], dim='time') # Concatenate historical and scenario data to have the period 1990-2020
     temp = temp.tas
-    temp.to_netcdf(f'D:\\Climate Models - Present Day NSAT\\tas_Amon_{climate_model}_present_{label}_{grid}_1990-2020.nc') # Save the result as a new netCDF file
+    folder_path2 = f'{base_path}/Climate Data/Models_PresentDayNSAT'
+    if not os.path.exists(folder_path2):
+        os.makedirs(folder_path2)
+    temp.to_netcdf(f'{folder_path2}/tas_Amon_{climate_model}_present_{label}_{grid}_1990-2020.nc') # Save the result as a new netCDF file
 
 for climate_model in climate_models_info.climate_models_dic: ### Run the function for every climate model
     generate_present_nsat(climate_model, climate_models_info.climate_models_dic[climate_model][0], climate_models_info.climate_models_dic[climate_model][1])

@@ -48,6 +48,4 @@ def create_file(model, year, scenario):
     df_rounded.to_csv(f'{folder_path}/{model}_{scenario}_{year}.csv') ### Requires to create subfolders per model and scenario
 
 base_path = 'C:/Users/Nayeli/Documents/Climate data' ### Select the folder for the output
-create_file(model, year, scenario)  ### This function can be put in a for loop to include more years or scenarios
-
-### Missing: make folders to create by themselves
+create_file(model, year, scenario)  ### This function can be put in a for loop to include more years or scenario
