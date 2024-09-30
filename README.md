@@ -4,7 +4,9 @@ In this repository you can find the main code and useful instructions to replica
 The folder is structured as follows:
 1. $\text{{\bf Climate data}}$: Includes the necessarty scripts to generate the necessary climate data to be used throughout the whole project.
 2. Response_functions
-3. Mortality_projections
+3. GDP_POP
+4. Mortality_projections
+5. MIMOSA
 6. Figures
 
 In addition, this repository works with three main folders:
