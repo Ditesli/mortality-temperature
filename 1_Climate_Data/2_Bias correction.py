@@ -87,12 +87,12 @@ bias = pd.read_csv(f'{base_path}/Main folder/Climate Data/Bias_Correction.csv')
 bias.set_index('hierid', inplace=True)
 
 def process_file(climate_model, scenario, year):  ### This function needs to run for all the files previously generated in step 1.1
-    folder_path_ensemble = f'{base_path}/Climate data/Climate ensemble/{climate_model}/{scenario}/' # Open files created in step 1.1
+    folder_path_ensemble = f'{base_path}/Climate data/Climate ensemble preliminar/{climate_model}/{scenario}/' # Open files created in step 1.1
     df = pd.read_csv(f'{folder_path_ensemble}/{climate_model}_{scenario}_{year}.csv')
     df.set_index('hierid', inplace=True)
     df = df.drop('Unnamed: 0', axis=1)
     resultado = df.add(bias[climate_model], axis='index').round(1)  # Apply bias correction
-    folder_path_ensemble_corrected = f'{base_path}/Climate data/Climate ensemble corrected/{climate_model}/{scenario}'
+    folder_path_ensemble_corrected = f'{base_path}/Climate data/Climate ensemble/{climate_model}/{scenario}'
     if not os.path.exists(folder_path_ensemble_corrected): # Save corrected data in a new folder
         os.makedirs(folder_path_ensemble_corrected)
     resultado.to_csv(f'{folder_path_ensemble_corrected}/BC_{climate_model}_{scenario}_{year}.csv') 

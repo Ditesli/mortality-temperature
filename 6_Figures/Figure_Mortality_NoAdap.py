@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-base_path = 'C:/Users/Nayeli/Documents/Thesis/Mortality/No adaptation/' # Base path to main folder
+base_path = 'C:/Users/Nayeli/Documents' ### Select main folder
 
 ''' Define important variables '''
 colors = {'SSP126': '#5ea7cd', 'SSP245': '#33416b', 'SSP370': '#dd8852', 'SSP585': '#c04242'}

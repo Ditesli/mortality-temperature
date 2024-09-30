@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 def read_mortality_response(base_path, group):
-        mor = pd.read_csv(base_path + f'Response functions/No adaptation/{group}.csv')
+        mor = pd.read_csv(base_path + f'RF_NoAdaptation_{group}.csv')
         columns = list(mor.columns)
         num_other_columns = 2
         mor.columns = columns[:num_other_columns] + list(np.array(columns[num_other_columns:], dtype="float"))
