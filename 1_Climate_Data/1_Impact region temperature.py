@@ -42,7 +42,7 @@ def create_file(model, year, scenario):
     for item in date_list:
         df[item] = generate_temp_per_day(item)
     df_rounded = df.round(1)
-    folder_path = f'{base_path}/Climate ensemble/{model}/{scenario}/'
+    folder_path = f'{base_path}/Climate ensemble preliminar/{model}/{scenario}/'
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
     df_rounded.to_csv(f'{folder_path}/{model}_{scenario}_{year}.csv') ### Requires to create subfolders per model and scenario
