@@ -1,3 +1,5 @@
+'''You can uncomment the commented lines to generated the figure with a specific SSP population (eg. SSP2 population)'''
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,7 +8,7 @@ sys.path.append(os.path.join(os.getcwd(), '0_Params')) # Append the path
 import climate_models_info
 
 base_path = 'C:/Users/Nayeli/Documents' ### Select path to main folder
-folder_path = f'{base_path}/Figures '
+folder_path = f'{base_path}/Main folder/Figures '
 if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
@@ -21,7 +23,7 @@ dataframes = {}
 for climate_model in climate_models_info.climate_models_dic.keys():
     file_path = f'{base_path}/Main folder/Mortality/No Adaptation/TotalMortality_NoAdaptation_{climate_model}.csv'
     # file_path = f'{base_path}/Main folder/Mortality/No Adaptation/TotalMortality_NoAdaptation_{scenario_SSP}_{climate_model}.csv'
-    dataframes[climate_model] = pd.read_csv(base_path+file_path, index_col=[0,1])
+    dataframes[climate_model] = pd.read_csv(file_path, index_col=[0,1])
 
 ''' Calculate mean and stdev '''
 index = pd.MultiIndex.from_product([groups, scenarios], names=['Age group', 'Scenario'])
@@ -75,7 +77,7 @@ for i, group in enumerate(groups, start=1):
 
 plt.suptitle('Global mortality projections without adaptation', fontsize=12, y=0.95, weight='bold')
 # plt.suptitle('Global mortality projections without adaptation - SSP2 population', fontsize=12, y=0.95, weight='bold')
-plt.savefig(f'{folder_path}/Fig_Mortality_Global_NoAdap.png'), bbox_inches='tight', dpi=300)
+plt.savefig(f'{folder_path}/Fig_Mortality_Global_NoAdap.png', bbox_inches='tight', dpi=300)
 # plt.savefig(f'{folder_path}_Fig_Mortality_Global_NoAdap_SSP2.png'), bbox_inches='tight', dpi=300)
 #splt.show()
 
