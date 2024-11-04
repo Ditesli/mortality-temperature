@@ -1,1 +1,1 @@
-This folder conains the base code to reproduce the figures of the thesis
+This folder conains the base code to reproduce the figures of the main results of the thesis. Each script generates a a subsection of the results. Some parameters can be changed in some scripts to generate different results.

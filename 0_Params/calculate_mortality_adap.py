@@ -2,8 +2,8 @@ import numba as nb
 import pandas as pd
 import numpy as np
 
-def read_mortality_carleton(combination, group, year):
-        mor = pd.read_csv(f'D:/Response Functions Dataframes/RF Dataframes - Carleton/{combination}_{group}_{year}.csv')
+def read_mortality_adap(path, climate_model, scenario, group, year)
+        mor = pd.read_csv(f'{path}/{climate_model}/{scenario}/{climate_model}_{scenario}_{group}_{year}.csv')
         columns = list(mor.columns)
         num_other_columns = 1
         mor.columns = columns[:num_other_columns] + list(np.array(columns[num_other_columns:], dtype="float"))
@@ -11,16 +11,7 @@ def read_mortality_carleton(combination, group, year):
         mor_np = mor.iloc[:, num_other_columns:].round(2).to_numpy()
         return mor_np
 
-def read_mortality_adap(climate_model, scenario, group, year):
-        mor = pd.read_csv(f'D:/Response Functions Dataframes/RF Dataframes - GDP&T/{climate_model}/{scenario}/{climate_model}_{scenario}_{group}_{year}.csv')
-        columns = list(mor.columns)
-        num_other_columns = 1
-        mor.columns = columns[:num_other_columns] + list(np.array(columns[num_other_columns:], dtype="float"))
-        #min_temperature = mor.columns[num_other_columns]
-        mor_np = mor.iloc[:, num_other_columns:].round(2).to_numpy()
-        return mor_np
-
-# Use for calculatinf total mortality
+# Use for calculating total mortality
 
 @nb.njit
 def temp_to_column_location(temp):
