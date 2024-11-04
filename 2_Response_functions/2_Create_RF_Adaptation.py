@@ -129,8 +129,8 @@ for climate_model in climate_models_info.climate_models_dic.keys():
 
                 responses = np.empty((len(climtas), len(t)))
                 for i in range(len(climtas)):
-                    tas = get_tas(gamma_np[group], climtas[i], loggdppc[i])
-                    mortality_df = response(df_group.iloc[i, :].to_numpy(), tas, df_tmin[f'Tmin {group}'][i], t)
+                    tas = RF_info.get_tas(gamma_np[group], climtas[i], loggdppc[i])
+                    mortality_df = RF_info.response(df_group.iloc[i, :].to_numpy(), tas, df_tmin[f'Tmin {group}'][i], t)
                     responses[i, :] = mortality_df
 
                 # Generate dataframe from responses and add region column   
@@ -181,8 +181,8 @@ for climate_model in climate_models_info.climate_models_dic.keys():
                 responses = np.empty((len(climtas), len(t)))
                 
                 for i in range(len(climtas)):
-                    tas = get_tas(gamma_np[group], climtas[i], loggdppc[i][0])
-                    mortality_df = response(df_group.iloc[i, :].to_numpy(), tas, df_tmin[f'Tmin {group}'][i], t)
+                    tas = RF_info.get_tas(gamma_np[group], climtas[i], loggdppc[i][0])
+                    mortality_df = RF_info.response(df_group.iloc[i, :].to_numpy(), tas, df_tmin[f'Tmin {group}'][i], t)
                     responses[i, :] = mortality_df
 
                 # Generate dataframe from responses and add region column   
@@ -229,7 +229,7 @@ for climate_model in climate_models_info.climate_models_dic.keys():
                 # Create an empty list to append mortality calculations
                 responses = np.empty((len(climtas), len(t)))
                 for i in range(len(climtas)):
-                    tas = get_tas(gamma_np[group], climtas[i][0], loggdppc[i])
+                    tas = RF_info.get_tas(gamma_np[group], climtas[i][0], loggdppc[i])
                     mortality_df = response(df_group.iloc[i, :].to_numpy(), tas, df_tmin[f'Tmin {group}'][i], t)
                     responses[i, :] = mortality_df
                 # Generate dataframe from responses and add region column
