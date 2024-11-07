@@ -8,6 +8,8 @@ import climate_models_info
 base_path = 'C:/Users/Nayeli/Documents' ### Select main folder
 RF_path = f'{base_path}/Main folder/Response functions/'
 folder_path = f'{base_path}/Main folder/Mortality/No Adaptation' 
+if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
 
 
 ''' Define important variables'''
@@ -34,8 +36,6 @@ for climate_model in climate_models_info.climate_models_dic.keys():  # for loop 
                 relative_mortality = total_mortality * 1e5 /np.sum(POP[f'{year}'].to_numpy())
                 results_noadapt.at[(group, scenario), year] = relative_mortality
                 print(f'{climate_model} - {group} - {scenario} - {year}')
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
     results_noadapt.to_csv(f'{folder_path}/TotalMortality_NoAdaptation_{climate_model}.csv')  ### Save files
 
 
