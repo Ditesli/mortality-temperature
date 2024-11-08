@@ -82,7 +82,7 @@ for climate_model in climate_models_info.climate_models_dic.keys():
     for group in groups:
         mor_np = calculate_mortality_noadap.read_mortality_response(RF_path, group)
         for scenario, scenario_SSP in zip(scenarios, scenarios_SSP):
-            POP = d.read_csv(f'{base_path}/Main folder/GDP & POP/POP files/POP_{scenario_SSP}_{group}.csv') 
+            POP = pd.read_csv(f'{base_path}/Main folder/GDP & POP/POP files/POP_{scenario_SSP}_{group}.csv') 
             POP['MIMOSA'] = POP['hierid'].apply(MIMOSA_params.get_region)
             POP_MIMOSA = POP[[f"{num}" for num in years] + ['MIMOSA']].groupby('MIMOSA').sum()
             

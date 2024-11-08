@@ -1,4 +1,10 @@
-def running_mean(base_path, scenario, year):
+from datetime import datetime
+import pandas as pd
+import numpy as np
+import os
+from sklearn.linear_model import LinearRegression
+
+def running_mean(climate_model, base_path, scenario, year):
     
     df_previous = pd.read_csv(os.path.join(base_path, f'{scenario}\\BC_{climate_model}_{scenario}_{year-1}.csv'))
     df_current = pd.read_csv(os.path.join(base_path, f'{scenario}\\BC_{climate_model}_{scenario}_{year}.csv'))
@@ -25,7 +31,7 @@ def running_mean(base_path, scenario, year):
     return df_final
 
 
-def running_mean2(base_path, scenario, year): # Run for every scenario for the years 2015 and 2100
+def running_mean2(climate_model, base_path, scenario, year): # Run for every scenario for the years 2015 and 2100
     df = pd.read_csv(os.path.join(base_path, f'{scenario}\\BC_{climate_model}_{scenario}_{year}.csv'))
     temp = df.columns[1:]
     
@@ -97,7 +103,7 @@ def daily_regression(model_path, base_path, climate_model, scenario, month, days
         current_date += delta
 
         for year in years:
-            SSP = pd.read_csv(f'{model_path}/{scenario}/BC_{climate_model}_{scenario}_{year}.csv'))
+            SSP = pd.read_csv(f'{model_path}/{scenario}/BC_{climate_model}_{scenario}_{year}.csv')
             SSP = SSP.iloc[:,1:]
             SSP.columns = pd.to_datetime(SSP.columns).strftime('%m-%d').tolist()
             dfs[df_name][f'{year}'] = SSP[day]
