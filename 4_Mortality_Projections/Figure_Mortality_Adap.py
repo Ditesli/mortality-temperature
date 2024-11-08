@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import os
+import os, sys
 sys.path.append(os.path.join(os.getcwd(), '0_Params')) # Append the path
 import climate_models_info
 
