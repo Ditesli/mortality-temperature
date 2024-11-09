@@ -6,7 +6,7 @@ sys.path.append(os.path.join(os.getcwd(), '0_Params')) # Append the path
 import climate_models_info
 
 base_path = 'C:/Users/Nayeli/Documents' ### Select path to main folder
-folder_path = f'{base_path}/Main folder/Figures '
+folder_path = f'{base_path}/Main folder/Figures'
 if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
