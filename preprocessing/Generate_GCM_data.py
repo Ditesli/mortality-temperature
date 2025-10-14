@@ -5,8 +5,8 @@ Using ISIMIP "dummy" data provided by the land team:
 2. Calculate the difference between the beginning and end of the century for each model (\Delta T_{GCM}).
 3. Calculate the ensemble mean
 4. Downscale to 0.25 degree resolution and save in project folder
-'''
 
+'''
 import numpy as np
 import xarray as xr
 

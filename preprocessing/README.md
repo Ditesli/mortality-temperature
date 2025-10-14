@@ -43,3 +43,19 @@ ERA5 reanalysis montlhy data. In particular 2 meter temperature, $\it{t2m }$, on
 
 ### Output 
 NetCDF file with temperature zone per pixel.
+
+## Clean_format_ERF
+This code converts the raw ERF draws to single funcitons per disease. The code has two approaches, one for each RR calculation method. NOTE: One will later on be discarded, when we choose a method.
+
+### Input
+Files provided of ERF and TMRELs.
+
+### Process
+1. Calculate the mean TMREL of all locations available in the folder for 1990, 2010, and 2019, and for each temperature zone.
+2. Calculate the mean and STD of each Exposure Responsu Function.
+3. Reescale the ERF with respect to the TMREL per temperature zone for the year 2010.
+4. Convert the log(RR) to RR.
+5. Give the files the format needed depending on the method (M1 or M2).
+
+### Output
+ERF in the right format.

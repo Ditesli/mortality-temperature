@@ -36,39 +36,8 @@ relevant_diseases = {'ckd':'Chronic kidney disease', 'cvd_cmp':'Cardiomyopathy a
                      'cvd_ihd':'Ischemic heart disease', 'cvd_stroke':'Stroke', 'diabetes':'Diabetes mellitus',
                      'resp_copd':'Chronic obstructive pulmonary disease', 'lri':'Lower respiratory infections'}
 
-# List of GBD level 3 clusters of diseases
-diseases_level3 = {'crd':'Chronic respiratory diseases', 
-                   'cd':'Cardiovascular diseases',
-                   'rit':'Respiratory infections and tuberculosis', 
-                   'dkd':'Diabetes and kidney diseases',
-                   'ei':'Enteric infections',
-                   'ntdm':'Neglected tropical diseases and malaria'}
-
 # List of original countries whose mortality data was used by Burkart et al.
 original_countries = ['BRA', 'CHL', 'CHN', 'COL', 'GTM', 'MEX', 'NZL', 'ZAF', 'USA']
-
-diseases_level2 = ['All causes',
-                   'HIV/AIDS and sexually transmitted infections',
-                   'Respiratory infections and tuberculosis',
-                   'Enteric infections',
-                   'Neglected tropical diseases and malaria',
-                   'Other infectious diseases',
-                   'Maternal and neonatal disorders',
-                   'Nutritional deficiencies',
-                   'Neoplasms',
-                   'Cardiovascular diseases',
-                   'Chronic respiratory diseases',
-                   'Digestive diseases',
-                   'Neurological disorders',
-                   'Mental disorders',
-                   'Substance use disorders',
-                   'Diabetes and kidney diseases',
-                   'Skin and subcutaneous diseases',
-                   'Muskuloskeletal disorders',
-                   'Other non-communicable diseases',
-                   'Transport injuries',
-                   'Unintentional injuries',
-                   'Self-harm and interpersonal violence']
 
 ### ------------------------------------------------------------------------------------------
 '''
@@ -102,10 +71,10 @@ Read files
 '''
 
 # Read file with IMAGE region names and corresponding countries
-image_regions = pd.read_csv(f'{wdir}\\data\\IMAGE_regions\\IMAGE_regions.csv',  index_col=0, header=0)
+image_regions = pd.read_csv(f'{wdir}\\SocioeconomicData\\IMAGE_regions.csv',  index_col=0, header=0)
 
 # Read GBD file with mortality data
-gbd_mortality = pd.read_csv(f'{wdir}\\data\\GBD_Data\\Mortality\\IHME-GBD_2021_DATA.csv')
+gbd_mortality = pd.read_csv(f'{wdir}\\GBD_Data\\Mortality_Data\\IHME-GBD_2021_DATA-0dc55228.csv')
 
 
 
@@ -116,9 +85,11 @@ Important functions
 
 ### Log-linear extrapolating function 
 def log_linear_interp(xx, yy, kind='linear'):
-    logy = np.log(yy)    
-    lin_interp = sp.interpolate.interp1d(xx, logy, kind=kind, fill_value='extrapolate')    
-    return lambda zz: np.exp(lin_interp(zz))
+    logx = xx   
+    logy = np.log10(yy)    
+    lin_interp = sp.interpolate.interp1d(logx, logy, kind=kind, fill_value='extrapolate')    
+    log_interp = lambda zz: np.power(10.0, lin_interp(zz))
+    return log_interp
 
 
 ### Function to extrapolate ERF
@@ -132,7 +103,6 @@ def interpolate_erf(start_graph, end_graph, erf, tz):
     ynew_cold = interp_cold(xnew_cold)
     
     return xnew_hot, ynew_hot, xnew_cold, ynew_cold
-
 
 #### Function to get counts and weights parameters for a Kernel Density Estimation
 def get_counts_and_weights_for_kde(tmrel, era5_tz, pop_ssp_year, tz):
@@ -351,25 +321,3 @@ def stylize_plot(*,
         plt.tight_layout()
     if show:
         plt.show()
-        
-        
-        
-def mape(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    non_zero_mask = y_true != 0
-    return np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100
-
-
-def rmse(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.sqrt(np.mean((y_true - y_pred) ** 2))
-
-
-def rss(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.sum((y_true - y_pred) ** 2)
-
-
-def mse(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean((y_true - y_pred) ** 2)

@@ -77,7 +77,7 @@ def create_noise(std_value):
 def daily_temp_era5(year, pop_ssp, to_array=False):
     
     # Read file and shift longitude coordinates
-    era5_daily = xr.open_dataset(f'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily\\era5_t2m_mean_day_{year}.nc')
+    era5_daily = xr.open_dataset(f'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily\\era5_t2m_day_{year}.nc')
     
     # Shift longitudinal coordinates
     era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
@@ -100,6 +100,6 @@ def daily_temp_era5(year, pop_ssp, to_array=False):
     else:
         num_days = 365
         
-    print(f'ERA5 {year} daily temperatures imported')
+    print('ERA5 daily temperatures imported')
     
     return daily_temp, num_days

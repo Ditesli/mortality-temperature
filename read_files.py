@@ -2,44 +2,23 @@ import xarray as xr
 import pandas as pd
 import numpy as np
 
+### Set working directory
+wdir = 'X:\\user\\liprandicn\\Health Impacts Model'
+
 
 ### -----------------------------------------------------------------------------------------
 ### Linear interpolation of population data to yearly data
 
-def map_ssp(ssp: str) -> str:
-    mapping = {
-        "SSP1": "SSP1_M",
-        "SSP2": "SSP2_CP",
-        "SSP3": "SSP3_H",
-        "SSP5": "SSP5_H"
-    }
-    try:
-        return mapping[ssp]
-    except KeyError:
-        raise ValueError(f"SSP '{ssp}' not valid. Use one of the following: {list(mapping.keys())}.")
-
-
-def get_annual_pop(wdir, scenario, years=None):
+def get_annual_pop(scenario):
     
     '''Read scenario-dependent population data and interpolate it to yearly data'''
     
-    ssp = map_ssp(scenario)
-    pop = xr.open_dataset(f'{wdir}\\data\\Socioeconomic_Data\\Population\\GPOP\\GPOP_{ssp}.nc')
+    pop = xr.open_dataset(f'{wdir}\\SocioeconomicData\\PopulationData\\GPOP_{scenario}.nc')
     ### Reduce resolution to 15 min
     pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=False)
     # Linearly interpolate to yearly data
     yearly_data = pd.date_range(start='1970/01/01', end='2100/01/01', freq='YS')
     pop_yearly = pop_coarse.interp(time=yearly_data)
-    
-    if years:
-        pop_yearly = pop_yearly.sel(time=slice(f'{years[0]}-01-01', f'{years[-1]}-01-01'))
-    
-    # if temperature_type:
-    #     # Open random ERA5 file to get temperature data grid
-    #     era5_xr = xr.open_dataset('X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily\\era5_t2m_mean_day_2010.nc')
-    #     era5_xr = era5_xr.assign_coords(longitude=((era5_xr.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
-    #     # Interpolate population data to match ERA5 grid
-    #     pop_yearly = pop_yearly.interp(latitude=era5_xr.latitude, longitude=era5_xr.longitude, method='nearest')
     
     print(f'{scenario} population data loaded')
     
@@ -65,15 +44,15 @@ def get_all_population_data():
 ### -----------------------------------------------------------------------------------------
 ### Load climate files (AR6 & GCM data)
 
-def read_climate_data(wdir):
+def read_climate_data():
     
     '''Import GCM data from IMAGE land and load AR6 mean pathways
     (this will be later replaced by the emulator) '''
     
     ### Import GCM data from IMAGE land 
-    gcm_diff = xr.open_dataset(f'{wdir}\\data\\Climate_Data\\GCM\\ensemble_mean_ssp585_tas_15min_diff.nc')
-    gcm_start = xr.open_dataset(f'{wdir}\\data\\Climate_Data\\GCM\\ensemble_mean_ssp585_tas_15min_start.nc')
-    gcm_end = xr.open_dataset(f'{wdir}\\data\\Climate_Data\\GCM\\ensemble_mean_ssp585_tas_15min_end.nc')
+    gcm_diff = xr.open_dataset(f'{wdir}\\ClimateData\\GCM\\ensemble_mean_ssp585_tas_15min_diff.nc')
+    gcm_start = xr.open_dataset(f'{wdir}\\ClimateData\\GCM\\ensemble_mean_ssp585_tas_15min_start.nc')
+    gcm_end = xr.open_dataset(f'{wdir}\\ClimateData\\GCM\\ensemble_mean_ssp585_tas_15min_end.nc')
 
     ### Import AR6 data 
     ar6 = pd.read_csv('X:\\user\\dekkerm\\Data\\AR6_snapshots\\AR6_snapshot_Nayeli_global.csv')
@@ -84,55 +63,25 @@ def read_climate_data(wdir):
     return gcm_diff, gcm_start, gcm_end, cc_path_mean
 
 
-### -------------------------------------------------------------------------
-### Read temperature zones
-
-def read_temperature_zones(wdir):
-    
-    ### Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(f'{wdir}\\data\\Climate_Data\\ERA5\\ERA5_mean_1980-2019_land_t2m_tz.nc')
-
-    ### Convert file to numpy array
-    era5_tz = era5_tz.t2m.values
-    
-    print('Temperature zones data loaded')
-    
-    return era5_tz
-
-
-
 ### -----------------------------------------------------------------------------------------
 ### Load IMAGE regions and temperature zone xarray files
 
-def read_region_classification(wdir, region_class):
+def read_IMAGEregions_and_TempZone():
     
     ### Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(f'{wdir}\\data\\Climate_Data\\ERA5\\ERA5_mean_1980-2019_land_t2m_tz.nc')
+    era5_tz = xr.open_dataset(f'{wdir}\\ClimateData\\ERA5\\ERA5_mean_1980-2019_land_t2m_tz.nc')
+
+    ### Read in IMAGE region data and interpolate to match files resolution
+    greg = xr.open_dataset('X:\\user\\waaldl\\TOOLS\\PYTHON_SCRIPTS_GENERAL\\addtime\\GREG.nc')
+    greg = greg.interp(longitude=era5_tz.longitude, latitude=era5_tz.latitude, method='nearest').mean(dim='time') 
     
-    if region_class == 'IMAGE26':
+    ### Convert files to numpy arrays
+    greg = greg.GREG.values
+    era5_tz = era5_tz.t2m.values
     
-        ### Read in IMAGE region data and interpolate to match files resolution
-        region_nc = xr.open_dataset(f'{wdir}\\data\\IMAGE_regions\\GREG_30MIN.nc')
-        region_nc = region_nc.interp(longitude=era5_tz.longitude, latitude=era5_tz.latitude, method='nearest').mean(dim='time') 
-        ### Convert files to numpy arrays
-        region_nc = region_nc.GREG_30MIN.values
-        
-        # Get number of regions
-        regions_range = range(1,27)
-        
-    if region_class == 'GBD_level3':
-        
-        # Read in GBD LEVEL 3 region DATA
-        region_nc = xr.open_dataset(f'{wdir}\\data\\GBD_Data\\GBD_locations\\GBD_locations_level3.nc')
-        region_nc = region_nc.interp(longitude=era5_tz.longitude, latitude=era5_tz.latitude, method='nearest')
-        
-        # Get number of regions
-        regions_range = np.unique(region_nc.loc_id.values)[1:-1].astype(int)  # Exclude -1 and nan
-        region_nc = region_nc.loc_id.values
+    print('IMAGE regions and Temperature zone data loaded')
     
-    print(f'{region_class} regions loaded')
-    
-    return region_nc, regions_range
+    return greg, era5_tz
 
 
 ### -----------------------------------------------------------------------------------------
@@ -197,15 +146,82 @@ def read_erf_data(wdir, all_diseases=True):
         disease_list = ['ckd', 'cvd_cmp', 'cvd_htn', 'cvd_ihd', 'cvd_stroke', 'diabetes', 'lri', 'resp_copd'] 
     
     erf_dict = {}
-
+    
     for disease in disease_list:
-        erf_disease = pd.read_csv(f'{wdir}\\data\\GBD_Data\\Exposure_Response_Functions\\ERF\\{disease}_curve_samples.csv', 
-                                  index_col=[0,1])
-        erf_disease.index = pd.MultiIndex.from_arrays([erf_disease.index.get_level_values(0),
-                                                       erf_disease.index.get_level_values(1).round(1)])
+        erf_disease = pd.read_csv(f'{wdir}\\GBD_Data\\Exposure_Response_Functions\\ERF\\{disease}_curve_samples.csv', index_col=[0,1])
         erf_dict[disease] = erf_disease
         
     return erf_dict, disease_list
+
+
+
+def get_erf_dataframe(wdir, all_diseases=True, mean=True, random_draw=True, draw=None):
+    
+    '''Get a single erf draw according to the arguments of the function
+    - Mean: Calculates the mean of all draws 
+    - random_draw: Selects a random draw between the 1000 available
+    - draw: Select a specific draw for all diseases (useful for propagation of uncertainty runs)
+    
+    The function:
+    1. Selects a draw or calculates the mean per disease and puts them in a single dataframe
+    2. Uses the np.exp function to convert original ln(RR) to RR
+    3. Renames temperature zone columns
+    4. Produces two dics corresponding to the max and min daily temperatures fin each 
+    temperature zone available in the files. This serves to clip later on the daily T data
+    and could potentially change in the future if the ERFs are extrapolated.
+    5. Put datframe entries in float64 format
+    6. Fills any NaN values
+    
+    Returns: 
+    1. Dataframe with temperature_zone, daily_temperature as Multiindex, and 
+    the diseases in the columns
+    2. Dicionaries with max and min daily temperatures per temperature zone
+    
+    '''
+    if all_diseases:
+        erf_dict, disease_list = read_erf_data(wdir, all_diseases=True)
+        
+    else:
+        erf_dict, disease_list = read_erf_data(wdir, all_diseases=False)
+    
+    erf = pd.DataFrame(index=erf_dict['ckd'].index)
+    
+    if random_draw:
+        draw = random.randint(0,999)
+        
+    for disease in disease_list:
+        if mean:
+            erf[disease] = erf_dict[disease].mean(axis=1)
+
+        else:
+            erf[disease] = erf_dict[disease][f'draw_{draw}']  
+    
+    # Convert log(rr) to rr      
+    erf = erf.apply(lambda x: np.exp(x))
+    # Rename for posterior merging
+    erf.rename_axis(index={'annual_temperature':'temperature_zone'}, inplace=True)  
+    
+    # Convert MultiIndex levels into columns
+    erf_reset = erf.reset_index()
+    
+    # Perform groupby operation using the columns
+    min_dict = erf_reset.groupby('temperature_zone')['daily_temperature'].min().to_dict()
+    max_dict = erf_reset.groupby('temperature_zone')['daily_temperature'].max().to_dict()
+        
+    # Round daily temperature values and set float64 format to posterior merging
+    erf.index = pd.MultiIndex.from_frame(erf.index.to_frame(index=False).assign(
+        **{erf.index.names[1]: lambda x: np.round(x[erf.index.names[1]].astype(float), 1)}))
+    
+    # Fill dataframe columns to remove NaNs in diseases that have a smaller tmeperature range
+    erf = erf.groupby('temperature_zone').bfill().ffill()
+
+    # Keep only temperature zones as index
+    erf = erf.reset_index().set_index('temperature_zone')
+    
+    print('ERF dataframe generated')
+            
+    return erf, disease_list, min_dict, max_dict
+
 
 
 def get_tmrel_map(wdir, year, mean=True, random_draw=True, draw=None):
@@ -226,7 +242,7 @@ def get_tmrel_map(wdir, year, mean=True, random_draw=True, draw=None):
     '''
     # year = 2020
     
-    tmrel = xr.open_dataset(f'{wdir}\\data\\GBD_Data\\Exposure_Response_Functions\\TMRELs_{year}.nc')
+    tmrel = xr.open_dataset(f'{wdir}\\GBD_Data\\Exposure_Response_Functions\\TMRELs_{year}.nc')
     
     if random_draw:
         draw = random.randint(1,100)
