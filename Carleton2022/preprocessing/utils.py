@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import xarray as xr
 
 
 def exposure_response_function(tas1, tas2, tas3, tas4, t): 
@@ -66,3 +67,36 @@ def get_tmin(tas1, tas2, tas3, tas4, t):
     tmin = t[np.argmin(raw[np.where(np.isclose(t, 10.0, atol=0.05))[0][0]:np.where(np.isclose(t, 30.0, atol=0.05))[0][0]]) + np.where(np.isclose(t, 10.0, atol=0.05))[0][0]]    
     
     return tmin
+
+
+
+def var_nc_to_csv(file_path, data_type, scenario, pop_group, age_group, gdp_model):
+    
+    '''
+    Convert Carleton et al. (2022) GDP and Population netCDF files to CSV files
+    '''
+    
+    # Read in oldest population data to get regions
+    oldest = pd.read_csv(f'{file_path}\\exposure_response_functions\\erf_no-adapt_oldest.csv')
+    
+    # Open xarray from Carleton data
+    ssp = xr.open_dataset(f'{file_path}\\econ_vars\\{scenario}.nc4') 
+    # Select high or low GDP model
+    ssp = ssp[pop_group].sel(model=gdp_model) 
+    # Convert to dataframe
+    df = ssp.to_dataframe() 
+    # Unstack
+    df = df.drop(['ssp', 'model'], axis=1).unstack('year') 
+    df.columns = df.columns.get_level_values(1)
+    # Reset index
+    df = df.reset_index() 
+    df['hierid'] = df['region']
+    df = df.merge(oldest['region'], on='region', how='right')
+    # Save csv
+    if data_type == 'GDP':
+        df.to_csv(f'{file_path}/gdp_pop_csv/GDP_{scenario}_{gdp_model}.csv')
+        
+    elif data_type == 'POP':
+        df.to_csv(f'{file_path}/gdp_pop_csv/POP_{scenario}_{age_group}.csv')
+    
+    return df
