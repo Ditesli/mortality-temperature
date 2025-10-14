@@ -1,6 +1,7 @@
 import xarray as xr
 import pandas as pd
 import numpy as np
+import geopandas as gpd   ### Not in imagepy312_base
 
 ### Set working directory
 wdir = 'X:\\user\\liprandicn\\Health Impacts Model'
@@ -9,16 +10,19 @@ wdir = 'X:\\user\\liprandicn\\Health Impacts Model'
 ### -----------------------------------------------------------------------------------------
 ### Linear interpolation of population data to yearly data
 
-def get_annual_pop(scenario):
+def get_annual_pop(scenario, coarse=False, start_year=1970, end_year=2100):
     
     '''Read scenario-dependent population data and interpolate it to yearly data'''
     
-    pop = xr.open_dataset(f'{wdir}\\SocioeconomicData\\PopulationData\\GPOP_{scenario}.nc')
-    ### Reduce resolution to 15 min
-    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=False)
+    pop = xr.open_dataset(f'{wdir}\\Socioeconomic_Data\\Population\\GPOP\\GPOP_{scenario}.nc')
+    
+    if coarse:
+        ### Reduce resolution to 15 min
+        pop = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=False)
+        
     # Linearly interpolate to yearly data
-    yearly_data = pd.date_range(start='1970/01/01', end='2100/01/01', freq='YS')
-    pop_yearly = pop_coarse.interp(time=yearly_data)
+    yearly_data = pd.date_range(start=f'{start_year}/01/01', end=f'{end_year}/01/01', freq='YS')
+    pop_yearly = pop.interp(time=yearly_data)
     
     print(f'{scenario} population data loaded')
     
@@ -84,51 +88,8 @@ def read_IMAGEregions_and_TempZone():
     return greg, era5_tz
 
 
-### -----------------------------------------------------------------------------------------
-### Load ERF data for Method 1 (all diseases)
-
-def open_all_diseases_data():
-    
-    ### List of all relevant diseases
-    diseases = ['ckd', 'cvd_cmp', 'cvd_htn', 'cvd_ihd', 'cvd_stroke', 'diabetes', 'inj_animal', 'inj_disaster', 'inj_drowning', 
-                'inj_homicide', 'inj_mech', 'inj_othunintent', 'inj_suicide', 'inj_trans_other', 'inj_trans_road', 'resp_copd', 'lri']
-
-    erf = pd.read_csv(f'{wdir}\\ResponseFunctions\\erf_reformatted2\\erf_ckd.csv', index_col=0)
-    erf = erf[['annual_temperature', 'daily_temperature']]
-    erf = erf.set_index(['annual_temperature', 'daily_temperature'])
-
-    for disease in diseases:
-        df = pd.read_csv(f'{wdir}\\ResponseFunctions\\erf_reformatted2\\erf_{disease}.csv', index_col=[1,2])
-        erf[disease] = df['rr']
-
-    erf = erf.reset_index()
-    erf.rename(columns={'daily_temperature':'dailyTemp', 'annual_temperature': 'meanTemp'}, inplace=True)
-
-    min_dict = erf.groupby('meanTemp')['dailyTemp'].min().to_dict()
-    max_dict = erf.groupby('meanTemp')['dailyTemp'].max().to_dict()
-    
-    print('ERF data imported')
-    
-    return diseases, erf, min_dict, max_dict
-
-
-### -----------------------------------------------------------------------------------------
-### Load ERF data for Method 2 
-
-def open_all_diseases_data_method2():
-    
-    diseases = ['ckd', 'cvd_cmp', 'cvd_htn', 'cvd_ihd', 'cvd_stroke', 'diabetes', 'resp_copd', 'lri']
-    
-    erf = {}
-    for disease in diseases:
-        erf[disease] = pd.read_csv(f'{wdir}\\ResponseFunctions\\erf_reformatted\\erf_{disease}_mean.csv', header=None).to_numpy()
-
-    return diseases, erf
-
-
     
 ### ------------------------------------------------------------------------------------------
-### Method 1.1
 
 def read_erf_data(wdir, all_diseases=True):
     
@@ -256,3 +217,28 @@ def get_tmrel_map(wdir, year, mean=True, random_draw=True, draw=None):
     print('TMREL data loaded')
         
     return tmrel
+
+
+def read_shp_countries():
+    
+    '''
+    Open shapefile thet includes country-level geomtetries (GBD level3 locations),
+    using thhe geopandas library
+    
+    Returns:
+    - geopandas dataframe with the shapefile
+    - dataframe with unique list of country codes and names
+    '''
+    
+    # Open shapfile with country geometries
+    gdf_countries = gpd.read_file(f'{wdir}\\GBD_Data\\GBD_locations\\Shapefile\\GBD_shapefile.shp').to_crs("EPSG:4326")
+    
+    # Create final dataframe
+    df_climatology = gdf_countries[['loc_id', 'loc_name']]
+    df_climatology = df_climatology.drop_duplicates()
+    
+    # Dissolve geometries by country
+    gdf_dissolved = gdf_countries.dissolve(by='loc_name')
+    gdf_dissolved = gdf_dissolved.reset_index()
+    
+    return gdf_dissolved, df_climatology

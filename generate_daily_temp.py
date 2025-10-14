@@ -74,19 +74,20 @@ def create_noise(std_value):
 ### ---------------------------------------------------------------------------------------------
 ### Read and process daily ERA5 Reanalysis data
 
-def daily_temp_era5(year, pop_ssp, to_array=False):
+def daily_temp_era5(year, pop_ssp, variable, variable_type, to_array=False, interp=False):
     
     # Read file and shift longitude coordinates
-    era5_daily = xr.open_dataset(f'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily\\era5_t2m_day_{year}.nc')
-    
+    era5_daily = xr.open_dataset(f'X:\\user\\liprandicn\\Data\\ERA5\\{variable}_daily\\era5_{variable}_{variable_type}_day_{year}.nc')
+
     # Shift longitudinal coordinates
     era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
     
     # Convert to Celsius 
     era5_daily -= 273.15
     
-    # Match grid with population data
-    era5_daily = era5_daily.interp(longitude=pop_ssp.longitude, latitude=pop_ssp.latitude)
+    if interp:
+        # Match grid with population data
+        era5_daily = era5_daily.interp(longitude=pop_ssp.longitude, latitude=pop_ssp.latitude, method="nearest")
     
     # Swap axes to match required format
     if to_array:
@@ -100,6 +101,6 @@ def daily_temp_era5(year, pop_ssp, to_array=False):
     else:
         num_days = 365
         
-    print('ERA5 daily temperatures imported')
+    print(f'{year} ERA5 daily {variable_type} {variable} imported')
     
     return daily_temp, num_days
