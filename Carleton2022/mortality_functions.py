@@ -38,12 +38,15 @@ def read_era5(wdir, climate_path, year):
     
     # Convert to Celsius 
     era5_daily -= 273.15
+    
+    # Rename time coordinate 
+    era5_daily = era5_daily.rename({'valid_time': 'time'})
 
     return era5_daily.t2m
 
 
 
-def era5_emperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
+def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
     
     '''
     Convert daily temperature data to impact region level
@@ -52,14 +55,12 @@ def era5_emperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
     # Read ERA5 daily temperature data for a specific year
     era5_t2m = read_era5(wdir, climate_path, year)
     
-    # Create spatial relationship between temperature data points and impact regions
-    fechas = era5_t2m['valid_time'].values
+    # Select all available dates
+    dates = era5_t2m['time'].values
     
-    # Create dataframe with temperature data at impact region level for all days in a year
-    date_list = fechas[np.isin(fechas.astype('datetime64[Y]'), np.datetime64(f'{year}', 'Y'))]
-    
-    # Generate temperature per day at impact region level
-    date_list = date_list.astype('datetime64[D]').astype(str)
+    # Create a list of dates for the specified year
+    date_list = dates[np.isin(era5_t2m['time'].values.astype('datetime64[Y]'),
+                              np.datetime64(f'{year}', 'Y'))].astype('datetime64[D]').astype(str)
     
     # Create dataframe with temperature data at impact region level for all days in a year
     df = pd.DataFrame(ir['hierid'])
@@ -82,7 +83,7 @@ def read_mortality_response(wdir, group):
     '''
     
     # Read mortality response function csv file created in the preprocessing step
-    mor = pd.read_csv(wdir + f'exposure_response_functions/erf_no-adapt_{group}.csv')
+    mor = pd.read_csv(wdir + f'/data/exposure_response_functions/erf_no-adapt_{group}.csv')
     
     # Convert columns to float type and extract mortality values as numpy array
     columns = list(mor.columns)
@@ -120,7 +121,6 @@ def find_coord_vals(possible_names, coord_names, temperature):
         if name in coord_names:
             return temperature[name].values
     raise KeyError(f"No coordinate was found among: {possible_names}")
-
 
 
 
@@ -163,20 +163,15 @@ def grid_relationship(wdir, climate_type, climate_path, years):
     # Create meshgrid 
     lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)  
     
-    # Flatten the values
-    lon_flatten = lon2d.flatten()    
-    lat_flatten = lat2d.flatten()
-    
-    # Create dataframe with lat and lon combinations
-    points_df = pd.DataFrame({'longitude': lon_flatten, 'latitude': lat_flatten})   
-    
-    #  Make the geometry with squares for the temperature values
-    points_df['geometry'] = [create_square(lon, lat, lon_size, lat_size) 
-                             for lon, lat in zip(points_df.longitude, points_df.latitude)] 
-    
-    # Convert to GeoDataFrame and reset index
-    points_gdf = gpd.GeoDataFrame(points_df) 
-    points_gdf = points_gdf.reset_index()
+    # Create GeoDataFrame with points and their corresponding square polygons
+    points_gdf = gpd.GeoDataFrame({
+        'longitude': lon2d.ravel(),
+        'latitude': lat2d.ravel(),
+        'geometry': [
+            create_square(lon, lat, lon_size, lat_size)
+            for lon, lat in zip(lon2d.ravel(), lat2d.ravel())
+        ]
+    })
     
     # Load .shp file with impact regions
     ir = gpd.read_file(f'{wdir}'+'/data/ir_shp/impact-region.shp')
@@ -200,7 +195,6 @@ def temp_to_column_location(temp):
     '''
     Get the column index in the mortality response function corresponding to a given temperature
     '''
-    
     
     min_temperature = -50.0
     temp = np.round(temp, 1)
@@ -321,28 +315,33 @@ def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, s
     # Set climate models parameter based on climate type
     if climate_type == 'CMIP6':
         climate_models = params.climate_models_dic.keys()
+        scenarios_RCP = scenarios_RCP
         
     elif climate_type == 'ERA5':
         climate_models = ['ERA5']
+        scenarios_RCP = ['']
         
     elif climate_type == 'AR6':
         climate_models = params.climate_models_ar6.keys()
+        scenarios_RCP = ['']
         
-    # for loop for climate models
+    # Iterate over climate models or use single ERA5/AR6 data
     for climate_model in climate_models:
-        for age_group in age_groups:
+        # Iterate over RCP scenarios
+        for scenario_RCP in scenarios_RCP:
             
-            # Read mortality response functions
-            mor_np = read_mortality_response(wdir, age_group)
-            
-            for scenario_SSP in scenarios_SSP:
-
-                # Read population files
-                pop = read_population_csv(wdir, scenario_SSP, age_group)
+            # Iterate over age groups
+            for age_group in age_groups:
+                # Read mortality response functions
+                mor_np = read_mortality_response(wdir, age_group)
                 
-                for scenario_RCP in scenarios_RCP:
+                # Iterate over population SSP scenarios
+                for scenario_SSP in scenarios_SSP:
+                    # Read population files
+                    pop = read_population_csv(wdir, scenario_SSP, age_group)
+                
                     for year in years:
-                        temperature = era5_emperature_to_ir(wdir, climate_path, year, ir, spatial_relation)
+                        temperature = era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation)
                         print(temperature)
                         relative_mortality(wdir, results, scenario_RCP, age_group, mor_np, pop, year)
                         
