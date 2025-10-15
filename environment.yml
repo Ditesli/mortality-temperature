@@ -1,0 +1,9 @@
+name: env_temperature_mortality
+dependencies: 
+  - numpy
+  - pandas
+  - geopandas
+  - xarray
+  - shapely
+  - numba
+  - netCDF4
