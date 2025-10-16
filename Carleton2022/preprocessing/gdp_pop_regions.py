@@ -61,6 +61,4 @@ impact_regions['ISO3'] = impact_regions['hierid'].str[:3]
 
 # Merge with IMAGE regions to get IMAGE region codes
 df = pd.merge(impact_regions[['hierid', 'ISO3']], image_regions, on='ISO3', how='left')
-df.rename(columns={'hierid':'impact_region'}, inplace=True)
-
 df.to_csv(f'{wdir}'+'region_classification.csv', index=False)
