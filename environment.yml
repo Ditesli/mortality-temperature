@@ -7,3 +7,4 @@ dependencies:
   - shapely
   - numba
   - netCDF4
+  - openpyxl
