@@ -16,7 +16,7 @@ climate_path = 'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily'
 years = range(2010,2019,1)
 
 # Define scenarios
-scenarios_RCP = [] #['SSP126', 'SSP245', 'SSP370', 'SSP585']
+scenarios_RCP = [] #['SSP126', 'SSP245', 'SSP370', 'SSP585'] or []
 scenarios_SSP = ['SSP2'] #['SSP1', 'SSP2', 'SSP3', 'SSP5']
 
 # Define region definitions
