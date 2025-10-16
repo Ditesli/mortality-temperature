@@ -1,7 +1,9 @@
 import pandas as pd
 import xarray as xr
 import numpy as np
+import geopandas as gpd
 import utils
+
 
 wdir = 'X:\\user\\liprandicn\\mt-comparison\\Carleton2022\\data\\'
 
@@ -14,6 +16,7 @@ pop_groups = ['pop', 'pop0to4', 'pop5to64', 'pop65plus']
 years = np.arange(2015,2105,5)
 # Define GDP model
 gdp_models = ['low', 'high']
+
 
 
 ### ----------------------------------------------------------------------
@@ -39,3 +42,25 @@ for scenario in scenarios:
     for year in range(2010,2101):
         SSP_GDP_mean[f'{year}'] = (SSP_GDP_high[f'{year}'] + SSP_GDP_low[f'{year}']) / 2
     SSP_GDP_mean.to_csv(f'{wdir}gdp_pop_csv/GDP_{scenario}_mean.csv')
+    
+    
+    
+### ----------------------------------------------------------------------
+''' 
+Generate file that contains impact region codes, names and their corresponding 
+IMAGE and GBD region
+'''
+
+# Path to IMAGE regions classification folder produced manually
+image_regions = pd.read_excel('X:\\user\\liprandicn\\Health Impacts Model\\data\\IMAGE_regions\\regions_comparison.xlsx',
+                              sheet_name='regions')
+
+# Read impact regions shapefile and extract regions names
+impact_regions = gpd.read_file(f'{wdir}'+'ir_shp/impact-region.shp')
+impact_regions['ISO3'] = impact_regions['hierid'].str[:3]
+
+# Merge with IMAGE regions to get IMAGE region codes
+df = pd.merge(impact_regions[['hierid', 'ISO3']], image_regions, on='ISO3', how='left')
+df.rename(columns={'hierid':'impact_region'}, inplace=True)
+
+df.to_csv(f'{wdir}'+'region_classification.csv', index=False)
