@@ -8,193 +8,26 @@ from shapely.geometry import Polygon
 
 
 
-def read_era5(wdir, climate_path, year):
+def postprocess_results(wdir, results, climate_type, climate_model, scenario_SSP, scenario_RCP, IAM_format):
     
     '''
-    Read ERA5 daily temperature data
+    Postprocess results and save to CSV
     '''
     
-    era5_daily = xr.open_dataset(climate_path+f'/era5_t2m_mean_day_{year}.nc')
+    if IAM_format==True:
+        results = results.reset_index()
+        results['Variable'] = ('Mortality|Non-optimal Temperatures|'
+                               + results['t_type'].str.capitalize() 
+                               + ' Temperatures' 
+                               + '|' 
+                               + results['age_group'].str.capitalize())
+        results = results[['Scenario', 'IMAGE26', 'Variable'] + list(results.columns[4:-1])]
+    results = results.rename(columns={'IMAGE26': 'Region'})
+        
+    # Save results to CSV              
+    results.to_csv(f'{wdir}/output/mortality_{climate_type}_{climate_model}_{scenario_SSP}{scenario_RCP[-2:]}.csv')    
     
-    # Shift longitudinal coordinates
-    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
     
-    # Convert to Celsius 
-    era5_daily -= 273.15
-    
-    # Rename time coordinate 
-    era5_daily = era5_daily.rename({'valid_time': 'time'})
-
-    return era5_daily.t2m
-
-
-
-def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
-    
-    '''
-    Convert daily temperature data of one year to impact region level.
-    All grid cells intersecting an impact region are considered.
-    Return a dataframe with mean daily temperature per impact region for the given year.
-    Parameters:
-    wdir : str
-        Working directory
-    climate_path : str
-        Path to climate data
-    year : int
-        Year of interest
-    ir : GeoDataFrame
-        GeoDataFrame with impact regions
-    spatial_relation : GeoDataFrame
-        Spatial relationship between temperature grid cells and impact regions
-    Returns:
-    df_rounded : DataFrame
-        DataFrame with mean daily temperature per impact region for the given year
-    '''
-    
-    # Read ERA5 daily temperature data for a specific year
-    era5_t2m = read_era5(wdir, climate_path, year)
-    
-    # Select all available dates
-    dates = era5_t2m['time'].values
-    
-    # Create a list of dates for the specified year
-    date_list = dates[np.isin(era5_t2m['time'].values.astype('datetime64[Y]'),
-                              np.datetime64(f'{year}', 'Y'))].astype('datetime64[D]').astype(str)
-    
-    # Temporarily store daily temperatures in a dictionary
-    temp_dict = {}
-    for day in date_list:
-        daily_temperatures = era5_t2m.sel(time=day).values.ravel()
-        temp_dict[day] = daily_temperatures[spatial_relation.index]
-            
-    # Calculate mean temperature per impact region and round
-    df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
-    df = df.groupby('index_right').mean()
-    df_rounded = df.round(1)
-    df_rounded.insert(0, 'hierid', ir['hierid'])
-    
-    print(f'ERA5 daily temperature for {year} imported')
-    
-    return df_rounded
-
-
-
-def read_mortality_response(wdir, group):
-    
-    '''
-    Read mortality response function for a given age group
-    '''
-    
-    # Read mortality response function csv file created in the preprocessing step
-    mor = pd.read_csv(wdir + f'/data/exposure_response_functions/erf_no-adapt_{group}.csv')
-    
-    # Convert columns to float type and extract mortality values as numpy array
-    columns = list(mor.columns)
-    num_other_columns = 2
-    mor.columns = columns[:num_other_columns] + list(np.array(columns[num_other_columns:], dtype="float"))
-    mor_np = mor.iloc[:, num_other_columns:].round(2).to_numpy()
-    
-    print('Exposure Response Function for', group, 'age group imported')
-    
-    return mor_np
-
-
-
-def read_population_csv(wdir, SSP, age_group):
-    
-    '''
-    Read Carleton et al. (2022) population CSV files for a given SSP scenario and age group
-    '''
-    
-    # Read population files
-    POP = pd.read_csv(f'{wdir}/data/gdp_pop_csv/POP_{SSP}_{age_group}.csv')  
-
-    # Discard the regions of Antarctica and the Caspian Sea    
-    # POP = POP[~POP['hierid'].str.contains('ATA|CA-', regex=True)]   
-    
-    print('Population for', SSP,'-',age_group, 'read')
-    
-    return POP   
-
-
-
-def find_coord_vals(possible_names, coord_names, temperature):
-    
-    '''
-    Find the correct coordinate name in the dataset
-    '''
-    
-    for name in possible_names:
-        if name in coord_names:
-            return temperature[name].values
-    raise KeyError(f"No coordinate was found among: {possible_names}")
-
-
-
-def grid_relationship(wdir, climate_type, climate_path, years):
-    
-    '''
-    Create a spatial relationship between temperature data points from the nc files and impact regions
-    '''
-    
-    def create_square(lon, lat, lon_size, lat_size): 
-        '''
-        Return a square Polygon centered at (lon, lat).
-        Function only works for climate data with squared grids
-        '''
-        return Polygon([
-            (lon, lat),
-            (lon + lon_size, lat),
-            (lon + lon_size, lat + lat_size),
-            (lon, lat + lat_size)
-        ])
-
-    # Read climate data
-    if climate_type == 'ERA5':
-        temperature = read_era5(wdir, climate_path, years[0])
-    else:
-        raise ValueError(f"Unsupported climate type: {climate_type}")
-    
-    # Extract coordinates
-    coord_names = temperature.coords.keys()
-    lon_vals = find_coord_vals(["lon", "longitude", "x"], coord_names, temperature)
-    lat_vals = find_coord_vals(["lat", "latitude", "y"], coord_names, temperature)
-    
-    # Calculate grid spacing
-    lon_size = np.abs(np.mean(np.diff(lon_vals)))
-    lat_size = np.abs(np.mean(np.diff(lat_vals)))    
-
-    # Converting lon to right -180 to 180 degrees if necessary
-    lon_vals = np.where(lon_vals > 180, lon_vals - 360, lon_vals)  
-    
-    # Create meshgrid 
-    lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)  
-    
-    # Create GeoDataFrame with points and their corresponding square polygons
-    points_gdf = gpd.GeoDataFrame({
-        'longitude': lon2d.ravel(),
-        'latitude': lat2d.ravel(),
-        'geometry': [
-            create_square(lon, lat, lon_size, lat_size)
-            for lon, lat in zip(lon2d.ravel(), lat2d.ravel())
-        ]
-    })
-    
-    # Load .shp file with impact regions and set the same coordinate reference system (CRS)
-    ir = gpd.read_file(f'{wdir}'+'/data/ir_shp/impact-region.shp')
-    points_gdf = points_gdf.set_crs(ir.crs, allow_override=True)
-    
-    # Make spatial join
-    relationship = gpd.sjoin(points_gdf, ir, how='inner', predicate='intersects')
-    
-    # Keep only necessary columns
-    relationship = relationship[['geometry','index_right']]
-    
-    print('Spatial relationship (temperature grid to impact region level) created')
-
-    return relationship, ir
-
-
 
 @nb.njit
 def temp_to_column_location(temp):
@@ -320,19 +153,125 @@ def annual_regional_mortality(results, daily_temperature, scenario_SSP, age_grou
     
     
 
-def select_regions(wdir, regions):
+def read_population_csv(wdir, SSP, age_group):
     
-    # Load region classification file
-    region_class = pd.read_csv(f'{wdir}/data/region_classification.csv')
+    '''
+    Read Carleton et al. (2022) population CSV files for a given SSP scenario and age group
+    '''
     
-    if regions == 'impact_regions':
-        region_class = region_class[['hierid']]
-    else:
-        region_class = region_class[['hierid', regions]]
+    # Read population files
+    POP = pd.read_csv(f'{wdir}/data/gdp_pop_csv/POP_{SSP}_{age_group}.csv')  
+
+    # Discard the regions of Antarctica and the Caspian Sea    
+    # POP = POP[~POP['hierid'].str.contains('ATA|CA-', regex=True)]   
     
-    return region_class
+    print('Population for', SSP,'-',age_group, 'read')
+    
+    return POP   
+    
+    
+    
+def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
+    
+    '''
+    Convert daily temperature data of one year to impact region level.
+    All grid cells intersecting an impact region are considered.
+    Return a dataframe with mean daily temperature per impact region for the given year.
+    Parameters:
+    wdir : str
+        Working directory
+    climate_path : str
+        Path to climate data
+    year : int
+        Year of interest
+    ir : GeoDataFrame
+        GeoDataFrame with impact regions
+    spatial_relation : GeoDataFrame
+        Spatial relationship between temperature grid cells and impact regions
+    Returns:
+    df_rounded : DataFrame
+        DataFrame with mean daily temperature per impact region for the given year
+    '''
+    
+    # Read ERA5 daily temperature data for a specific year
+    era5_t2m = read_era5(wdir, climate_path, year)
+    
+    # Select all available dates
+    dates = era5_t2m['time'].values
+    
+    # Create a list of dates for the specified year
+    date_list = dates[np.isin(era5_t2m['time'].values.astype('datetime64[Y]'),
+                              np.datetime64(f'{year}', 'Y'))].astype('datetime64[D]').astype(str)
+    
+    # Temporarily store daily temperatures in a dictionary
+    temp_dict = {}
+    for day in date_list:
+        daily_temperatures = era5_t2m.sel(time=day).values.ravel()
+        temp_dict[day] = daily_temperatures[spatial_relation.index]
+            
+    # Calculate mean temperature per impact region and round
+    df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
+    df = df.groupby('index_right').mean()
+    df_rounded = df.round(1)
+    df_rounded.insert(0, 'hierid', ir['hierid'])
+    
+    print(f'ERA5 daily temperature for {year} imported')
+    
+    return df_rounded
+    
+    
+
+def daily_temperatures(wdir, climate_type, climate_path, climate_model, scenario_RCP, year, spatial_relation, ir):
+    
+    if climate_type == 'ERA5':
+        # Read and convert temperature data to impact region level
+        daily_temp = era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation)
+        
+    if climate_type == 'CMIP6':
+        # Read temperature files (previously calculated to impact region level)
+        daily_temp = pd.read_csv(f'{climate_path}/{climate_model}/{scenario_RCP}/BC_{climate_model}_{scenario_RCP}_{year}.csv') 
+        
+    return daily_temp
+
+
+
+def read_mortality_response(wdir, group):
+    
+    '''
+    Read mortality response function for a given age group
+    '''
+    
+    # Read mortality response function csv file created in the preprocessing step
+    mor = pd.read_csv(wdir + f'/data/exposure_response_functions/erf_no-adapt_{group}.csv')
+    
+    # Convert columns to float type and extract mortality values as numpy array
+    columns = list(mor.columns)
+    num_other_columns = 2
+    mor.columns = columns[:num_other_columns] + list(np.array(columns[num_other_columns:], dtype="float"))
+    mor_np = mor.iloc[:, num_other_columns:].round(2).to_numpy()
+    
+    print('Exposure Response Function for', group, 'age group imported')
+    
+    return mor_np
 
     
+    
+def import_erfs(wdir):
+    
+   # Read mortality response functions
+    
+    mor_oldest = read_mortality_response(wdir, 'oldest')
+    mor_older = read_mortality_response(wdir, 'older')
+    mor_young = read_mortality_response(wdir, 'young')
+    
+    mor_np = {'oldest': mor_oldest, 'older': mor_older, 'young': mor_young}
+    
+    # Open file with optimal temperature (Tmin) per impact region
+    t_min = pd.read_csv(f'{wdir}/data/exposure_response_functions/T_min.csv')
+    
+    return mor_np, t_min
+
+
     
 def final_dataframe(regions, region_class, age_groups, scenarios_SSP, years):
     
@@ -356,54 +295,116 @@ def final_dataframe(regions, region_class, age_groups, scenarios_SSP, years):
 
 
 
-def postprocess_results(wdir, results, climate_type, climate_model, scenario_SSP, scenario_RCP, IAM_format):
+def select_regions(wdir, regions):
     
-    '''
-    Postprocess results and save to CSV
-    '''
+    # Load region classification file
+    region_class = pd.read_csv(f'{wdir}/data/region_classification.csv')
     
-    if IAM_format==True:
-        results = results.reset_index()
-        results['Variable'] = ('Mortality|Non-optimal Temperatures|'
-                               + results['t_type'].str.capitalize() 
-                               + ' Temperatures' 
-                               + '|' 
-                               + results['age_group'].str.capitalize())
-        results = results[['Scenario', 'IMAGE26', 'Variable'] + list(results.columns[4:-1])]
-    results = results.rename(columns={'IMAGE26': 'Region'})
-        
-    # Save results to CSV              
-    results.to_csv(f'{wdir}/output/mortality_{climate_type}_{climate_model}_{scenario_SSP}{scenario_RCP[-2:]}.csv')    
+    if regions == 'impact_regions':
+        region_class = region_class[['hierid']]
+    else:
+        region_class = region_class[['hierid', regions]]
     
-    
+    return region_class
 
-def daily_temperatures(wdir, climate_type, climate_path, climate_model, scenario_RCP, year, spatial_relation, ir):
+
+
+def find_coord_vals(possible_names, coord_names, temperature):
     
+    '''
+    Find the correct coordinate name in the dataset
+    '''
+    
+    for name in possible_names:
+        if name in coord_names:
+            return temperature[name].values
+    raise KeyError(f"No coordinate was found among: {possible_names}")
+
+
+
+def read_era5(wdir, climate_path, year):
+    
+    '''
+    Read ERA5 daily temperature data
+    '''
+    
+    era5_daily = xr.open_dataset(climate_path+f'/era5_t2m_mean_day_{year}.nc')
+    
+    # Shift longitudinal coordinates
+    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
+    
+    # Convert to Celsius 
+    era5_daily -= 273.15
+    
+    # Rename time coordinate 
+    era5_daily = era5_daily.rename({'valid_time': 'time'})
+
+    return era5_daily.t2m
+
+
+
+def grid_relationship(wdir, climate_type, climate_path, years):
+    
+    '''
+    Create a spatial relationship between temperature data points from the nc files and impact regions
+    '''
+    
+    def create_square(lon, lat, lon_size, lat_size): 
+        '''
+        Return a square Polygon centered at (lon, lat).
+        Function only works for climate data with squared grids
+        '''
+        return Polygon([
+            (lon, lat),
+            (lon + lon_size, lat),
+            (lon + lon_size, lat + lat_size),
+            (lon, lat + lat_size)
+        ])
+
+    # Read climate data
     if climate_type == 'ERA5':
-        # Read and convert temperature data to impact region level
-        daily_temp = era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation)
-        
-    if climate_type == 'CMIP6':
-        # Read temperature files (previously calculated to impact region level)
-        daily_temp = pd.read_csv(f'{climate_path}/{climate_model}/{scenario_RCP}/BC_{climate_model}_{scenario_RCP}_{year}.csv') 
-        
-    return daily_temp
+        temperature = read_era5(wdir, climate_path, years[0])
+    else:
+        raise ValueError(f"Unsupported climate type: {climate_type}")
     
+    # Extract coordinates
+    coord_names = temperature.coords.keys()
+    lon_vals = find_coord_vals(["lon", "longitude", "x"], coord_names, temperature)
+    lat_vals = find_coord_vals(["lat", "latitude", "y"], coord_names, temperature)
     
-def import_erfs(wdir):
+    # Calculate grid spacing
+    lon_size = np.abs(np.mean(np.diff(lon_vals)))
+    lat_size = np.abs(np.mean(np.diff(lat_vals)))    
+
+    # Converting lon to right -180 to 180 degrees if necessary
+    lon_vals = np.where(lon_vals > 180, lon_vals - 360, lon_vals)  
     
-   # Read mortality response functions
+    # Create meshgrid 
+    lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)  
     
-    mor_oldest = read_mortality_response(wdir, 'oldest')
-    mor_older = read_mortality_response(wdir, 'older')
-    mor_young = read_mortality_response(wdir, 'young')
+    # Create GeoDataFrame with points and their corresponding square polygons
+    points_gdf = gpd.GeoDataFrame({
+        'longitude': lon2d.ravel(),
+        'latitude': lat2d.ravel(),
+        'geometry': [
+            create_square(lon, lat, lon_size, lat_size)
+            for lon, lat in zip(lon2d.ravel(), lat2d.ravel())
+        ]
+    })
     
-    mor_np = {'oldest': mor_oldest, 'older': mor_older, 'young': mor_young}
+    # Load .shp file with impact regions and set the same coordinate reference system (CRS)
+    ir = gpd.read_file(f'{wdir}'+'/data/ir_shp/impact-region.shp')
+    points_gdf = points_gdf.set_crs(ir.crs, allow_override=True)
     
-    # Open file with optimal temperature (Tmin) per impact region
-    t_min = pd.read_csv(f'{wdir}/data/exposure_response_functions/T_min.csv')
+    # Make spatial join
+    relationship = gpd.sjoin(points_gdf, ir, how='inner', predicate='intersects')
     
-    return mor_np, t_min
+    # Keep only necessary columns
+    relationship = relationship[['geometry','index_right']]
+    
+    print('Spatial relationship (temperature grid to impact region level) created')
+
+    return relationship, ir
 
 
     
