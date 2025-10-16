@@ -13,14 +13,15 @@ climate_path = 'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily'
 # climate_path =  D:\\Climate Models - Bias Corrected from CMIP6 precalculated data
 
 # Set years range
-years = range(2010,2019,1)
+years = range(2010,2012,1)
 
 # Define scenarios
 scenarios_RCP = [] #['SSP126', 'SSP245', 'SSP370', 'SSP585'] or []
 scenarios_SSP = ['SSP2'] #['SSP1', 'SSP2', 'SSP3', 'SSP5']
 
 # Define region definitions
-regions = 'IMAGE26' # 'IMAGE26', 'GBD_level3', 'impact_regions'
+regions = 'IMAGE26' #  impact_regions, ISO3, gbd_level3, uN_M49_level1,	IMAGE26, continents
+
 
 
 ### --------------------------------------------------------------------------------------
@@ -31,5 +32,6 @@ era5 = mf.mortality_scenario(wdir, # Working directory
                              climate_path, 
                              scenarios_SSP, 
                              scenarios_RCP,
-                             regions)
-print(era5)
+                             regions,
+                             IAM_format=True, # If True, use IAM output format
+                             )
