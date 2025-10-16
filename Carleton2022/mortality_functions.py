@@ -4,24 +4,7 @@ import numpy as np
 import xarray as xr
 import geopandas as gpd
 import params
-from shapely.geometry import Point, Polygon
-
-
-
-def generate_temp_per_day(temperature, day, relation):
-    
-    '''
-    Convert temperature data for a specific day to impact region level
-    '''
-    
-    # Get temperatures for the specified day 
-    temperatures = temperature.sel(time=day).values.flatten() 
-    # Associate the temperatures with the relationship precalculated
-    relation['temperature'] = temperatures[relation.index] 
-    # Calculate mean temperature per impact region
-    result = relation.groupby('index_right')['temperature'].mean()
-
-    return result
+from shapely.geometry import Polygon
 
 
 
@@ -49,7 +32,23 @@ def read_era5(wdir, climate_path, year):
 def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
     
     '''
-    Convert daily temperature data to impact region level
+    Convert daily temperature data of one year to impact region level.
+    All grid cells intersecting an impact region are considered.
+    Return a dataframe with mean daily temperature per impact region for the given year.
+    Parameters:
+    wdir : str
+        Working directory
+    climate_path : str
+        Path to climate data
+    year : int
+        Year of interest
+    ir : GeoDataFrame
+        GeoDataFrame with impact regions
+    spatial_relation : GeoDataFrame
+        Spatial relationship between temperature grid cells and impact regions
+    Returns:
+    df_rounded : DataFrame
+        DataFrame with mean daily temperature per impact region for the given year
     '''
     
     # Read ERA5 daily temperature data for a specific year
@@ -62,15 +61,17 @@ def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
     date_list = dates[np.isin(era5_t2m['time'].values.astype('datetime64[Y]'),
                               np.datetime64(f'{year}', 'Y'))].astype('datetime64[D]').astype(str)
     
-    # Create dataframe with temperature data at impact region level for all days in a year
-    df = pd.DataFrame(ir['hierid'])
-    
-    # Assign temperature data for each day
-    for item in date_list:
-        df[item] = generate_temp_per_day(era5_t2m, item, spatial_relation)
-        
-    # Round temperature values to one decimal place
+    # Temporarily store daily temperatures in a dictionary
+    temp_dict = {}
+    for day in date_list:
+        daily_temperatures = era5_t2m.sel(time=day).values.ravel()
+        temp_dict[day] = daily_temperatures[spatial_relation.index]
+            
+    # Calculate mean temperature per impact region and round
+    df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
+    df = df.groupby('index_right').mean()
     df_rounded = df.round(1)
+    df_rounded.insert(0, 'hierid', ir['hierid'])
     
     return df_rounded
 
@@ -91,6 +92,8 @@ def read_mortality_response(wdir, group):
     mor.columns = columns[:num_other_columns] + list(np.array(columns[num_other_columns:], dtype="float"))
     mor_np = mor.iloc[:, num_other_columns:].round(2).to_numpy()
     
+    print('Exposure Response Function for', group, 'age group read')
+    
     return mor_np
 
 
@@ -106,6 +109,8 @@ def read_population_csv(wdir, SSP, age_group):
 
     # Discard the regions of Antarctica and the Caspian Sea    
     POP = POP[~POP['hierid'].str.contains('ATA|CA-', regex=True)]   
+    
+    print('Population for', SSP,'-',age_group, 'read')
     
     return POP   
 
@@ -173,10 +178,8 @@ def grid_relationship(wdir, climate_type, climate_path, years):
         ]
     })
     
-    # Load .shp file with impact regions
+    # Load .shp file with impact regions and set the same coordinate reference system (CRS)
     ir = gpd.read_file(f'{wdir}'+'/data/ir_shp/impact-region.shp')
-    
-    # Set the same coordinate reference system (CRS)
     points_gdf = points_gdf.set_crs(ir.crs, allow_override=True)
     
     # Make spatial join
@@ -184,6 +187,8 @@ def grid_relationship(wdir, climate_type, climate_path, years):
     
     # Keep only necessary columns
     relationship = relationship[['geometry','index_right']]
+    
+    print('Spatial relationship (temperature grid to impact region level) created')
 
     return relationship, ir
 
@@ -203,7 +208,7 @@ def temp_to_column_location(temp):
 
 
 @nb.njit
-def mortality_from_erf(temperature_data, mortality_data, tmin_column=None, mode='all'):
+def mortality_from_erf(temperature_data, mortality_data, mode, tmin_column):
     
     """
     Compute mortality based on temperature data and the mortality response function.
@@ -228,74 +233,83 @@ def mortality_from_erf(temperature_data, mortality_data, tmin_column=None, mode=
     n = len(temperature_data)
     result = np.empty(n, dtype=np.float64)
     
-    for i in range(n):
-        temp = temperature_data[i]
-        mort_value = mortality_data[i, temp_to_column_location(temp)]
-        
-        if mode == 'all':
+    if mode == 'all':
+        for i in range(n):
+            temp = temperature_data[i]
+            mort_value = mortality_data[i, temp_to_column_location(temp)]        
             result[i] = mort_value
-        elif mode == 'hot':
+            
+    if mode == 'hot':
+        for i in range(n):
+            temp = temperature_data[i]
+            mort_value = mortality_data[i, temp_to_column_location(temp)]  
             result[i] = mort_value if temp > tmin_column[i] else np.nan
-        elif mode == 'cold':
+            
+    if mode == 'cold':
+        for i in range(n):
+            temp = temperature_data[i]
+            mort_value = mortality_data[i, temp_to_column_location(temp)]  
             result[i] = mort_value if temp < tmin_column[i] else np.nan
-        else:
-            result[i] = np.nan  # unknown mode
-        
+
     return result
 
 
 
-def calculate_mortality_year(SSP, mortality_np):
+def calculate_mortality_year(daily_temperature, mortality_np, t_min, mode):
     
     '''
     Calculate yearly mortality for a given SSP scenario and mortality response function
     '''
     
     # Use 2 when running climate variability files, otherwise use 1
-    temperature_other_columns = 1 
+    temperature_other_columns = 1  
     # Calculate mortality for each day and sum to get total mortality
-    mortality_SSP = SSP.iloc[:, :temperature_other_columns].copy()
+    mortality = daily_temperature.iloc[:, :temperature_other_columns].copy()
     
-    mortality_SSP = pd.concat([
-        mortality_SSP,
+    mortality = pd.concat([
+        mortality,
         pd.concat([
-            pd.Series(mortality_from_erf(temperature_series.to_numpy(), mortality_np, tmin_column=None, mode='all'), 
+            pd.Series(mortality_from_erf(temperature_series.to_numpy(), mortality_np, mode, t_min), 
                       name=day+"_mortality")
-            for day, temperature_series in SSP.iloc[:, temperature_other_columns:].items()
+            for day, temperature_series in daily_temperature.iloc[:, temperature_other_columns:].items()
         ], axis=1)
     ], axis=1)
     
     # Sum daily mortalities to get total mortality
-    mortality_SSP['total mortality'] = mortality_SSP.filter(like='_mortality').sum(axis=1)
+    mortality['total mortality'] = mortality.filter(like='_mortality').sum(axis=1)
     
-    return mortality_SSP
+    return mortality
           
           
           
-def relative_mortality(wdir, df, SSP, age_group, mor_np, pop_file, year):
+def annual_regional_mortality(df, daily_temperature, scenario_SSP, age_group, mor_np, pop_file, year, t_min, regions):
     
     '''
     Calculate yearly mortality for a given SSP scenario, age group, mortality response function, population file, and year
     '''
-    
-    # Read temp files
-    SSP = pd.read_csv(f'{wdir}/Climate data/Climate ensemble/{climate_model}/{scenario}/BC_{climate_model}_{scenario}_{year}.csv')  
+     
     # Calculate relative mortality per region (deaths/100,000)
-    mor_temp = calculate_mortality_year(SSP, mor_np) 
+    mor_temp_hot = calculate_mortality_year(daily_temperature, mor_np, t_min, mode='hot') 
+    mor_temp_cold = calculate_mortality_year(daily_temperature, mor_np, t_min, mode='cold')
+    mor_temp = calculate_mortality_year(daily_temperature, mor_np, t_min, mode='all')
+    
     # Discard the regions of Antarctica and the Caspian Sea
     mor_temp = mor_temp[~mor_temp['hierid'].str.contains('ATA|CA-', regex=True)]
-    # Calculate mortality relative to SSP scenario
+    
+    # Calculate total mortality using SSP scenario population
     total_mortality = np.sum(pop_file[f'{year}'].to_numpy() * mor_temp['total mortality'].to_numpy() / 1e5) 
+    
     # Calculate relative mortality per 100,000
     relative_mortality = total_mortality * 1e5 /np.sum(pop_file[f'{year}'].to_numpy())
+    
     # Locate results in dataframe
-    df.at[(age_group, SSP), year] = relative_mortality
-    # Print progress
-    print(f'{climate_model} - {age_group} - {SSP} - {year}')
+    df.at[(age_group, scenario_SSP), year] = relative_mortality
+    
+    print(f'Mortality for {scenario_SSP}, {age_group}, {year} calculated')
     
     
     
-def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, scenarios_RCP):
+def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, scenarios_RCP, regions):
     
     '''
     Generate mortality projections for given parameters
@@ -318,12 +332,14 @@ def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, s
         scenarios_RCP = scenarios_RCP
         
     elif climate_type == 'ERA5':
-        climate_models = ['ERA5']
+        climate_models = ['']
         scenarios_RCP = ['']
         
     elif climate_type == 'AR6':
         climate_models = params.climate_models_ar6.keys()
         scenarios_RCP = ['']
+        
+    print('Starting mortality calculations')
         
     # Iterate over climate models or use single ERA5/AR6 data
     for climate_model in climate_models:
@@ -334,6 +350,10 @@ def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, s
             for age_group in age_groups:
                 # Read mortality response functions
                 mor_np = read_mortality_response(wdir, age_group)
+                    
+                # Open file with optimal temperature (Tmin) per impact region
+                t_min = pd.read_csv(f'{wdir}/data/exposure_response_functions/T_min.csv')
+                t_min = np.array(t_min[f'Tmin {age_group}'])
                 
                 # Iterate over population SSP scenarios
                 for scenario_SSP in scenarios_SSP:
@@ -341,8 +361,20 @@ def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, s
                     pop = read_population_csv(wdir, scenario_SSP, age_group)
                 
                     for year in years:
-                        temperature = era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation)
-                        print(temperature)
-                        relative_mortality(wdir, results, scenario_RCP, age_group, mor_np, pop, year)
                         
-        results.to_csv(f'{wdir}/output/mortality_no-adapt_{scenario_SSP}_{climate_model}.csv')
+                        if climate_type == 'ERA5':
+                            # Read and convert temperature data to impact region level
+                            daily_temp = era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation)
+                            
+                        if climate_type == 'CMIP6':
+                            # Read temperature files (previously calculated to impact region level)
+                            daily_temp = pd.read_csv(f'{climate_path}/{climate_model}/{scenario_RCP}/BC_{climate_model}_{scenario_RCP}_{year}.csv') 
+                            
+                        # Calculate relative mortality and store in results dataframe
+                        annual_regional_mortality(results, daily_temp, scenario_SSP, age_group, mor_np, pop, year, t_min, regions)
+
+                        # Print progress
+                        print(f'{climate_model}_{scenario_RCP}_{age_group}_{scenario_SSP}_{year}')
+                    
+            # Save results to CSV              
+            results.to_csv(f'{wdir}/output/mortality_{climate_type}_{climate_model}_{scenario_SSP}{scenario_RCP[:-2]}.csv')
