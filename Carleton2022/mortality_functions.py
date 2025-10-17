@@ -8,10 +8,64 @@ from shapely.geometry import Polygon
 
 
 
+### ------------------------------------------------------------------------------
+### ----------------------------- PARAMETERS -------------------------------------
+
+
+'''
+Gamma coeficients of the covariants for the temperature response function of the 
+three age groups (young, older, oldest) from Carleton et al. (2022).
+'''
+
+gamma_np = {
+    'young': np.array([
+        [-0.2643747697030857, -0.0012157807919976, 0.0285121426008164],
+        [-0.0147654905557389, -0.0001292299812386, 0.0013467700198057],
+        [0.0000555941144027,  0.000010228738298,  -0.0000128604018705],
+        [0.0000188858412856, -2.48887855043e-07,  -1.50547526657e-06]
+    ]),
+    'older': np.array([
+        [0.2478292444689566,  0.0022092761549115, -0.0258890110895998],
+        [-0.0125437290633759, 0.0000123113770044, 0.0012019083245803],
+        [-0.0002220037659301, -2.82565977452e-06, 0.0000227328454772],
+        [0.0000129910024803,  1.82855114488e-08,  -1.21751952067e-06]
+    ]),
+    'oldest': np.array([
+        [6.399027562773568,   0.0436967573579832, -0.6751842737945384],
+        [-0.3221434191389331, 0.0013726982372035, 0.0295628065147365],
+        [-0.0044299345528043, -0.0001067884304388, 0.00050851740502],
+        [0.0002888631905257,  9.32783835571e-07,  -0.0000273410162051]
+    ])
+}
+
+
+
+'''
+CMIP6 climate models and their corresponding realization and grid label.
+'''
+
+climate_models_dic = {'AWI-CM-1-1-MR':['r1i1p1f1', 'gn'], 'BCC-CSM2-MR':['r1i1p1f1', 'gn'], 
+                      'CAMS-CSM1-0':['r1i1p1f1', 'gn'], 'CESM2':['r4i1p1f1', 'gn'], 
+                      'CESM2-WACCM':['r1i1p1f1', 'gn'], 'CMCC-CM2-SR5':['r1i1p1f1', 'gn'],
+                      'CMCC-ESM2':['r1i1p1f1', 'gn'], 'CNRM-CM6-1-HR':['r1i1p1f2', 'gr'], 
+                      'EC-Earth3':['r4i1p1f1', 'gr'], 'EC-Earth3-Veg':['r1i1p1f1', 'gr'], 
+                      'GFDL-ESM4':['r1i1p1f1', 'gr1'], 'INM-CM4-8':['r1i1p1f1', 'gr1'],
+                     'INM-CM5-0':['r1i1p1f1', 'gr1'], 'MPI-ESM1-2-HR':['r1i1p1f1', 'gn'], 
+                     'MRI-ESM2-0':['r1i1p1f1', 'gn'], 'NorESM2-MM':['r1i1p1f1', 'gn'], 
+                     'TaiESM1':['r1i1p1f1', 'gn']}
+
+
+
+
+### ------------------------------------------------------------------------------
+### ------------------------------ FUNCTIONS -------------------------------------
+
+
+
 def postprocess_results(wdir, results, climate_type, climate_model, scenario_SSP, scenario_RCP, IAM_format):
     
     '''
-    Postprocess results and save to CSV
+    Postprocess final results and save to CSV file in output folder.
     '''
     
     if IAM_format==True:
