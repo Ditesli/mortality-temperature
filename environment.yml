@@ -8,3 +8,4 @@ dependencies:
   - numba
   - netCDF4
   - openpyxl
+  - rasterio
