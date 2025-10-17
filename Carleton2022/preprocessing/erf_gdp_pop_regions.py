@@ -9,8 +9,27 @@ regions_file = 'X:\\user\\liprandicn\\Health Impacts Model\\data\\IMAGE_regions\
 landscan_file = f'{wdir}'+'LandScan_Global/landscan-global-2000-assets/landscan-global-2000.tif'
 # Open impact regions shapefile
 impact_regions = f'{wdir}'+'carleton_sm/ir_shp/impact-region.shp'
-    
 
+
+
+### ------------------------------------------------------------------------------
+
+'''
+Generate Exposure Response Functions without Adaptation using covaraiates from Carleton et al. (2022)
+'''
+
+utils.generate_exposure_response_functions(wdir)
+
+
+### ------------------------------------------------------------------------------
+
+''' 
+Generate Tmin (minimum of the response functions per impact region)
+This step is useful for Responde Functions with Adaptation and Hot&Cold Mortality
+'''
+
+utils.generate_tmin_file(wdir)
+    
 
 ### ----------------------------------------------------------------------
 ''' 
@@ -18,7 +37,6 @@ Generate files per scenario and age group for all impact regions
 '''
 
 utils.gdp_pop_ssp_projections(wdir)
-    
     
     
 ### ----------------------------------------------------------------------
@@ -29,7 +47,6 @@ IMAGE and GBD region
 
 utils.region_classification_file(wdir, 
                                  regions_file)
-
 
     
 ### ----------------------------------------------------------------------

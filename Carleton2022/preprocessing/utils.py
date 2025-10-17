@@ -584,3 +584,117 @@ def get_tmin(
     tmin = t[idx_min_start + np.argmin(raw[idx_min_start:idx_min_end])]     
     
     return tmin
+
+
+
+def generate_exposure_response_functions(
+    wdir: str
+    ) -> None:
+    
+    '''
+    Generate Exposure Response Functions without Adaptation for different age groups.
+
+    This function reads mortality predictor data for three age groups (oldest, older, young),
+    computes the exposure response functions based on a fourth-degree polynomial,
+    and saves the results as CSV files in the specified working directory.
+
+    Parameters
+    ----------
+    wdir : str
+        Working directory where input files are located and where output CSV files will be saved.
+
+    Returns
+    -------
+    None
+        The function writes three CSV files named:
+            - `erf_no-adapt_oldest.csv`
+            - `erf_no-adapt_older.csv`
+            - `erf_no-adapt_young.csv`
+        in the subdirectory `exposure_response_functions/` of `wdir`.
+
+    '''
+    
+    print('Generating Exposure Response Functions without Adaptation for all age groups...')
+
+    ### Determine the resolution of the temperature range
+    t = np.arange(-50, 60.1, 0.1).round(1)
+
+    ### Age group names
+    age_groups = ['oldest', 'older', 'young']
+    df_groups = [oldest, older, young]
+
+    ### Open predictors dataframes
+    oldest = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-older.csv')
+    older = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-oldest.csv')
+    young = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-young.csv')
+
+    # Iterate for each age group
+    for group, df_group in zip(age_groups, df_groups): 
+        responses = []
+        
+        # Generate the response functions and append
+        for i in range(len(df_group)):
+            mortality = exposure_response_function(df_group['tas'][i], df_group['tas2'][i], df_group['tas3'][i], df_group['tas4'][i], t)
+            responses.append(mortality.round(2))
+            
+        # Round column names
+        df = pd.DataFrame(responses, columns=[f"{temp:.1f}" for temp in t])  
+        
+        # Add the region columns
+        df_merge = pd.concat([df_group['region'], df], axis=1, join='inner')  
+
+        # Save csv file
+        df_merge.to_csv(f'{wdir}/exposure_response_functions/erf_no-adapt_{group}.csv')
+
+
+
+def generate_tmin_file(
+    wdir: str
+    ) -> None:
+    
+    '''
+    Generate a CSV file containing Tmin values for different age groups per impact region.
+
+    This function reads mortality predictor data for three age groups (oldest, older, young),
+    computes the temperature at which the mortality response function is minimized (Tmin)
+    for each impact region and age group, and saves the results in a CSV file.
+
+    Parameters
+    ----------
+    wdir : str
+        Working directory where input files are located and where the output CSV will be saved.
+
+    Returns
+    -------
+    None
+        The function writes a CSV file named `T_min.csv` in the subdirectory 
+        `exposure_response_functions/` of `wdir`.
+
+    '''
+    
+    print('Generating Tmin file for all age groups...')
+    
+    # Define temperature range
+    t = np.arange(-50, 60.1, 0.1).round(1)
+
+    # Open predictors dataframes
+    oldest = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-older.csv')
+    older = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-oldest.csv')
+    young = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-young.csv')    
+
+    # Define dataframe to store Tmin values
+    df = pd.DataFrame(oldest['region'])
+
+    # Add empty columns for Tmin values of each age group
+    df['Tmin oldest'] = ''
+    df['Tmin older'] = ''
+    df['Tmin young'] = ''
+
+    # Get T_min for all age groups and IR
+    for i in range(len(oldest)):
+        df.iloc[i,1] = get_tmin(oldest['tas'][i], oldest['tas2'][i], oldest['tas3'][i], oldest['tas4'][i], t)
+        df.iloc[i,2] = get_tmin(older['tas'][i], older['tas2'][i], older['tas3'][i], older['tas4'][i], t)
+        df.iloc[i,3] = get_tmin(young['tas'][i], young['tas2'][i], young['tas3'][i], young['tas4'][i], t)
+
+    # Save csv file
+    df.to_csv(f'{wdir}/exposure_response_functions/T_min.csv') 
