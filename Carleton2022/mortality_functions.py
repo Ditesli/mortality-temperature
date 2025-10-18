@@ -61,7 +61,7 @@ climate_models_dic = {'AWI-CM-1-1-MR':['r1i1p1f1', 'gn'], 'BCC-CSM2-MR':['r1i1p1
 
 
 
-def postprocess_results(wdir, years, results, climate_type, climate_model, scenario_SSP, scenario_RCP, IAM_format):
+def postprocess_results(wdir, years, results, climate_type, climate_model, scenario_SSP, scenario_RCP, IAM_format, regions):
     
     '''
     Postprocess final results and save to CSV file in output folder.
@@ -79,7 +79,7 @@ def postprocess_results(wdir, years, results, climate_type, climate_model, scena
 
     # Save results to CSV              
     if climate_type == 'ERA5':
-        results.to_csv(f'{wdir}/output/mortality_{climate_type}_{years[0]}-{years[-1]}.csv')    
+        results.to_csv(f'{wdir}/output/mortality_{climate_type}_{regions}_{years[0]}-{years[-1]}.csv')    
     if climate_type == 'CMIP6':
         results.to_csv(f'{wdir}/output/mortality_{climate_type}_{climate_model}_{scenario_SSP}{scenario_RCP[-2:]}.csv')
     
@@ -540,4 +540,4 @@ def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, s
                                                   t_min, regions, region_class)
                     
             postprocess_results(wdir, years, results, climate_type, climate_model, 
-                                scenario_SSP, scenario_RCP, IAM_format)
+                                scenario_SSP, scenario_RCP, IAM_format, regions)
