@@ -9,3 +9,7 @@ dependencies:
   - netCDF4
   - openpyxl
   - rasterio
+  - plotly
+  - matplotlib
+  - ipykernel
+  - nbformat
