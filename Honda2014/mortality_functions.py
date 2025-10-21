@@ -507,6 +507,6 @@ def run_main(wdir, era5_dir, ssp, years, region_class, extrap_erf=False, temp_ma
     years_part = f"_{years[0]}-{years[-1]}"
             
     # Save the results and temperature statistics
-    res.final_paf.to_csv(f'{wdir}\\output\\excess_mortality_era5_{region_class}{extrap_part}{years_part}.csv')  
+    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}.csv')  
     
     print('[3] Results saved. Process finished.')
