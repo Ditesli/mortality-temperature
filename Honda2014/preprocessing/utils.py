@@ -54,4 +54,17 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
         
     percentile_final = xr.concat(percentile_bands, dim='latitude')
     percentile_final.name = 't2m_p84'
+    
+    # Convert from Kelvin to Celsius
+    percentile_final = percentile_final - 273.15
+    
+    # Shift longitude coordinates to -180 - 180 range
+    percentile_final = percentile_final.assign_coords(longitude=((percentile_final.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
+    
+    # Drop quantile coordinate
+    percentile_final = percentile_final.drop_vars('quantile')
+    
+    # Round to one decimal place
+    percentile_final = percentile_final.round(1)
+    
     percentile_final.to_netcdf(final_path + f'era5_t2m_mean_{years[0]}-{years[-1]}_p84.nc')
