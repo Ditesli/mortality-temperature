@@ -12,7 +12,7 @@ import utils
 data_path = 'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily\\'
 
 # Set path to save results
-final_path = 'X:\\user\\liprandicn\\mt-comparison\\Honda2014\\data\\optimal_temeprature\\'
+final_path = 'X:\\user\\liprandicn\\mt-comparison\\Honda2014\\data\\optimal_temperature\\'
 
 # Define the years range and step size for processing
 years = range(1980,2011)
@@ -24,3 +24,5 @@ utils.calculate_optimal_temperature(data_path,
                                     final_path,
                                     years, 
                                     step)
+
+
