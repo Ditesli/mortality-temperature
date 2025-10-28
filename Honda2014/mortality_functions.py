@@ -9,184 +9,69 @@ import xarray as xr
 from dataclasses import dataclass
 
 
-    
-def rr_to_paf(df, rr_year, year, region, temp_type):
-    
-    '''
-    Convert the relative risk value to the Population Attributable Fraction as in GBD methodology
-    (Burkart et al., (2022)).
-    Locate results in the final dataframe
-    '''
-    
-    # Convert the RR to PAF
-    df['pop_attrib_frac'] = np.where(df['relative_risk'] < 1, 
-                                     df['population'] * (df['relative_risk'] - 1),
-                                     df['population'] * (1 - 1 / df['relative_risk']))
-    
-    # Aggregate PAFs
-    df_aggregated = df.sum(axis=0)
-    
-    # Locate aggregated PAF in annual dataframe
-    rr_year.loc[region, (year, temp_type)] = df_aggregated[f'pop_attrib_frac']
-    
-    
 
-def get_temp_array_from_mask(daily_temp, valid_mask, pop_array, num_days):
+def weight_avg_region(pafs, num_days, pop, regions, regions_range, mask, clip_baseline_temp):
     
     '''
-    Creates a 1-D array from the daily temperature data by masking first cells with
-    population and the flattening
+    Calculate weighted average of PAFs per region
     '''
     
-    # Create an empty array to store the daily temperatures
-    dayTemp_array = np.empty(len(pop_array), dtype=np.float32) 
-    index = 0
-    # Iterate over the number of days in the year
-    for day in range(num_days):
-        # Get the daily temperature
-        dayTemp_np = daily_temp[:,:,day]
-        # Mask the values to get only the ones with POP data
-        dayTemp_values = dayTemp_np[valid_mask]
-        # Append the values to the array
-        dayTemp_array[index:index+len(dayTemp_values)] = dayTemp_values
-        index += len(dayTemp_values) # or len(pop_array)
+    # Apply mask to PAFs to select cold, hot or all temperatures
+    if mask == 'all':
+        pass
+    
+    elif mask == 'cold':
+        pafs = np.where(clip_baseline_temp<0, pafs, 0)
         
-    return dayTemp_array
+    elif mask == 'hot':
+        pafs = np.where(clip_baseline_temp>0, pafs, 0) 
     
+    # Aggregate PAFs over days
+    pafs = np.sum(pafs, axis=2) / num_days
     
+    # Flatten arrays
+    regions_flat = np.nan_to_num(regions.ravel()).astype(int)
+    pafs_flat = np.nan_to_num(pafs.ravel())
+    pop_flat = np.nan_to_num(pop.ravel())
     
-def get_array_from_mask(data, valid_mask, num_days):
+    # Calculate weighted sum of PAFs per region
+    weighted_sum = np.bincount(regions_flat, weights=pafs_flat * pop_flat)
+    weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
     
-    ''' 
-    Converts GREG, yearly population and temperature zone xarrays into 1-D numpy arrays 
-    by keeping only the entries where there is population data (data is more than 0)
-    '''
+    # Calculate weighted average for specified regions
+    weighted_avg = weighted_sum[regions_range] / np.maximum(weight_pop_sum[regions_range], 1e-12)
     
-    # Convert xarray to numpy and get the values for the valid mask
-    data_masked = data[valid_mask]
-    # Repeat the same values for the number of days in a year
-    data_array = np.concatenate([data_masked] * num_days)
-    
-    return data_array
-    
-    
-    
-def get_data_masked_per_region(valid_mask, num_days, pop, daily_temp, opt_temp): 
-    
-    '''
-    Use the mask for the population data to mask the population temperature zone, tmrel map and 
-    daily temperature data. The first three maps are repreated 365/366 times depending the 
-    number of days in the specific year. This process creates 1-D arrays for the data representing
-    the different combinations.
-    '''
-    
-    # Get arrays for the data using the functions defined above
-    pop_array = get_array_from_mask(pop, valid_mask, num_days)
-    dayTemp_array = get_temp_array_from_mask(daily_temp, valid_mask, pop_array, num_days)
-    opt_temp_array = get_array_from_mask(opt_temp, valid_mask, num_days)
-    
-    # print(f'Data masked')
-    
-    return pop_array, np.array(dayTemp_array, dtype=np.float64), opt_temp_array
-    
-    
+    return weighted_avg
 
-def population_temperature_df(mask, pop_ssp_year, daily_temp, opt_temp, num_days):
-    
-    '''
-    Create a dataframe that includes data on daily temperature, population and optimal temperature
-    for all the grid cells with population data in a given IMAGE region.
-    The dataframe output has the fraction of population per each combination.
-    This dataframe will be used to merge with the ERF and calculate the RR and PAF.    
-    '''
-    
-    population_array, daily_temps_array, opt_temp_array = get_data_masked_per_region(mask, 
-                                                                                    num_days, 
-                                                                                    pop_ssp_year, 
-                                                                                    daily_temp, 
-                                                                                    opt_temp)
-    
-    # Create a dataframe that includes data on temperature zone, daily temperature, population and tmrel
-    df_pop = pd.DataFrame({'daily_temperature': np.round(daily_temps_array,1),
-                           'population': np.round(population_array,1), 
-                           'optimal_temperature':np.round(opt_temp_array,1)})
-
-    # Group per daily_temperature and tmrel, calculating the fraction of population per each combination
-    df_pop = df_pop.groupby(['daily_temperature', 'optimal_temperature'], as_index=False).sum()
-    df_pop['population'] /= df_pop['population'].sum()
-    
-    return df_pop
 
     
-    
-def get_regional_paf(pop_ssp_year, regions, region, year, num_days, daily_temp, rr_year, 
-                     opt_temp, risk_function, min_val, max_val):
+def calculate_paf(daily_temp, opt_temp, min_val, max_val, risk_function, num_days, pop, regions, regions_range, final_paf, year):
     
     '''
-    Get Population Attributable Fraction from cold-, hot- and overall non-optimal temperatures
-    per region and year
-    
-    Parameters:
-    - pop_ssp_year: population data for the specific year
-    - regions: array with IMAGE region classification
-    - region: specific IMAGE region to calculate the PAF
-    - year: specific year to calculate the PAF
-    - num_days: number of days in the specific year
-    - daily_temp: array with daily temperature data for the specific year
-    - rr_year: dataframe to store the final RR values per region and year
-    - opt_temp: array with optimal temperature data
-    - risk_function: dataframe with the ERF data
-    - min_dict: dictionary with the minimum temperature values per temperature zone
-    - max_dict: dictionary with the maximum temperature values per temperature zone
+    Calculate Population Attributable Fraction (PAF) 
     '''
-    
-    # Get mask of 
-    image_region_mask = (pop_ssp_year > 0.) & (regions == region)
-    
-    # Generate dataframe with population weighted factors per 
-    temps_pop = population_temperature_df(image_region_mask, pop_ssp_year, daily_temp, opt_temp, num_days)
-    
-    # Shift ERF according to optimal temperature
-    temps_pop['baseline_temperature'] = temps_pop['daily_temperature'] - temps_pop['optimal_temperature']
+
+    # Calculate baseline temperature
+    baseline_temp = daily_temp - opt_temp[:,:,np.newaxis]
     
     # Clip baseline temperatures to min and max values
-    temps_pop['baseline_temperature'] = temps_pop['baseline_temperature'].clip(lower=min_val, upper=max_val)
-    
-    # Round temperatures to 1 decimal for merging
-    temps_pop['baseline_temperature'] = temps_pop['baseline_temperature'].round(1)
-    risk_function['baseline_temperature'] = risk_function['baseline_temperature'].round(1)
+    clip_baseline_temp = np.round(np.clip(baseline_temp*10, min_val, max_val), 0).astype(int)
 
-    # Merge the ERF with the grouped data to assign rr, excluding the temperature_zone column
-    temp_pop_rr = pd.merge(temps_pop[['population', 'baseline_temperature']], risk_function,  
-                           on='baseline_temperature', how='left')
-
-    # Make two new dataframes separating the cold and hot attributable deaths
-    temp_pop_rr_cold = temp_pop_rr[temp_pop_rr['baseline_temperature'] < 0.].copy()
-    temp_pop_rr_hot = temp_pop_rr[temp_pop_rr['baseline_temperature'] > 0.].copy()
-        
-    for df, temp_type in zip([temp_pop_rr_hot, temp_pop_rr_cold, temp_pop_rr], ['hot', 'cold', 'all']):
-        rr_to_paf(df, rr_year, year, region, temp_type)
-
-
-
-def opt_temp_combinations(pop_ssp, optimal_temperatures):
+    # Prepare risk function lookup arrays
+    temps = risk_function["baseline_temperature"].to_numpy()
+    risks = risk_function["relative_risk"].to_numpy()
     
-    '''
-    This function creates a dataframe with all the unique values of optimal temperatures
-    '''
+    # Create lookup array
+    min_t = temps.min()
+  
+    # Get relative risks from risks lookup table
+    relative_risks = risks[(clip_baseline_temp - min_t).astype(int)]
     
-    # Get any cell with population data for the selected scenario
-    mask_pop = (pop_ssp.GPOP > 0).any(dim='time')
+    # Calculate PAFs
+    pafs = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
     
-    opt_temp_valid_pop = optimal_temperatures[mask_pop.values]
-    
-    # Create dataframe with these data
-    df_optimal = pd.DataFrame({'optimal_t': np.round(opt_temp_valid_pop,1)})
-    
-    # Remove duplicated rows
-    df_optimal = df_optimal.drop_duplicates()
-    
-    return df_optimal
+    for mode in ['all', 'hot', 'cold']:
+        final_paf.loc[:,(year, mode)] = weight_avg_region(pafs, num_days, pop, regions, regions_range, mode, clip_baseline_temp)
 
 
 
@@ -200,14 +85,19 @@ def daily_temp_era5(era5_dir, year, pop_ssp, to_array=False):
     # Read file and shift longitude coordinates
     era5_daily = xr.open_dataset(era5_dir+f'\\era5_t2m_mean_day_{year}.nc')
     
-    # Shift longitudinal coordinates
-    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
+    # Shift longitudinal coordinates  
+    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.longitude + 180) % 360 - 180))
+    era5_daily = era5_daily.sel(longitude=np.unique(era5_daily.longitude)).sortby("longitude")
     
     # Convert to Celsius 
     era5_daily -= 273.15
     
-    # Match grid with population data
-    era5_daily = era5_daily.interp(longitude=pop_ssp.longitude, latitude=pop_ssp.latitude)
+    # Match grid with population data. Nearest neighbor interpolation
+    # TODO Check this step
+    era5_daily = era5_daily.interp(latitude=np.clip(pop_ssp.latitude, 
+                                                    era5_daily.latitude.min().item(), 
+                                                    era5_daily.latitude.max().item()), 
+                                   method='nearest')
     
     # Swap axes to match required format
     if to_array:
@@ -320,6 +210,9 @@ def get_risk_function(wdir, extrap_erf=False, temp_max=None):
     else:
         pass     
     
+    # Prepare risk function for lookup, convert entries to int and multiply by 10
+    risk_function['baseline_temperature'] = (risk_function['daily_temperature']*10).astype(int)
+    
     # Perform groupby operation using the columns
     min_val = risk_function['baseline_temperature'].min()   
     max_val = risk_function['baseline_temperature'].max()
@@ -369,7 +262,7 @@ def get_annual_pop(wdir, scenario, years=None):
     # Select years if provided
     if years:
         pop_yearly = pop_yearly.sel(time=slice(f'{years[0]}-01-01', f'{years[-1]}-01-01'))
-    
+            
     print(f'[1.2] {scenario} population NetCDF file loaded')
     
     return pop_yearly
@@ -408,6 +301,9 @@ def read_region_classification(wdir, region_class):
     
     print(f'[1.1] {region_class} regions loaded')
     
+    # Set negative values to 0
+    region_nc = np.maximum(region_nc, 0)  
+   
     return region_nc, regions_range
 
 
@@ -492,15 +388,12 @@ def run_main(wdir, era5_dir, ssp, years, region_class, extrap_erf=False, temp_ma
         
         daily_temp, num_days = daily_temp_era5(era5_dir, year, res.pop_ssp, to_array=True)
 
-        # Select population for the corresponding year
-        pop_ssp_year = res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values
+        # Select population for the corresponding year and convert to numpy array with non-negative values
+        pop_ssp_year = np.clip(res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
+        
+        calculate_paf(daily_temp, res.opt_temp, res.min_val, res.max_val, res.risk_function, num_days, 
+                      pop_ssp_year, res.regions, res.regions_range, res.final_paf, year)
 
-        # Set a mask of pixels for each region
-        for region in res.regions_range:
-            
-            get_regional_paf(pop_ssp_year, res.regions, region, year, num_days, daily_temp, res.final_paf,
-                             res.opt_temp, res.risk_function, res.min_val, res.max_val)
-                
         print(f'[2.2] Population Attributable Fraction calculated for {year}') 
         
     extrap_part = "_extrap" if extrap_erf else ""

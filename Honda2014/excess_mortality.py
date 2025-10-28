@@ -20,9 +20,9 @@ region_class = 'GBD_level3' # 'IMAGE26', 'GBD_level3',  for now...
 Set settings to extrapolate risk function
 '''
 # Choose between extrapolating risk function (True) or keeping it as in Honda 2014 (False)
-extrap_erf = True
-# Set extapolation range
-temp_max = 40#int or None
+extrap_erf = False
+# Set extapolation range, keep risk as cold temperatures as constant
+temp_max = 40 #int or None
 
 
 '''
