@@ -83,7 +83,7 @@ def daily_temp_era5(era5_dir, year, pop_ssp, to_array=False):
     '''
     
     # Read file and shift longitude coordinates
-    era5_daily = xr.open_dataset(era5_dir+f'\\era5_t2m_mean_day_{year}.nc')
+    era5_daily = xr.open_dataset(era5_dir+f'\\era5_t2m_max_day_{year}.nc')
     
     # Shift longitudinal coordinates  
     era5_daily = era5_daily.assign_coords(longitude=((era5_daily.longitude + 180) % 360 - 180))
