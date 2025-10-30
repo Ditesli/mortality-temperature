@@ -93,7 +93,6 @@ def daily_temp_era5(era5_dir, year, pop_ssp, to_array=False):
     era5_daily -= 273.15
     
     # Match grid with population data. Nearest neighbor interpolation
-    # TODO Check this step
     era5_daily = era5_daily.interp(latitude=np.clip(pop_ssp.latitude, 
                                                     era5_daily.latitude.min().item(), 
                                                     era5_daily.latitude.max().item()), 
