@@ -619,14 +619,14 @@ def generate_exposure_response_functions(
     ### Determine the resolution of the temperature range
     t = np.arange(-50, 60.1, 0.1).round(1)
 
+    ### Open predictors dataframes
+    oldest = open_predictors(wdir+'carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-oldest.csv')
+    older = open_predictors(wdir+'carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-older.csv')
+    young = open_predictors(wdir+'carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-young.csv')
+    
     ### Age group names
     age_groups = ['oldest', 'older', 'young']
     df_groups = [oldest, older, young]
-
-    ### Open predictors dataframes
-    oldest = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-older.csv')
-    older = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-oldest.csv')
-    young = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-young.csv')
 
     # Iterate for each age group
     for group, df_group in zip(age_groups, df_groups): 
@@ -645,6 +645,8 @@ def generate_exposure_response_functions(
 
         # Save csv file
         df_merge.to_csv(f'{wdir}/exposure_response_functions/erf_no-adapt_{group}.csv')
+        
+    print('Exposure Response Funcitons generated and saved')
 
 
 
@@ -678,9 +680,9 @@ def generate_tmin_file(
     t = np.arange(-50, 60.1, 0.1).round(1)
 
     # Open predictors dataframes
-    oldest = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-older.csv')
-    older = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-oldest.csv')
-    young = open_predictors(wdir+'main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-young.csv')    
+    oldest = open_predictors(wdir+'carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-older.csv')
+    older = open_predictors(wdir+'carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-oldest.csv')
+    young = open_predictors(wdir+'carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-young.csv')    
 
     # Define dataframe to store Tmin values
     df = pd.DataFrame(oldest['region'])
