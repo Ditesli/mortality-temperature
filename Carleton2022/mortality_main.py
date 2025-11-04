@@ -13,7 +13,7 @@ climate_path = 'X:/user/liprandicn/Data/ERA5/t2m_daily'
 # climate_path =  D:\\Climate Models - Bias Corrected from CMIP6 precalculated data
 
 # Set years range
-years = range(2000,2019,1)
+years = range(2000,2020,1)
 
 # Define scenarios
 scenarios_RCP = [] # Climate scenarios: ['SSP126', 'SSP245', 'SSP370', 'SSP585'] 
