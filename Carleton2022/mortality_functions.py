@@ -66,7 +66,7 @@ def postprocess_results(wdir, years, results, climate_type, climate_model, scena
 
     # Save results to CSV              
     if climate_type == 'ERA5':
-        results.to_csv(f'{wdir}/output/mortality_{climate_type}_{regions}_{years[0]}-{years[-1]}_1.csv')    
+        results.to_csv(f'{wdir}/output/mortality_{climate_type}_{regions}_{years[0]}-{years[-1]}.csv')    
     
     
 
