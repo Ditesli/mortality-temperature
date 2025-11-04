@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import xarray as xr
 import geopandas as gpd
+from dataclasses import dataclass
 from shapely.geometry import Polygon
 
 
@@ -39,23 +40,6 @@ gamma_np = {
 
 
 
-'''
-CMIP6 climate models and their corresponding realization and grid label.
-'''
-
-climate_models_dic = {'AWI-CM-1-1-MR':['r1i1p1f1', 'gn'], 'BCC-CSM2-MR':['r1i1p1f1', 'gn'], 
-                      'CAMS-CSM1-0':['r1i1p1f1', 'gn'], 'CESM2':['r4i1p1f1', 'gn'], 
-                      'CESM2-WACCM':['r1i1p1f1', 'gn'], 'CMCC-CM2-SR5':['r1i1p1f1', 'gn'],
-                      'CMCC-ESM2':['r1i1p1f1', 'gn'], 'CNRM-CM6-1-HR':['r1i1p1f2', 'gr'], 
-                      'EC-Earth3':['r4i1p1f1', 'gr'], 'EC-Earth3-Veg':['r1i1p1f1', 'gr'], 
-                      'GFDL-ESM4':['r1i1p1f1', 'gr1'], 'INM-CM4-8':['r1i1p1f1', 'gr1'],
-                     'INM-CM5-0':['r1i1p1f1', 'gr1'], 'MPI-ESM1-2-HR':['r1i1p1f1', 'gn'], 
-                     'MRI-ESM2-0':['r1i1p1f1', 'gn'], 'NorESM2-MM':['r1i1p1f1', 'gn'], 
-                     'TaiESM1':['r1i1p1f1', 'gn']}
-
-
-
-
 ### ------------------------------------------------------------------------------
 ### ------------------------------ FUNCTIONS -------------------------------------
 
@@ -67,6 +51,9 @@ def postprocess_results(wdir, years, results, climate_type, climate_model, scena
     Postprocess final results and save to CSV file in output folder.
     '''
     
+    print('[4] Postprocessing and saving results...')
+    
+    # Reset index and format results for IAMs if specified
     if IAM_format==True:
         results = results.reset_index()
         results['Variable'] = ('Mortality|Non-optimal Temperatures|'
@@ -79,9 +66,7 @@ def postprocess_results(wdir, years, results, climate_type, climate_model, scena
 
     # Save results to CSV              
     if climate_type == 'ERA5':
-        results.to_csv(f'{wdir}/output/mortality_{climate_type}_{regions}_{years[0]}-{years[-1]}.csv')    
-    if climate_type == 'CMIP6':
-        results.to_csv(f'{wdir}/output/mortality_{climate_type}_{climate_model}_{scenario_SSP}{scenario_RCP[-2:]}.csv')
+        results.to_csv(f'{wdir}/output/mortality_{climate_type}_{regions}_{years[0]}-{years[-1]}_1.csv')    
     
     
 
@@ -149,10 +134,27 @@ def mortality_from_erf(temperature_data, mortality_data, mode, tmin_column):
 def calculate_mortality_year(daily_temperature, mortality_np, t_min, mode):
     
     '''
-    Calculate yearly mortality for a given SSP scenario and mortality response function
+    Calculate yearly mortality for a given SSP scenario, mortality response function
+    and temperature data.
+    
+    Parameters:
+    daily_temperature : DataFrame
+        DataFrame with daily temperature per impact region for the given year
+    mortality_np : np.ndarray
+        Mortality response function for the given age group
+    t_min : np.ndarray
+        Numpy array with optimal temperatures per impact region
+    mode : str
+        Determines which temperature range to consider:
+            'all'  -> use all temperatures
+            'hot'  -> only temperatures above tmin_column
+            'cold' -> only temperatures below tmin_column
+            
+    Returns:
+    mortality : DataFrame
+        DataFrame with daily and annual mortality per impact region
     '''
     
-    # Use 2 when running climate variability files, otherwise use 1
     temperature_other_columns = 1  
     # Calculate mortality for each day and sum to get total mortality
     mortality = daily_temperature.iloc[:, :temperature_other_columns].copy()
@@ -161,11 +163,11 @@ def calculate_mortality_year(daily_temperature, mortality_np, t_min, mode):
         mortality,
         pd.concat([
             pd.Series(mortality_from_erf(temperature_series.to_numpy(), mortality_np, mode, t_min), 
-                      name=day+"_mortality")
+                        name=day+"_mortality")
             for day, temperature_series in daily_temperature.iloc[:, temperature_other_columns:].items()
         ], axis=1)
     ], axis=1)
-    
+
     # Sum daily mortalities to get total annual mortality per region
     mortality[f'annual_mortality_{mode}'] = mortality.filter(like='_mortality').sum(axis=1)
     
@@ -177,22 +179,48 @@ def annual_regional_mortality(results, daily_temperature, scenario_SSP, age_grou
     
     '''
     Calculate yearly mortality for a given SSP scenario, age group, mortality response function, population file, and year
+    
+    Parameters:
+    results : DataFrame
+        DataFrame to store final results
+    daily_temperature : DataFrame
+        DataFrame with daily temperature per impact region for the given year
+    scenario_SSP : str
+        Socioeconomic scenario (e.g., 'SSP1', 'SSP2')
+    age_group : str
+        Age group (e.g., 'oldest', 'older', 'young')
+    mor_np : np.ndarray
+        Mortality response function for the given age group
+    pop_file : DataFrame
+        Population data for the given SSP scenario and age group
+    year : int  
+        Year of interest
+    t_min : DataFrame
+        DataFrame with optimal temperatures per impact region and age group
+    regions : str
+        Region classification to use (e.g., 'IMAGE26', 'ISO3')
+    region_class : DataFrame    
+        DataFrame with region classification
+        
+    Returns:
+    None
+    Saves the mortality results to the results DataFrame
     '''
     
     t_min_age = np.array(t_min[f'Tmin {age_group}']) 
      
     # Calculate relative mortality per region (deaths/100,000)
+    mor_temp = calculate_mortality_year(daily_temperature, mor_np, t_min_age, mode='all')
     mor_temp_hot = calculate_mortality_year(daily_temperature, mor_np, t_min_age, mode='hot') 
     mor_temp_cold = calculate_mortality_year(daily_temperature, mor_np, t_min_age, mode='cold')
-    mor_temp = calculate_mortality_year(daily_temperature, mor_np, t_min_age, mode='all')
     
-    # Calculate total mortality per region
+    # Concat mortality with population and region classification
     df = pd.concat([region_class, 
                     pop_file[age_group][f'{year}'], 
                     mor_temp['annual_mortality_all'],
                     mor_temp_hot['annual_mortality_hot'],  
                     mor_temp_cold['annual_mortality_cold']], axis=1)
-    
+
     # Calculate total mortality
     df['mortality_all'] = df[f'{year}'] * df['annual_mortality_all'] /1e5
     df['mortality_cold'] = df[f'{year}'] * df['annual_mortality_cold'] /1e5
@@ -212,36 +240,53 @@ def annual_regional_mortality(results, daily_temperature, scenario_SSP, age_grou
 def read_population_csv(wdir, SSP, years):
     
     '''
-    Read Carleton et al. (2022) population CSV files for a given SSP scenario and age group
+    Read Carleton et al. (2022) population CSV files for a given SSP scenario and age group.
+    The files were created in the preprocessing step.
+    
+    Parameters:
+    wdir : str
+        Working directory
+    SSP : str
+        Socioeconomic scenario (e.g., 'SSP1', 'SSP2')
+    years : list
+        List of years to process
+        
+    Returns:
+    pop_groups : dict
+        Dictionary with population data per age group
     '''
+    
+    print(f'[2.1] Importing Population data for {SSP} scenario...')
     
     pop_groups = {}
     
     for age_group in ['oldest', 'older', 'young']:
     
+        # For historical years, use historical population data
         if all(y in range(2000, 2022) for y in years):
             SSP = 'historical'
         
-        # Read population files
+        # Read population files projections per age group
         POP = pd.read_csv(f'{wdir}/data/gdp_pop_csv/POP_{SSP}_{age_group}.csv')  
 
+        # If years include both historical and future years, merge both files
         if years[0]<2010 and years[-1]>2022:
             
+            # Read historical population file and merge with projections
             pop_historical = pd.read_csv(f'{wdir}/data/gdp_pop_csv/POP_historical_{age_group}.csv')
             cols_to_add = pop_historical.columns.difference(POP.columns)
             left = POP.iloc[:, :2] 
             right = POP.iloc[:, 2:]  
             POP = pd.concat([left, pop_historical[cols_to_add], right], axis=1)
             
+        # Add population data to dictionary
         pop_groups[age_group] = POP
-        
-    print('Population for files imported')
     
     return pop_groups
     
     
     
-def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
+def era5_temperature_to_ir(climate_path, year, ir, spatial_relation):
     
     '''
     Convert daily temperature data of one year to impact region level.
@@ -264,7 +309,7 @@ def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
     '''
     
     # Read ERA5 daily temperature data for a specific year
-    era5_t2m = read_era5(wdir, climate_path, year)
+    era5_t2m = read_era5(climate_path, year)
     
     # Select all available dates
     dates = era5_t2m['time'].values
@@ -283,7 +328,7 @@ def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
     df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
     df = df.groupby('index_right').mean()
     df_rounded = df.round(1)
-    df_rounded.insert(0, 'hierid', ir['hierid'])
+    df_rounded.insert(0, 'hierid', ir)
     
     print(f'ERA5 daily temperature for {year} imported')
     
@@ -293,13 +338,11 @@ def era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation):
 
 def daily_temperatures(wdir, climate_type, climate_path, climate_model, scenario_RCP, year, spatial_relation, ir):
     
+    print('[3.1] Importing daily temperature data for year', year)
+    
     if climate_type == 'ERA5':
         # Read and convert temperature data to impact region level
-        daily_temp = era5_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation)
-        
-    if climate_type == 'CMIP6':
-        # Read temperature files (previously calculated to impact region level)
-        daily_temp = pd.read_csv(f'{climate_path}/{climate_model}/{scenario_RCP}/BC_{climate_model}_{scenario_RCP}_{year}.csv') 
+        daily_temp = era5_temperature_to_ir(climate_path, year, ir, spatial_relation)
         
     return daily_temp
 
@@ -326,18 +369,33 @@ def read_mortality_response(wdir, group):
     
 def import_erfs(wdir):
     
-   # Read mortality response functions
+    '''
+    Read and import exposure response functions for the three age groups and Tmin.
+    The csv files were created in the preprocessing step.
     
+    Parameters:
+    wdir : str
+        Working directory
+        
+    Returns:
+    mor_np : dict
+        Dictionary with mortality response functions per age group
+    t_min : DataFrame
+        DataFrame with optimal temperatures per impact region and age group
+    '''
+    
+    print('[1.4] Importing Exposure Response Functions for the three age groups...')
+    
+   # Read mortality response functions per age group
     mor_oldest = read_mortality_response(wdir, 'oldest')
     mor_older = read_mortality_response(wdir, 'older')
     mor_young = read_mortality_response(wdir, 'young')
     
+    # Store mortality response functions in a dictionary
     mor_np = {'oldest': mor_oldest, 'older': mor_older, 'young': mor_young}
     
     # Open file with optimal temperature (Tmin) per impact region
     t_min = pd.read_csv(f'{wdir}/data/exposure_response_functions/T_min.csv')
-    
-    print('Exposure Response Functions imported')
     
     return mor_np, t_min
 
@@ -346,8 +404,26 @@ def import_erfs(wdir):
 def final_dataframe(regions, region_class, age_groups, scenarios_SSP, years):
     
     '''
-    Create final results dataframe with multiindex
+    Create final results dataframe with multiindex for scenarios, age groups, temperature types, and regions
+    
+    Parameters:
+    regions : str
+        Region classification to use (e.g., 'IMAGE26', 'ISO3')
+    region_class : DataFrame
+        DataFrame with region classification
+    age_groups : list
+        List of age groups
+    scenarios_SSP : list
+        List of socioeconomic scenarios (e.g., ['SSP1', 'SSP2'])
+    years : list
+        List of years to process
+        
+    Returns:
+    results : DataFrame
+        DataFrame to store final results
     '''
+    
+    print('[1.3] Creating final results dataframe...')
     
     unique_regions = region_class[f'{regions}'].unique()
     unique_regions = unique_regions[~pd.isna(unique_regions)]
@@ -367,8 +443,14 @@ def final_dataframe(regions, region_class, age_groups, scenarios_SSP, years):
 
 def select_regions(wdir, regions):
     
+    '''
+    Select region classification file based on user input
+    '''
+    
+    print(f'[1.2] Loading region classification: {regions}...')
+    
     # Load region classification file
-    region_class = pd.read_csv(f'{wdir}/data/region_classification.csv')
+    region_class = pd.read_csv(f'{wdir}/data/regions/region_classification.csv')
     
     if regions == 'impact_regions':
         region_class = region_class[['hierid']]
@@ -383,6 +465,18 @@ def find_coord_vals(possible_names, coord_names, temperature):
     
     '''
     Find the correct coordinate name in the dataset
+    
+    Parameters:
+    possible_names : list
+        List of possible coordinate names
+    coord_names : list
+        List of coordinate names in the dataset
+    temperature : xarray DataArray
+        Temperature data
+        
+    Returns:
+    np.ndarray
+        Coordinate values
     '''
     
     for name in possible_names:
@@ -392,15 +486,24 @@ def find_coord_vals(possible_names, coord_names, temperature):
 
 
 
-def read_era5(wdir, climate_path, year):
+def read_era5(climate_path, year):
     
     '''
-    Read ERA5 daily temperature data
+    Read ERA5 daily temperature data file for selected year.
+    
+    Parameters:
+    climate_path : str
+        Path to climate data
+    year : int
+        Year of interest
+        
+    Returns:
+    era5_daily.t2m : xarray DataArray
+        Daily temperature data for the given year
     '''
     
+    # Open file and shift longitudinal coordinates
     era5_daily = xr.open_dataset(climate_path+f'/era5_t2m_mean_day_{year}.nc')
-    
-    # Shift longitudinal coordinates
     era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
     
     # Convert to Celsius 
@@ -417,7 +520,25 @@ def grid_relationship(wdir, climate_type, climate_path, years):
     
     '''
     Create a spatial relationship between temperature data points from the nc files and impact regions
+    
+    Parameters:
+    wdir : str
+        Working directory
+    climate_type : str
+        Type of climate data ('ERA5', 'AR6')
+    climate_path : str
+        Path to climate data files
+    years : list
+        List of years to process
+        
+    Returns:
+    relationship : GeoDataFrame
+        GeoDataFrame with spatial relationship between temperature grid cells and impact regions
+    ir : GeoDataFrame
+        GeoDataFrame with impact regions
     '''
+    
+    print('[1.1] Creating spatial relationship between temperature grid and impact regions...')
     
     def create_square(lon, lat, lon_size, lat_size): 
         '''
@@ -433,7 +554,7 @@ def grid_relationship(wdir, climate_type, climate_path, years):
 
     # Read climate data
     if climate_type == 'ERA5':
-        temperature = read_era5(wdir, climate_path, years[0])
+        temperature = read_era5(climate_path, years[0])
     else:
         raise ValueError(f"Unsupported climate type: {climate_type}")
     
@@ -463,7 +584,7 @@ def grid_relationship(wdir, climate_type, climate_path, years):
     })
     
     # Load .shp file with impact regions and set the same coordinate reference system (CRS)
-    ir = gpd.read_file(f'{wdir}'+'/data/carleton_sm/ir_shp/impact-region.shp')
+    ir = gpd.read_file(wdir+'/data/carleton_sm/ir_shp/impact-region.shp')
     points_gdf = points_gdf.set_crs(ir.crs, allow_override=True)
     
     # Make spatial join
@@ -474,15 +595,67 @@ def grid_relationship(wdir, climate_type, climate_path, years):
     
     print('Spatial relationship (temperature grid to impact region level) created')
 
-    return relationship, ir
+    return relationship, ir['hierid']
 
 
 
-def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, scenarios_RCP, regions, IAM_format=False):
+@dataclass
+class LoadResults:
+    age_groups: list
+    spatial_relation: any
+    ir: any
+    region_class: any
+    results: any
+    mor_np: dict
+    t_min: any
+    climate_models: list
+    scenarios_RCP: list
+    
+
+    
+def load_main_files(wdir, regions, scenarios_SSP, years, climate_type, climate_path, scenarios_RCP):
     
     '''
-    Generate mortality projections for given parameters
+    Read and load all main input files required for mortality calculations
+    Parameters:
+    wdir : str
+        Working directory
+    regions : str
+        Region classification to use (e.g., 'IMAGE26', 'ISO3')
+    scenarios_SSP : list
+        List of socioeconomic scenarios (e.g., ['SSP1', 'SSP2'])
+    years : list
+        List of years to process
+    climate_type : str
+        Type of climate data ('ERA5', 'AR6')
+    climate_path : str
+        Path to climate data files
+    scenarios_RCP : list
+        List of climate scenarios (e.g., ['SSP126', 'SSP245'])
+    Returns:
+    LoadResults
+    -------
+    age_groups : list
+        List of age groups
+    spatial_relation : GeoDataFrame
+        Spatial relationship between temperature grid cells and impact regions
+    ir : GeoDataFrame
+        GeoDataFrame with impact regions
+    region_class : DataFrame
+        DataFrame with region classification
+    results : DataFrame
+        DataFrame to store final results
+    mor_np : dict
+        Dictionary with mortality response functions per age group
+    t_min : DataFrame
+        DataFrame with optimal temperatures per impact region and age group
+    climate_models : list
+        List of climate models to process
+    scenarios_RCP : list
+        List of climate scenarios to process
     '''
+    
+    print('[1] Loading main input files...')
     
     # Define age groups
     age_groups = ['oldest', 'older', 'young']
@@ -498,42 +671,90 @@ def mortality_scenario(wdir, years, climate_type, climate_path, scenarios_SSP, s
     
     # Read erfs
     mor_np, t_min = import_erfs(wdir)
-    
-    # Set climate models parameter based on climate type
-    if climate_type == 'CMIP6':
-        climate_models = climate_models_dic.keys()
-        scenarios_RCP = scenarios_RCP
         
-    elif climate_type == 'ERA5':
+    if climate_type == 'ERA5':
         climate_models = ['']
         scenarios_RCP = ['']
         
-    elif climate_type == 'AR6':
-        climate_models = climate_models_ar6.keys()
-        scenarios_RCP = ['']
+    # elif climate_type == 'AR6':
+    #     climate_models = climate_models_ar6.keys()
+    #     scenarios_RCP = ['']
+
+    return LoadResults(
+        age_groups=age_groups,
+        spatial_relation=spatial_relation,
+        ir=ir,
+        region_class=region_class,
+        results=results,
+        mor_np=mor_np,
+        t_min=t_min,
+        climate_models=climate_models,
+        scenarios_RCP=scenarios_RCP
+    )
+
+
+
+def calculate_mortality(wdir, years, climate_type, climate_path, scenarios_SSP, scenarios_RCP, regions, IAM_format=False):
+    
+    '''
+    Main function to calculate mortality projections for the given parameters
+    
+    Parameters:
+    wdir : str
+        Path to main working directory
+    years : list
+        List of years to process
+    climate_type : str
+        Type of climate data ('ERA5', 'CMIP6', 'AR6')
+    climate_path : str
+        Path to climate data files
+    scenarios_SSP : list
+        List of socioeconomic scenarios (e.g., ['SSP1', 'SSP2'])
+    scenarios_RCP : list
+        List of climate scenarios (e.g., ['SSP126', 'SSP245'])
+    regions : str
+        Region classification to use (e.g., 'IMAGE26', 'ISO3')
+    IAM_format : bool, optional
+        If True, output will be formatted as IAMs' output (default is False)
         
-    print('Starting mortality calculations')
+    Returns:
+    None
+    Saves the mortality results to CSV files in the output folder per 
+    climate model and scenario.
+    '''
+    
+    res = load_main_files(wdir, regions, scenarios_SSP, years, climate_type, climate_path, scenarios_RCP)    
+        
+    print('[2] Starting mortality calculations')
         
     # Iterate over climate models or use single ERA5/AR6 data
-    for climate_model in climate_models:        
+    for climate_model in res.climate_models:   
+             
         # Iterate over population SSP scenarios
         for scenario_SSP in scenarios_SSP:
+            
             # Read population files
             pop = read_population_csv(wdir, scenario_SSP, years)
+            
             # Iterate over RCP scenarios
-            for scenario_RCP in scenarios_RCP:                
+            for scenario_RCP in res.scenarios_RCP:     
+                
                 # Iterate over years
                 for year in years:
+                    
+                    print(f'[3] Processing year {year}...')
+                    
                     daily_temp = daily_temperatures(wdir, climate_type, climate_path, 
                                                     climate_model, scenario_RCP, year, 
-                                                    spatial_relation, ir)
-                    # Iterate over age groups
-                    for age_group in age_groups:                
-                            # Calculate relative mortality and store in results dataframe
-                            annual_regional_mortality(results, daily_temp, scenario_SSP, 
-                                                    age_group, mor_np[age_group], pop, year, 
-                                                    t_min, regions, region_class)
-                    print('Mortality calculated for year', year)
+                                                    res.spatial_relation, res.ir)
                     
-            postprocess_results(wdir, years, results, climate_type, climate_model, 
+                    print('[3.2] Calculating mortality per age group...')
+                    
+                    for age_group in res.age_groups:         
+
+                        annual_regional_mortality(res.results, daily_temp, scenario_SSP, 
+                                                age_group, res.mor_np[age_group], pop, year, 
+                                                res.t_min, regions, res.region_class)
+                    
+            postprocess_results(wdir, years, res.results, climate_type, climate_model, 
                                 scenario_SSP, scenario_RCP, IAM_format, regions)
