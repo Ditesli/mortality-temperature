@@ -10,6 +10,119 @@ from typing import Optional
 
 
 
+def exposure_response_functions_tmin(
+    wdir: str
+    ) -> None:
+    
+    '''
+    Generate Exposure Response Functions without Adaptation for different age groups. 
+    The funciton:
+
+    1. This function reads mortality predictor data for three age groups (oldest, older, young),
+    available at the author's suplementary material and saved in the data folder.
+    2. Computes the exposure response functions based on the specification of the
+    fourth-degree polynomial.
+    3. Saves the results as CSV files in the specified data directory.
+    4. Computes the temperature at which the mortality response function is minimized (Tmin)
+    for each impact region and age group.
+    5. Saves the results in a CSV file.
+
+    Parameters
+    ----------
+    wdir : str
+        Working directory where input files are located and where output CSV files will be saved.
+
+    Returns
+    -------
+    None
+        The function writes three CSV files named:
+            - `erf_no-adapt_oldest.csv`
+            - `erf_no-adapt_older.csv`
+            - `erf_no-adapt_young.csv`
+        in the subdirectory `exposure_response_functions/` of `wdir`.
+    '''
+    
+    print('Generating Exposure Response Functions for all age groups...')
+
+    # Determine the resolution and range of daily temperatures
+    t = np.arange(-50, 60.1, 0.1).round(1)
+
+    # Open predictors dataframes  
+    age_groups = ['oldest', 'older', 'young']
+    df_groups = open_predictors(age_groups, wdir+'/carleton_sm/main_specification')
+    
+    df_tmin = pd.DataFrame(df_groups['oldest']['region']).assign(**{'Tmin oldest': '', 'Tmin older': '', 'Tmin young': ''})
+
+    # Iterate for each age group
+    for group in age_groups: 
+        print(f'Computing {group} age group')
+        responses = []
+        
+        for i in range(len(df_groups[group])):
+            
+            # Generate the response functions and append
+            mortality = erf_per_impact_region(df_groups[group]['tas'][i], 
+                                              df_groups[group]['tas2'][i], 
+                                              df_groups[group]['tas3'][i], 
+                                              df_groups[group]['tas4'][i], t)
+            responses.append(mortality.round(2))
+            
+            # Generate Tmin
+            df_tmin.iloc[i,1] = get_tmin(df_groups[group]['tas'][i],
+                                    df_groups[group]['tas2'][i], 
+                                    df_groups[group]['tas3'][i], 
+                                    df_groups[group]['tas4'][i], t)
+            
+        # Round column names, add region columns and save
+        df = pd.DataFrame(responses, columns=[f"{temp:.1f}" for temp in t])  
+        df_merge = pd.concat([df_groups[group]['region'], df], axis=1, join='inner')  
+        df_merge.to_csv(f'{wdir}/exposure_response_functions/erf_no-adapt_{group}.csv')
+        
+    # Save csv file
+    df_tmin.to_csv(f'{wdir}/exposure_response_functions/T_min.csv') 
+    
+    print('Exposure Response Funcitons and Tmin file generated and saved.')
+    
+   
+ 
+def open_predictors(
+    age_groups: np.array,
+    data_path: str
+    ) -> pd.DataFrame:
+    
+    '''
+    Load mortality data per age group for the year 2015 (No Adaptation scenario).
+
+    This function reads a CSV file containing mortality predictors, skips the first
+    13 rows (metadata or header info), filters the data for the year 2015,
+    and resets the DataFrame index.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the CSV file containing mortality predictors. Expected columns include:
+            - 'year': Year of the data
+            - Other columns representing mortality rates per age group or region
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        Filtered DataFrame containing only rows for the year 2015,
+        with the index reset. Columns correspond to those in the input CSV.
+    '''
+    
+    df_groups = {}
+    
+    for age_group in age_groups:
+        file_path = data_path+f'/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-{age_group}.csv'
+        df_groups[age_group] = pd.read_csv(file_path, skiprows=13)
+        df_groups[age_group] = df_groups[age_group][df_groups[age_group]['year'] == 2015]
+        df_groups[age_group] = df_groups[age_group].reset_index()
+    
+    return df_groups
+
+
+
 def erf_per_impact_region(
     tas1: float,
     tas2: float,
@@ -70,120 +183,111 @@ def erf_per_impact_region(
     return mortality
 
 
-
-def open_predictors(
-    age_groups: np.array,
-    data_path: str
-    ) -> pd.DataFrame:
+  
+def get_tmin(
+    tas1: float,
+    tas2: float,
+    tas3: float,
+    tas4: float,
+    t: np.ndarray
+    ) -> float:
     
     '''
-    Load mortality data per age group for the year 2015 (No Adaptation scenario).
+    Compute the temperature at which the mortality response function is minimized (Tmin).
 
-    This function reads a CSV file containing mortality predictors, skips the first
-    13 rows (metadata or header info), filters the data for the year 2015,
-    and resets the DataFrame index.
+    This function evaluates a fourth-degree polynomial defined by the coefficients
+    `tas1`, `tas2`, `tas3`, and `tas4` over an array of temperatures `t` and returns
+    the temperature within 10–30°C at which the polynomial achieves its minimum value.
 
     Parameters
     ----------
-    file_path : str
-        Path to the CSV file containing mortality predictors. Expected columns include:
-            - 'year': Year of the data
-            - Other columns representing mortality rates per age group or region
+    tas1, tas2, tas3, tas4 : float
+        Coefficients of the fourth-degree polynomial:
+            mortality_raw = tas1*t + tas2*t^2 + tas3*t^3 + tas4*t^4
+    t : numpy.ndarray
+        Array of temperature values (°C) over which to evaluate the polynomial.
 
     Returns
     -------
-    df : pandas.DataFrame
-        Filtered DataFrame containing only rows for the year 2015,
-        with the index reset. Columns correspond to those in the input CSV.
+    tmin : float
+        Temperature (°C) at which the mortality polynomial is minimized within the range 10–30°C.
+
     '''
     
-    df_groups = {}
+    # Generate raw fourth degree polynomial function
+    raw = tas1*t + tas2*t**2 + tas3*t**3 + tas4*t**4   
     
-    for age_group in age_groups:
-        file_path = data_path+f'/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-{age_group}.csv'
-        df_groups[age_group] = pd.read_csv(file_path, skiprows=13)
-        df_groups[age_group] = df_groups[age_group][df_groups[age_group]['year'] == 2015]
-        df_groups[age_group] = df_groups[age_group].reset_index()
+    # Find Tmin within 10–30°C
+    idx_min_start = np.where(np.isclose(t, 10.0, atol=0.05))[0][0]
+    idx_min_end = np.where(np.isclose(t, 30.0, atol=0.05))[0][0]
+    tmin = t[idx_min_start + np.argmin(raw[idx_min_start:idx_min_end])]     
     
-    return df_groups
+    return tmin
 
 
 
-def exposure_response_functions_tmin(
+def gdp_pop_ssp_projections(
     wdir: str
     ) -> None:
     
     '''
-    Generate Exposure Response Functions without Adaptation for different age groups. 
-    The funciton:
+    Generate GDP and population projection CSV files from Carleton et al. (2022) 
+    Shared Socioeconomic Pathways (SSP) netCDF datasets.
 
-    1. This function reads mortality predictor data for three age groups (oldest, older, young),
-    available at the author's suplementary material and saved in the data folder.
-    2. Computes the exposure response functions based on the specification of the
-    fourth-degree polynomial.
-    3. Saves the results as CSV files in the specified data directory.
-    4. Computes the temperature at which the mortality response function is minimized (Tmin)
-    for each impact region and age group.
-    5. Saves the results in a CSV file.
+    This function reads SSP population and GDP projections from NetCDF files 
+    (via `var_nc_to_csv`) and exports them as CSV files for each scenario, 
+    population group, and GDP model. It also computes the mean GDP projection 
+    by averaging the "high" and "low" model variants for each scenario.
 
     Parameters
     ----------
     wdir : str
-        Working directory where input files are located and where output CSV files will be saved.
+        Working directory path where NetCDF input files are located and 
+        where CSV files will be saved. 
 
-    Returns
+    Notes
+    -----
+    - Requires a helper function `var_nc_to_csv()` that converts a single NetCDF variable 
+      to a CSV file given the provided parameters.
+    - Generated CSV files are saved to the subdirectory `gdp_pop_csv/` within `wdir`.
+    - GDP mean files are named using the pattern `"GDP_<scenario>_mean.csv"`.
+
+    Outputs
     -------
     None
-        The function writes three CSV files named:
-            - `erf_no-adapt_oldest.csv`
-            - `erf_no-adapt_older.csv`
-            - `erf_no-adapt_young.csv`
-        in the subdirectory `exposure_response_functions/` of `wdir`.
-
+        The function writes CSV files to disk but does not return any Python object.
     '''
     
-    print('Generating Exposure Response Functions for all age groups...')
-
-    # Determine the resolution and range of daily temperatures
-    t = np.arange(-50, 60.1, 0.1).round(1)
-
-    # Open predictors dataframes  
-    age_groups = ['oldest', 'older', 'young']
-    df_groups = open_predictors(age_groups, wdir+'/carleton_sm/main_specification')
+    # Define scenarios
+    scenarios = ['SSP1', 'SSP2', 'SSP3', 'SSP5']
+    # Define age groups
+    age_groups = ['total', 'young', 'older', 'oldest']
+    pop_groups = ['pop', 'pop0to4', 'pop5to64', 'pop65plus']
+    # Define GDP model
+    gdp_models = ['low', 'high']
     
-    df_tmin = pd.DataFrame(df_groups['oldest']['region']).assign(**{'Tmin oldest': '', 'Tmin older': '', 'Tmin young': ''})
+    print('Generating GDP and Population projection csv files from Carleton et al. (2022)...')
 
-    # Iterate for each age group
-    for group in age_groups: 
-        print(f'Computing {group} age group')
-        responses = []
+    for scenario in scenarios:
+        print(f'Computing data for scenario {scenario}')
         
-        for i in range(len(df_groups[group])):
-            
-            # Generate the response functions and append
-            mortality = erf_per_impact_region(df_groups[group]['tas'][i], 
-                                              df_groups[group]['tas2'][i], 
-                                              df_groups[group]['tas3'][i], 
-                                              df_groups[group]['tas4'][i], t)
-            responses.append(mortality.round(2))
-            
-            # Generate Tmin
-            df_tmin.iloc[i,1] = get_tmin(df_groups[group]['tas'][i],
-                                    df_groups[group]['tas2'][i], 
-                                    df_groups[group]['tas3'][i], 
-                                    df_groups[group]['tas4'][i], t)
-            
-        # Round column names, add region columns and save
-        df = pd.DataFrame(responses, columns=[f"{temp:.1f}" for temp in t])  
-        df_merge = pd.concat([df_groups[group]['region'], df], axis=1, join='inner')  
-        df_merge.to_csv(f'{wdir}/exposure_response_functions/erf_no-adapt_{group}.csv')
+        # Generate population files
+        for pop_group, age_group in zip(pop_groups, age_groups):
+            var_nc_to_csv(wdir, 'POP', scenario, pop_group, age_group, 'low')
         
-    # Save csv file
-    df_tmin.to_csv(f'{wdir}/exposure_response_functions/T_min.csv') 
-    
-    print('Exposure Response Funcitons and Tmin file generated and saved.')
-    
-   
+        # Generate gdp files
+        for gdp_model in gdp_models:
+            var_nc_to_csv(wdir, 'GDP', scenario, 'gdppc', None, gdp_model)
+            
+        # Calculate mean gdp from high and low models
+        SSP_GDP_high = pd.read_csv(f'{wdir}/gdp_pop_csv/GDP_{scenario}_high.csv')
+        SSP_GDP_low = pd.read_csv(f'{wdir}/gdp_pop_csv/GDP_{scenario}_low.csv')
+        SSP_GDP_mean = SSP_GDP_high.copy()
+        for year in range(2010,2101):
+            SSP_GDP_mean[f'{year}'] = (SSP_GDP_high[f'{year}'] + SSP_GDP_low[f'{year}']) / 2
+        SSP_GDP_mean.to_csv(f'{wdir}/gdp_pop_csv/GDP_{scenario}_mean.csv')
+       
+
 
 def var_nc_to_csv(
     file_path: str,
@@ -232,7 +336,6 @@ def var_nc_to_csv(
         - 'region'
         - One column per year (e.g., 2010, 2015, …)
         - 'hierid'
-
     '''
     
     # Read in oldest population data to get regions
@@ -240,91 +343,32 @@ def var_nc_to_csv(
     
     # Open xarray from Carleton data
     ssp = xr.open_dataset(f'{file_path}/carleton_sm/econ_vars/{scenario}.nc4') 
+    
     # Select high or low GDP model
     ssp = ssp[pop_group].sel(model=gdp_model) 
+    
     # Convert to dataframe
     df = ssp.to_dataframe() 
+    
     # Unstack
     df = df.drop(['ssp', 'model'], axis=1).unstack('year') 
     df.columns = df.columns.get_level_values(1)
-    # Reset index
+    
+    # Reset index and nerge
     df = df.reset_index() 
     df['hierid'] = df['region']
     df = df.merge(oldest['region'], on='region', how='right')
+    
     # Save csv
     if data_type == 'GDP':
-        df.to_csv(file_path+f'gdp_pop_csv/GDP_{scenario}_{gdp_model}.csv')
+        df.to_csv(file_path+f'/gdp_pop_csv/GDP_{scenario}_{gdp_model}.csv')
         
     elif data_type == 'POP':
-        df.to_csv(file_path+f'gdp_pop_csv/POP_{scenario}_{age_group}.csv')
+        df.to_csv(file_path+f'/gdp_pop_csv/POP_{scenario}_{age_group}.csv')
     
     return df
+ 
 
-
-
-def gdp_pop_ssp_projections(
-    wdir: str
-    ) -> None:
-    
-    '''
-    Generate GDP and population projection CSV files from Carleton et al. (2022) 
-    Shared Socioeconomic Pathways (SSP) netCDF datasets.
-
-    This function reads SSP population and GDP projections from NetCDF files 
-    (via `var_nc_to_csv`) and exports them as CSV files for each scenario, 
-    population group, and GDP model. It also computes the mean GDP projection 
-    by averaging the "high" and "low" model variants for each scenario.
-
-    Parameters
-    ----------
-    wdir : str
-        Working directory path where NetCDF input files are located and 
-        where CSV files will be saved. 
-
-    Notes
-    -----
-    - Requires a helper function `var_nc_to_csv()` that converts a single NetCDF variable 
-      to a CSV file given the provided parameters.
-    - Generated CSV files are saved to the subdirectory `gdp_pop_csv/` within `wdir`.
-    - GDP mean files are named using the pattern `"GDP_<scenario>_mean.csv"`.
-
-    Outputs
-    -------
-    None
-        The function writes CSV files to disk but does not return any Python object.
-        
-    '''
-    
-    # Define scenarios
-    scenarios = ['SSP1', 'SSP2', 'SSP3', 'SSP5']
-    # Define age groups
-    age_groups = ['total', 'young', 'older', 'oldest']
-    pop_groups = ['pop', 'pop0to4', 'pop5to64', 'pop65plus']
-    # Define GDP model
-    gdp_models = ['low', 'high']
-    
-    print('Generating GDP and Population projection csv files from Carleton et al. (2022)...')
-
-    # Generate population files
-    for scenario in scenarios:
-        for pop_group, age_group in zip(pop_groups, age_groups):
-            var_nc_to_csv(wdir, 'POP', scenario, pop_group, age_group, 'low')
-
-
-    # Generate gdp files
-    for scenario in scenarios:
-        for gdp_model in gdp_models:
-            var_nc_to_csv(wdir, 'GDP', scenario, 'gdppc', None, gdp_model)
-            
-        # Calculate mean gdp from high and low models
-        SSP_GDP_high = pd.read_csv(f'{wdir}gdp_pop_csv/GDP_{scenario}_high.csv')
-        SSP_GDP_low = pd.read_csv(f'{wdir}gdp_pop_csv/GDP_{scenario}_low.csv')
-        SSP_GDP_mean = SSP_GDP_high.copy()
-        for year in range(2010,2101):
-            SSP_GDP_mean[f'{year}'] = (SSP_GDP_high[f'{year}'] + SSP_GDP_low[f'{year}']) / 2
-        SSP_GDP_mean.to_csv(f'{wdir}gdp_pop_csv/GDP_{scenario}_mean.csv')
-        
-        
 
 def region_classification_file(
     wdir: str,
@@ -372,7 +416,7 @@ def region_classification_file(
     
     print('Generating region classification file...')
     
-    # Read IMAGE rtion excel file
+    # Read IMAGE csv file
     image_regions = pd.read_excel(regions_file, sheet_name='regions')
 
     # Read impact regions shapefile and extract regions names
@@ -381,8 +425,70 @@ def region_classification_file(
 
     # Merge with IMAGE regions to get IMAGE region codes
     df = pd.merge(impact_regions[['hierid', 'ISO3']], image_regions, on='ISO3', how='left')
-    df.to_csv(f'{wdir}'+'region_classification.csv', index=False)
+    df.to_csv(f'{wdir}'+'regions/region_classification.csv', index=False)
+        
+
+
+def generate_historical_pop(
+    wdir: str,
+    landscan_file: str,
+    impact_regions: str
+    ) -> None:
     
+    '''
+    Generate historical population per impact region and age group from LandScan data.
+
+    This function reads the LandScan global population raster and an impact region shapefile,
+    calculates the total population per impact region for each year from 2000 to 2022,
+    reshapes the data into long format, merges it with UN population share data per country 
+    and age group, and generates population share CSV files for different age groups.
+
+    Parameters
+    ----------
+    wdir : str
+        Working directory where input and output files are stored.
+    landscan_file : str
+        Path to the LandScan population raster (`.tif` file).
+    impact_regions : str
+        Path to the shapefile containing impact regions (`impact-region.shp`).
+
+    Returns
+    -------
+    None
+        This function does not return a Python object. Instead, it generates CSV files per age group
+        in the working directory.
+
+    '''
+    
+    print('Generating historical population per impact region and age group...')
+    
+    # Open LandScan population raster and impact regions shapefile
+    landscan_pop = rasterio.open(landscan_file)
+    impact_regions = gpd.read_file(impact_regions)
+    
+    # Calculate population per impact region for each year from 2000 to 2022
+    for year in range(2000,2023):
+        impact_regions = calculate_population_per_region(landscan_pop, impact_regions, year)
+        print(f'Population calculated for year: {year}')
+
+    # Drop unnecessary columns
+    impact_regions = impact_regions.drop(columns=['gadmid', 'color', 'AREA', 'PERIMETER', 'geometry'])
+
+    # Reshape to long format
+    impact_long = impact_regions.melt(id_vars=['hierid', 'ISO',], 
+                                    var_name='Time', 
+                                    value_name='Value')
+
+    # Get UN population shares per country and year
+    share_pop = process_un_pop_data(wdir)
+
+    # Merge population shares with impact region population data
+    impact_long = impact_long.merge(share_pop, on=['ISO', 'Time'], how='left')
+
+    # Generate population share files per age group
+    for age_group in ['young', 'older', 'oldest']:
+        get_pop_share_file(wdir, impact_long, impact_regions, age_group)
+        
 
 
 def calculate_population_per_region(
@@ -487,7 +593,7 @@ def process_un_pop_data(
     '''
     
     # Read UN population data file
-    un_population = pd.read_csv(wdir+'unpopulation_dataportal.csv')
+    un_population = pd.read_csv(wdir+'/unpopulation_dataportal.csv')
 
     # Keep relevant columns and aggregate age groups
     un_population = un_population[['Iso3', 'Time', 'Age', 'Value']]
@@ -558,110 +664,6 @@ def get_pop_share_file(
         .reindex(impact_regions.set_index('hierid').index)
         )
 
-    impact_agegroup.to_csv(wdir+'gdp_pop_csv/'+'POP_historical_'+age_group+'.csv')
+    impact_agegroup.to_csv(wdir+'/gdp_pop_csv/'+'POP_historical_'+age_group+'.csv')
     
     print(f'Population share file generated for age group: {age_group}')
-
-
-
-def generate_historical_pop(
-    wdir: str,
-    landscan_file: str,
-    impact_regions: str
-    ) -> None:
-    
-    '''
-    Generate historical population per impact region and age group from LandScan data.
-
-    This function reads the LandScan global population raster and an impact region shapefile,
-    calculates the total population per impact region for each year from 2000 to 2022,
-    reshapes the data into long format, merges it with UN population share data per country 
-    and age group, and generates population share CSV files for different age groups.
-
-    Parameters
-    ----------
-    wdir : str
-        Working directory where input and output files are stored.
-    landscan_file : str
-        Path to the LandScan population raster (`.tif` file).
-    impact_regions : str
-        Path to the shapefile containing impact regions (`impact-region.shp`).
-
-    Returns
-    -------
-    None
-        This function does not return a Python object. Instead, it generates CSV files per age group
-        in the working directory.
-
-    '''
-    
-    print('Generating historical population per impact region and age group...')
-    
-    # Open LandScan population raster and impact regions shapefile
-    landscan_pop = rasterio.open(landscan_file)
-    impact_regions = gpd.read_file(impact_regions)
-    
-    # Calculate population per impact region for each year from 2000 to 2022
-    for year in range(2000,2023):
-        impact_regions = calculate_population_per_region(landscan_pop, impact_regions, year)
-        print(f'Population calculated for year: {year}')
-
-    # Drop unnecessary columns
-    impact_regions = impact_regions.drop(columns=['gadmid', 'color', 'AREA', 'PERIMETER', 'geometry'])
-
-    # Reshape to long format
-    impact_long = impact_regions.melt(id_vars=['hierid', 'ISO',], 
-                                    var_name='Time', 
-                                    value_name='Value')
-
-    # Get UN population shares per country and year
-    share_pop = process_un_pop_data(wdir)
-
-    # Merge population shares with impact region population data
-    impact_long = impact_long.merge(share_pop, on=['ISO', 'Time'], how='left')
-
-    # Generate population share files per age group
-    for age_group in ['young', 'older', 'oldest']:
-        get_pop_share_file(wdir, impact_long, impact_regions, age_group)
-
-
-
-def get_tmin(
-    tas1: float,
-    tas2: float,
-    tas3: float,
-    tas4: float,
-    t: np.ndarray
-    ) -> float:
-    
-    '''
-    Compute the temperature at which the mortality response function is minimized (Tmin).
-
-    This function evaluates a fourth-degree polynomial defined by the coefficients
-    `tas1`, `tas2`, `tas3`, and `tas4` over an array of temperatures `t` and returns
-    the temperature within 10–30°C at which the polynomial achieves its minimum value.
-
-    Parameters
-    ----------
-    tas1, tas2, tas3, tas4 : float
-        Coefficients of the fourth-degree polynomial:
-            mortality_raw = tas1*t + tas2*t^2 + tas3*t^3 + tas4*t^4
-    t : numpy.ndarray
-        Array of temperature values (°C) over which to evaluate the polynomial.
-
-    Returns
-    -------
-    tmin : float
-        Temperature (°C) at which the mortality polynomial is minimized within the range 10–30°C.
-
-    '''
-    
-    # Generate raw fourth degree polynomial function
-    raw = tas1*t + tas2*t**2 + tas3*t**3 + tas4*t**4   
-    
-    # Find Tmin within 10–30°C
-    idx_min_start = np.where(np.isclose(t, 10.0, atol=0.05))[0][0]
-    idx_min_end = np.where(np.isclose(t, 30.0, atol=0.05))[0][0]
-    tmin = t[idx_min_start + np.argmin(raw[idx_min_start:idx_min_end])]     
-    
-    return tmin

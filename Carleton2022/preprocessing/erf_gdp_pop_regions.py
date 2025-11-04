@@ -23,9 +23,9 @@ wdir = 'X:/user/liprandicn/mt-comparison/Carleton2022/data'
 # Path to IMAGE regions classification folder produced manually
 regions_file = 'X:/user/liprandicn/mt-comparison/regions_comparisson.csv'
 # Open LandScan population raster 
-landscan_file = f'{wdir}'+'LandScan_Global/landscan-global-2000-assets/landscan-global-2000.tif'
+landscan_file = f'{wdir}'+'/LandScan_Global/landscan-global-2000-assets/landscan-global-2000.tif'
 # Open impact regions shapefile
-impact_regions = f'{wdir}'+'carleton_sm/ir_shp/impact-region.shp'
+impact_regions = f'{wdir}'+'/carleton_sm/ir_shp/impact-region.shp'
 
 
 ### ------------------------------------------------------------------------------
@@ -36,7 +36,7 @@ Carleton et al. (2022) and the Tmin (temperature at which the response functions
 minimized per impact region).
 '''
 
-utils.exposure_response_functions_tmin(wdir)
+# utils.exposure_response_functions_tmin(wdir)
 
 
 ### ----------------------------------------------------------------------
@@ -44,7 +44,7 @@ utils.exposure_response_functions_tmin(wdir)
 Generate files per scenario and age group for all impact regions 
 '''
 
-utils.gdp_pop_ssp_projections(wdir)
+# utils.gdp_pop_ssp_projections(wdir)
     
     
 ### ----------------------------------------------------------------------
@@ -53,8 +53,7 @@ Generate file that contains impact region codes, names and their corresponding
 IMAGE and GBD region
 '''
 
-utils.region_classification_file(wdir, 
-                                 regions_file)
+# utils.region_classification_file(wdir, regions_file)
 
     
 ### ----------------------------------------------------------------------
@@ -62,9 +61,7 @@ utils.region_classification_file(wdir,
 Generate files that contains historical population per impact region
 '''
 
-utils.generate_historical_pop(wdir, 
-                              landscan_file, 
-                              impact_regions)
+utils.generate_historical_pop(wdir, landscan_file, impact_regions)
 
 
 
