@@ -238,6 +238,8 @@ def get_risk_function(wdir, extrap_erf=False, temp_max=None):
     min_val = risk_function['baseline_temperature'].min()   
     max_val = risk_function['baseline_temperature'].max()
     
+    # risk_function['relative_risk'] = np.exp(risk_function['relative_risk'])
+    
     print('[1.3] Risk function loaded')
             
     return risk_function, min_val, max_val
@@ -424,6 +426,6 @@ def run_main(wdir, era5_dir, ssp, years, region_class, optimal_range, extrap_erf
     years_part = f"_{years[0]}-{years[-1]}"
             
     # Save the results and temperature statistics
-    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}_ot-{optimal_range[:-4]}.csv')  
+    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}_ot-{optimal_range[-4:]}.csv')  
     
     print('[3] Results saved. Process finished.')
