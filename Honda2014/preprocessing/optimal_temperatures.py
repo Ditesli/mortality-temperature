@@ -17,7 +17,7 @@ final_path = 'X:/user/liprandicn/mt-comparison/Honda2014/data/optimal_temperatur
 
 
 # Define the years range and step size for processing
-years = range(1990,2021)
+years = range(1986,2006)
 # Define the step size for latitude bands
 step = 40
 
@@ -25,6 +25,8 @@ step = 40
 utils.calculate_optimal_temperature(data_path,
                                     final_path,
                                     years, 
-                                    step)
+                                    step,
+                                    temp_type='max', # or mean
+                                    percentile=0.836) # or 0.845 as in the Lancet 2024
 
 

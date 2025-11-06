@@ -3,7 +3,8 @@ import xarray as xr
 
 
 
-def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.ndarray, step: int):
+def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.ndarray, step: int,
+                                  temp_type: str, percentile: float) -> None:
     
     """
     Calculate the optimal temperature defined in Honda et al., (2014) as the 
@@ -44,7 +45,7 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
         for year in years:
             
             # Load the dataset for the specific year and latitude
-            data_name = f'era5_t2m_max_day_{year}.nc'
+            data_name = f'era5_t2m_{temp_type}_day_{year}.nc'
             with xr.open_dataset(data_path + data_name) as data:
                 data = data['t2m'].isel(latitude=slice(lat, lat + step))
                 temporal_lat_data.append(data.load())
@@ -53,11 +54,11 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
         temporal_data = xr.concat(temporal_lat_data, dim='valid_time')
         
         # Calculate the 95th percentile for the latitude band and append it to the list
-        percentile_band = temporal_data.quantile(0.836, dim='valid_time')
+        percentile_band = temporal_data.quantile(percentile, dim='valid_time')
         percentile_bands.append(percentile_band)
         
     percentile_final = xr.concat(percentile_bands, dim='latitude')
-    percentile_final.name = 't2m_p84'
+    percentile_final.name = 't2m_p85'
     
     # Convert from Kelvin to Celsius
     percentile_final -= 273.15
@@ -71,4 +72,4 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
     # Round to one decimal place
     percentile_final = percentile_final.round(1)
     
-    percentile_final.to_netcdf(final_path + f'era5_t2m_max_{years[0]}-{years[-1]}_p84.nc')
+    percentile_final.to_netcdf(final_path + f'era5_t2m_{temp_type}_{years[0]}-{years[-1]}_p{np.round(percentile*100,0)}.nc')
