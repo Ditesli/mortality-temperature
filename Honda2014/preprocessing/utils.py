@@ -53,7 +53,7 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
         # Concatenate the data for the current latitudes across all years
         temporal_data = xr.concat(temporal_lat_data, dim='valid_time')
         
-        # Calculate the 95th percentile for the latitude band and append it to the list
+        # Calculate the percentile for the latitude band and append it to the list
         percentile_band = temporal_data.quantile(percentile, dim='valid_time')
         percentile_bands.append(percentile_band)
         
