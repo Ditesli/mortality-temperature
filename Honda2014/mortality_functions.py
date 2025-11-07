@@ -10,20 +10,20 @@ from dataclasses import dataclass
 
 
 
-def weight_avg_region(pafs, num_days, pop, regions, regions_range, mask, clip_baseline_temp):
+def weight_avg_region(pafs, num_days, pop, regions, regions_range, mode, clip_baseline_temp):
     
     '''
     Calculate weighted average of PAFs per region
     '''
     
     # Apply mask to PAFs to select cold, hot or all temperatures
-    if mask == 'all':
+    if mode == 'all':
         pass
     
-    elif mask == 'cold':
+    elif mode == 'cold':
         pafs = np.where(clip_baseline_temp<0, pafs, 0)
         
-    elif mask == 'hot':
+    elif mode == 'hot':
         pafs = np.where(clip_baseline_temp>0, pafs, 0) 
     
     # Aggregate PAFs over days
@@ -74,9 +74,9 @@ def calculate_paf(daily_temp, opt_temp, min_val, max_val, risk_function, num_day
     # Prepare risk function lookup arrays
     temps = risk_function["baseline_temperature"].to_numpy()
     risks = risk_function["relative_risk"].to_numpy()
+    min_t = temps.min()
   
     # Get relative risks from risks lookup table    
-    min_t = temps.min()
     relative_risks = risks[(clip_baseline_temp - min_t).astype(int)]
     
     # Calculate PAFs
@@ -219,7 +219,6 @@ def get_risk_function(wdir, extrap_erf=False, temp_max=None):
         
     risk_function = pd.read_csv(wdir+'\\data\\risk_function\\dummy\\interpolated_dataset.csv')
          
-    # Convert log(rr) to rr   
     risk_function = risk_function.astype(float)   
     # risk_function = risk_function.apply(lambda x: np.exp(x))
     
@@ -237,8 +236,6 @@ def get_risk_function(wdir, extrap_erf=False, temp_max=None):
     # Perform groupby operation using the columns
     min_val = risk_function['baseline_temperature'].min()   
     max_val = risk_function['baseline_temperature'].max()
-    
-    # risk_function['relative_risk'] = np.exp(risk_function['relative_risk'])
     
     print('[1.3] Risk function loaded')
             
@@ -278,13 +275,14 @@ def get_annual_pop(wdir, scenario, years=None):
     ### Reduce resolution to 15 min to match ERA5 data
     pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=False)
     
-    # Linearly interpolate to yearly data
-    yearly_data = pd.date_range(start='1970/01/01', end='2100/01/01', freq='YS')
-    pop_yearly = pop_coarse.interp(time=yearly_data)
-    
     # Select years if provided
     if years:
-        pop_yearly = pop_yearly.sel(time=slice(f'{years[0]}-01-01', f'{years[-1]}-01-01'))
+        pop_coarse = pop_coarse.sel(time=slice(f'{years[0]}-01-01', f'{years[-1]}-01-01'))
+        
+        
+    # Linearly interpolate to yearly data
+    yearly_data = pd.date_range(start=f'{years[0]}/01/01', end= f'{years[-1]}/01/01', freq='YS')
+    pop_yearly = pop_coarse.interp(time=yearly_data)
             
     print(f'[1.2] {scenario} population NetCDF file loaded')
     
