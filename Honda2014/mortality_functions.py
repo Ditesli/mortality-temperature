@@ -173,26 +173,26 @@ def log_linear_interp(xx, yy):
 def extrapolate_erf(erf, temp_max):
     
     # Round index to one decimal
-    erf['baseline_temperature']= erf['baseline_temperature'].round(1)
+    erf['daily_temperature']= erf['daily_temperature'].round(1)
     
-    zero_index = erf.index[erf['baseline_temperature']==0.][0]
+    zero_index = erf.index[erf['daily_temperature']==0.][0]
             
     # Define interpolation with last range
-    interp = log_linear_interp(erf['baseline_temperature'].loc[zero_index:].values, 
+    interp = log_linear_interp(erf['daily_temperature'].loc[zero_index:].values, 
                                erf['relative_risk'].loc[zero_index:].values)
     
     # Define temperature values to interpolate
     xx = np.round(
-        np.linspace(erf['baseline_temperature'].iloc[-1]+0.1,
+        np.linspace(erf['daily_temperature'].iloc[-1]+0.1,
                     temp_max, 
-                    int((temp_max - erf['baseline_temperature'].iloc[-1])/0.1)+1), 
+                    int((temp_max - erf['daily_temperature'].iloc[-1])/0.1)+1), 
         1
     )
     
     yy = interp(xx)
     
     erf_extrap = pd.DataFrame({
-        'baseline_temperature': xx,
+        'daily_temperature': xx,
         'relative_risk': yy
         })
     
@@ -272,13 +272,21 @@ def get_annual_pop(wdir, scenario, years=None):
     ssp = map_ssp(scenario)
     pop = xr.open_dataset(f'{wdir}\\data\\socioeconomic_Data\\population\\GPOP\\GPOP_{ssp}.nc')
     
-    ### Reduce resolution to 15 min to match ERA5 data
-    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=False)
+    # Reduce resolution to 15 min to match ERA5 data
+    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
+    
+    # Adjust last year to be multiple of 5 for interpolation
+    last_year = years[-1]
+    if last_year % 5 != 0:
+        last_year = last_year + (5 - last_year % 5)
+        
+    start_year = years[0]
+    if start_year % 5 != 0:
+        start_year = start_year - (start_year % 5)
     
     # Select years if provided
     if years:
-        pop_coarse = pop_coarse.sel(time=slice(f'{years[0]}-01-01', f'{years[-1]}-01-01'))
-        
+        pop_coarse = pop_coarse.sel(time=slice(f'{start_year}-01-01', f'{last_year}-01-01'))
         
     # Linearly interpolate to yearly data
     yearly_data = pd.date_range(start=f'{years[0]}/01/01', end= f'{years[-1]}/01/01', freq='YS')
@@ -424,6 +432,6 @@ def run_main(wdir, era5_dir, ssp, years, region_class, optimal_range, extrap_erf
     years_part = f"_{years[0]}-{years[-1]}"
             
     # Save the results and temperature statistics
-    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}_ot-{optimal_range[-4:]}.csv')  
+    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}_ot-{optimal_range[-4:]}_lancet.csv')  
     
     print('[3] Results saved. Process finished.')
