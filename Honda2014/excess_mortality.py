@@ -23,6 +23,8 @@ Set settings to extrapolate risk function
 extrap_erf = False
 # Set extapolation range, keep risk as cold temperatures as constant
 temp_max = 40 #int or None
+# Set optimal temperature range 
+optimal_range = '1980-2010'  # 1980-2010 or 1990-2020
 
 
 '''
@@ -33,6 +35,7 @@ mf.run_main(wdir,   # Working directory
             ssp,   # SSP scenario
             years,  #  Years range
             region_class,   # Region classification 
+            optimal_range,
             extrap_erf,   # Extrapolate ERF(s)
             temp_max,   # Minimum temperature to extrapolate to
             )
