@@ -58,7 +58,7 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
         percentile_bands.append(percentile_band)
         
     percentile_final = xr.concat(percentile_bands, dim='latitude')
-    percentile_final.name = 't2m_p85'
+    percentile_final.name = f't2m_p{np.round(percentile*100,0)}'
     
     # Convert from Kelvin to Celsius
     percentile_final -= 273.15
