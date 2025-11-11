@@ -93,14 +93,14 @@ def load_carleton(wdir, regions_class, t_type, age_group=None):
 
 
 
-def load_honda(wdir, regions_class, gbd_df, temp_type, ):
+def load_honda(wdir, regions_class, gbd_df, ot_type, temp_type, period, merging_type):
     
     '''
     Load present day output data calculated using the method
     prescribed in Burkart et al., (2022)
     '''
     
-    honda_df = pd.read_csv(f'{wdir}\\honda2014\\output\\paf_era5_GBD_level3_2000-2019.csv', index_col=0, header=[0,1])
+    honda_df = pd.read_csv(f'{wdir}\\honda2014\\output\\paf_era5_GBD_level3_{period}_ot-{ot_type}.csv', index_col=0, header=[0,1])
 
     honda_df = honda_df.xs(temp_type, level=1, axis=1)
     
@@ -123,14 +123,14 @@ def load_honda(wdir, regions_class, gbd_df, temp_type, ):
     app = app.merge(gbd_, on=['location_id', 'year'], how='left')
 
     # Calculate deaths attributable to temperature
-    app['mean'] = app['val'] * app['paf'] 
-    app['upper_est'] = app['upper'] * app['paf'] 
-    app['lower_est'] = app['lower'] * app['paf'] 
+    app['mean'] = app['val'] * app['paf'] * 0.88
+    app['upper_est'] = app['upper'] * app['paf'] * 0.88
+    app['lower_est'] = app['lower'] * app['paf']  * 0.88
     app = app[['year', 'location_name', 'mean', 'upper_est', 'lower_est']]  
 
     # Merge with regions classification
-    app = app.merge(regions_class[['gbd_level3_mor', 'continents']], left_on='location_name', right_on='gbd_level3_mor', how='left').drop_duplicates()
-    app = app.groupby(['year','continents']).sum().reset_index()[['continents', 'year', 'mean', 'upper_est', 'lower_est']]
-    app = app.groupby(['continents']).mean().reset_index()
+    app = app.merge(regions_class[['gbd_level3', merging_type]], left_on='location_name', right_on='gbd_level3', how='left').drop_duplicates()
+    app = app.groupby(['year', merging_type]).sum().reset_index()[[merging_type, 'year', 'mean', 'upper_est', 'lower_est']]
+    app = app.groupby([merging_type]).mean().reset_index()
        
     return app
