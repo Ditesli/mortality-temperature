@@ -1,8 +1,18 @@
-import paf_calculations as rrc
+import PAF_calculations as paf
 
 '''
 Define scenario settings, ERF settings and file paths
 '''
+
+# Path to main working directory
+wdir = 'X:/user/liprandicn/mt-comparison/burkart2022/'
+
+# Read file with IMAGE region names and corresponding countries
+image_regions = pd.read_csv(f'{wdir}\\data\\IMAGE_regions\\IMAGE_regions.csv',  index_col=0, header=0)
+
+# Read GBD file with mortality data
+gbd_mortality = pd.read_csv(f'{wdir}\\data\\GBD_Data\\Mortality\\IHME-GBD_2021_DATA.csv')
+
 
 # Define path to main directory
 wdir = 'X:\\user\\liprandicn\\Health Impacts Model'
@@ -12,19 +22,6 @@ ssp =  'SSP2' # SSP1, SSP2, SSP3, SSP5
 years = range(2000,2020) 
 # Define region classification
 region_class = 'GBD_level3' # 'IMAGE26', 'GBD_level3',  for now...
-
-'''
-Optional settings for predefined years and C-categories
-If empty, the model will run for ERA5 historical data
-'''
-
-# Define C-category warming scenario
-# ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'] OR []
-ccategories = []
-# Define climate variability
-# [1,5,10] OR None
-std_value = None
-
 
 '''
 Set settings to select ERF
@@ -49,7 +46,7 @@ draw = None # None or integer between 0 and 999
 '''
 Run main model 
 '''
-rrc.run_main(wdir,   # Working directory
+paf.run_main(wdir,   # Working directory
              ssp,   # SSP scenario
              years,  #  Years range
              region_class,   # Region classification 
