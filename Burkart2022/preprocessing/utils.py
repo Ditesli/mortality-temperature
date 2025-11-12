@@ -1,7 +1,11 @@
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
+import common_utils.population as pop
 from rasterio.features import rasterize
 from rasterio.transform import from_origin
 from scipy.ndimage import distance_transform_edt
@@ -22,7 +26,7 @@ def calculate_temperature_zones(wdir, era5_path):
     print('Calculating temperature zones...')
 
     # Open and preprocess population data and set mask for ALL cells with population
-    mask_pop = get_all_population_data(wdir, return_pop=False)
+    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
     
     print('[1] Population data loaded and mask created.')
     
@@ -77,99 +81,6 @@ def calculate_temperature_zones(wdir, era5_path):
     
     print('[4] Temperature zones calculation completed and saved.')
 
-
-
-def get_all_population_data(wdir, return_pop=False):
-    
-    '''
-    Create a dataset with population data for all SSP scenarios 
-    concatenated along a new 'ssp' dimension.
-    '''
-    
-    ssp_scenarios = ['SSP1', 'SSP2', 'SSP3', 'SSP5']
-
-    # Concatenate population data for all SSP scenarios
-    pop_all_ssp = xr.concat(
-        [get_annual_pop(wdir, ssp, years=range(1980, 2101)) for ssp in ssp_scenarios],
-        dim='ssp'
-    )
-
-    # Assign ssp names to the new dimension
-    pop_all_ssp['ssp'] = [s.lower() for s in ssp_scenarios]  # ['ssp1', 'ssp2', ...]
-        
-    # Mask with positive pop values
-    mask_positive_pop = (pop_all_ssp > 0).any(dim=['time', 'ssp'])
-    
-    if return_pop:
-        return pop_all_ssp, mask_positive_pop
-    
-    else:
-        return mask_positive_pop
-
-
-
-def get_annual_pop(wdir, scenario, years=None):
-    
-    '''
-    Read scenario-dependent population data, interpolate it to yearly data, reduce resolution to 15 min,
-    and select years range if provided.
-    '''
-    
-    # Map scenario name and open selected scenario file 
-    ssp = map_ssp(scenario)
-    pop = xr.open_dataset(f'{wdir}\\data\\socioeconomic_Data\\population\\GPOP\\GPOP_{ssp}.nc')
-    
-    # Reduce resolution to 15 min to match ERA5 data
-    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
-    
-    # Adjust last year to be multiple of 5 for interpolation
-    last_year = years[-1]
-    if last_year % 5 != 0:
-        last_year = last_year + (5 - last_year % 5)
-        
-    start_year = years[0]
-    if start_year % 5 != 0:
-        start_year = start_year - (start_year % 5)
-    
-    # Select years if provided
-    if years:
-        pop_coarse = pop_coarse.sel(time=slice(f'{start_year}-01-01', f'{last_year}-01-01'))
-        
-    # Linearly interpolate to yearly data
-    yearly_data = pd.date_range(start=f'{years[0]}/01/01', end= f'{years[-1]}/01/01', freq='YS')
-    pop_yearly = pop_coarse.interp(time=yearly_data)
-    
-    return pop_yearly
-
-
-
-def map_ssp(ssp: str) -> str:
-    
-    '''
-    Map input SSP names to the corresponding names used in the GPOP dataset.
-    Parameters:
-    ssp (str): Input SSP name (e.g., "SSP1", "SSP2", "SSP3", "SSP5").
-    Returns:
-    str: Corresponding GPOP SSP name.
-    Raises:
-    ValueError: If the input SSP name is not valid.
-    '''
-    
-    mapping = {
-        "SSP1": "SSP1_M",
-        "SSP2": "SSP2_CP",
-        "SSP3": "SSP3_H",
-        "SSP5": "SSP5_H"
-    }
-    
-    # Normalize input
-    ssp_normalized = ssp.strip().upper()
-    
-    try:
-        return mapping[ssp_normalized]
-    except KeyError:
-        raise ValueError(f"SSP '{ssp}' not valid. Use one of the following: {list(mapping.keys())}.")
-    
     
     
 def generate_raster_gbd_locations(wdir):
@@ -179,7 +90,7 @@ def generate_raster_gbd_locations(wdir):
     '''
 
     # Load population xarray and mask
-    mask_pop = get_all_population_data(wdir, return_pop=False)
+    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
 
     # Load GBD shapefile with level 3 locations
     # TODO: replace later with level 4 locations
@@ -358,7 +269,7 @@ def generate_tmrels_rasters(wdir, year):
     
     # Import GBD rasterized locations, TMRELs and temperature zones
     gbd_rasterized, gbd_tmrel = import_tmrels_files(wdir, year)
-    mask_pop = get_all_population_data(wdir, return_pop=False)
+    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
     temperature_zones = read_temperature_zones(wdir)
     
     print('[1] GBD locations, TMRELs and temperature zones imported.')
@@ -415,7 +326,7 @@ def generate_gdp_rasters(wdir, gdp_dir, year):
     gbd_locations_level3 = gpd.read_file(f'{wdir}\\GBD_Data\\GBD_locations\\Shapefile\\GBD_shapefile.shp')
     
     # Open and preprocess population data and set mask for ALL cells with population
-    mask_pop = get_all_population_data(wdir, return_pop=False)
+    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
 
     # Load files
     gdp = pd.read_excel(gdp_dir+'iamc_db gdp.xlsx')
