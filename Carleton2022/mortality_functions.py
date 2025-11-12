@@ -5,6 +5,10 @@ import xarray as xr
 import geopandas as gpd
 from dataclasses import dataclass
 from shapely.geometry import Polygon
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from common_utils import temperature as tmp
+from common_utils import population as pop
 
 
 
@@ -309,34 +313,35 @@ def era5_temperature_to_ir(climate_path, year, ir, spatial_relation):
     '''
     
     # Read ERA5 daily temperature data for a specific year
-    era5_t2m = read_era5(climate_path, year)
+    era5_t2m, _ = tmp.daily_temp_era5(climate_path, year, 'mean', pop_ssp=None, to_array=False)
+    era5_t2m = era5_t2m.t2m
     
     # Select all available dates
-    dates = era5_t2m['time'].values
+    dates = era5_t2m['valid_time'].values
     
     # Create a list of dates for the specified year
-    date_list = dates[np.isin(era5_t2m['time'].values.astype('datetime64[Y]'),
+    date_list = dates[np.isin(era5_t2m['valid_time'].values.astype('datetime64[Y]'),
                               np.datetime64(f'{year}', 'Y'))].astype('datetime64[D]').astype(str)
     
     # Temporarily store daily temperatures in a dictionary
     temp_dict = {}
     for day in date_list:
-        daily_temperatures = era5_t2m.sel(time=day).values.ravel()
+        daily_temperatures = era5_t2m.sel(valid_time=day).values.ravel()
         temp_dict[day] = daily_temperatures[spatial_relation.index]
             
     # Calculate mean temperature per impact region and round
-    df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
-    df = df.groupby('index_right').mean()
-    df_rounded = df.round(1)
-    df_rounded.insert(0, 'hierid', ir)
+    day_temp_df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
+    day_temp_df = day_temp_df.groupby('index_right').mean()
+    day_temp_df_rounded = day_temp_df.round(1)
+    day_temp_df_rounded.insert(0, 'hierid', ir).index.values
     
     print(f'ERA5 daily temperature for {year} imported')
     
-    return df_rounded
+    return day_temp_df_rounded
     
     
 
-def daily_temperatures(wdir, climate_type, climate_path, climate_model, scenario_RCP, year, spatial_relation, ir):
+def get_daily_temperatures(wdir, climate_type, climate_path, climate_model, scenario_RCP, year, spatial_relation, ir):
     
     print('[3.1] Importing daily temperature data for year', year)
     
@@ -486,36 +491,6 @@ def find_coord_vals(possible_names, coord_names, temperature):
 
 
 
-def read_era5(climate_path, year):
-    
-    '''
-    Read ERA5 daily temperature data file for selected year.
-    
-    Parameters:
-    climate_path : str
-        Path to climate data
-    year : int
-        Year of interest
-        
-    Returns:
-    era5_daily.t2m : xarray DataArray
-        Daily temperature data for the given year
-    '''
-    
-    # Open file and shift longitudinal coordinates
-    era5_daily = xr.open_dataset(climate_path+f'/era5_t2m_mean_day_{year}.nc')
-    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
-    
-    # Convert to Celsius 
-    era5_daily -= 273.15
-    
-    # Rename time coordinate 
-    era5_daily = era5_daily.rename({'valid_time': 'time'})
-
-    return era5_daily.t2m
-
-
-
 def grid_relationship(wdir, climate_type, climate_path, years):
     
     '''
@@ -554,7 +529,7 @@ def grid_relationship(wdir, climate_type, climate_path, years):
 
     # Read climate data
     if climate_type == 'ERA5':
-        temperature = read_era5(climate_path, years[0])
+        temperature, _ = tmp.daily_temp_era5(climate_path, years[0], 'mean', pop_ssp=None, to_array=False)
     else:
         raise ValueError(f"Unsupported climate type: {climate_type}")
     
@@ -744,7 +719,7 @@ def calculate_mortality(wdir, years, climate_type, climate_path, scenarios_SSP, 
                     
                     print(f'[3] Processing year {year}...')
                     
-                    daily_temp = daily_temperatures(wdir, climate_type, climate_path, 
+                    daily_temp = get_daily_temperatures(wdir, climate_type, climate_path, 
                                                     climate_model, scenario_RCP, year, 
                                                     res.spatial_relation, res.ir)
                     

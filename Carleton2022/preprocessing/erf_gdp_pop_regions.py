@@ -36,7 +36,7 @@ Carleton et al. (2022) and the Tmin (temperature at which the response functions
 minimized per impact region).
 '''
 
-# utils.exposure_response_functions_tmin(wdir)
+utils.exposure_response_functions_tmin(wdir)
 
 
 ### ----------------------------------------------------------------------
@@ -44,7 +44,7 @@ minimized per impact region).
 Generate files per scenario and age group for all impact regions 
 '''
 
-# utils.gdp_pop_ssp_projections(wdir)
+utils.gdp_pop_ssp_projections(wdir)
     
     
 ### ----------------------------------------------------------------------
@@ -53,7 +53,7 @@ Generate file that contains impact region codes, names and their corresponding
 IMAGE and GBD region
 '''
 
-# utils.region_classification_file(wdir, regions_file)
+utils.region_classification_file(wdir, regions_file)
 
     
 ### ----------------------------------------------------------------------

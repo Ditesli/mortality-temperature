@@ -9,7 +9,7 @@ wdir = 'X:/user/liprandicn/mt-comparison/Carleton2022'
 
 # Climate data type and path
 climate_type = 'ERA5' # ERA5, AR6
-climate_path = 'X:/user/liprandicn/Data/ERA5/t2m_daily'
+climate_path = 'X:/user/liprandicn/Data/ERA5/t2m_daily/'
 # climate_path =  D:\\Climate Models - Bias Corrected from CMIP6 precalculated data
 
 # Set years range
