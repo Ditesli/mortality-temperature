@@ -716,7 +716,7 @@ def run_main(wdir, era5dir, ssp, years, region_class, single_erf=False, extrap_e
 
     for year in years:
         
-        daily_temp, num_days = tmp.daily_temp_era5(era5dir, year, res.pop_ssp, to_array=True)
+        daily_temp, num_days = tmp.daily_temp_era5(era5dir, year, 'mean', res.pop_ssp, to_array=True)
 
         # Select population for the corresponding year
         pop_ssp_year = res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values

@@ -3,7 +3,7 @@ import xarray as xr
 
 
 
-def daily_temp_era5(era5_dir, year, pop_ssp, to_array=False):
+def daily_temp_era5(era5_dir, year, type, pop_ssp=None, to_array=False):
     
     '''
     Read daily ERA5 temperature data for a specific year, shift longitude coordinates,
@@ -19,21 +19,21 @@ def daily_temp_era5(era5_dir, year, pop_ssp, to_array=False):
     '''
     
     # Read file and shift longitude coordinates
-    era5_daily = xr.open_dataset(era5_dir+f'era5_t2m_max_day_{year}.nc')
+    era5_daily = xr.open_dataset(era5_dir+f'\\era5_t2m_{type}_day_{year}.nc')
     
     # Shift longitudinal coordinates  
-    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.longitude + 180) % 360 - 180))
-    era5_daily = era5_daily.sel(longitude=np.unique(era5_daily.longitude)).sortby("longitude")
+    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
     
     # Convert to Celsius 
     era5_daily -= 273.15
     
-    # Match grid with population data. Nearest neighbor interpolation
-    era5_daily = era5_daily.interp(latitude=np.clip(pop_ssp.latitude, 
-                                                    era5_daily.latitude.min().item(), 
-                                                    era5_daily.latitude.max().item()), 
-                                   method='nearest')
-    
+    if pop_ssp is not None:
+        # Match grid with population data. Nearest neighbor interpolation
+        era5_daily = era5_daily.interp(latitude=np.clip(pop_ssp.latitude, 
+                                                        era5_daily.latitude.min().item(), 
+                                                        era5_daily.latitude.max().item()), 
+                                    method='nearest')
+        
     # Swap axes to match required format
     if to_array:
         daily_temp = era5_daily.t2m.values.swapaxes(1,2).swapaxes(0,2)

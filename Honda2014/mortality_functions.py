@@ -8,6 +8,11 @@ import scipy as sp
 import xarray as xr
 from dataclasses import dataclass
 
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from common_utils import temperature as tmp
+from common_utils import population as pop
+
 
 
 def weight_avg_region(pafs, num_days, pop, regions, regions_range, mode, clip_baseline_temp):
@@ -86,55 +91,6 @@ def calculate_paf(daily_temp, opt_temp, min_val, max_val, risk_function, num_day
         final_paf.loc[:,(year, mode)] = weight_avg_region(pafs, num_days, pop, regions, regions_range, mode, clip_baseline_temp)
         
     print(f'[2.2] Population Attributable Fraction calculated for {year}') 
-
-
-
-def daily_temp_era5(era5_dir, year, pop_ssp, to_array=False):
-    
-    '''
-    Read daily ERA5 temperature data for a specific year, shift longitude coordinates,
-    convert to Celsius, and match grid with population data.
-    Parameters:
-    - era5_dir: directory where ERA5 daily temperature data is stored
-    - year: year to read
-    - pop_ssp: population data xarray dataset to match grid
-    - to_array: boolean, if True return numpy array, if False return xarray dataset
-    Returns:
-    - daily_temp: daily temperature data for the year, either as numpy array or xarray dataset
-    - num_days: number of days in the year (365 or 366)
-    '''
-    
-    # Read file and shift longitude coordinates
-    era5_daily = xr.open_dataset(era5_dir+f'\\era5_t2m_max_day_{year}.nc')
-    
-    # Shift longitudinal coordinates  
-    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.longitude + 180) % 360 - 180))
-    era5_daily = era5_daily.sel(longitude=np.unique(era5_daily.longitude)).sortby("longitude")
-    
-    # Convert to Celsius 
-    era5_daily -= 273.15
-    
-    # Match grid with population data. Nearest neighbor interpolation
-    era5_daily = era5_daily.interp(latitude=np.clip(pop_ssp.latitude, 
-                                                    era5_daily.latitude.min().item(), 
-                                                    era5_daily.latitude.max().item()), 
-                                   method='nearest')
-    
-    # Swap axes to match required format
-    if to_array:
-        daily_temp = era5_daily.t2m.values.swapaxes(1,2).swapaxes(0,2)
-    else: 
-        daily_temp = era5_daily.drop_vars('number')
-    
-    # Define num_days for leap year/non-leap year
-    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
-        num_days = 366
-    else:
-        num_days = 365
-        
-    print(f'[2.1] ERA5 {year} daily temperatures imported')
-    
-    return daily_temp, num_days
 
 
 
@@ -258,43 +214,6 @@ def map_ssp(ssp: str) -> str:
         return mapping[ssp_normalized]
     except KeyError:
         raise ValueError(f"SSP '{ssp}' not valid. Use one of the following: {list(mapping.keys())}.")
-    
-    
-
-def get_annual_pop(wdir, scenario, years=None):
-    
-    '''
-    Read scenario-dependent population data, interpolate it to yearly data, reduce resolution to 15 min,
-    and select years range if provided.
-    '''
-    
-    # Map scenario name and open selected scenario file 
-    ssp = map_ssp(scenario)
-    pop = xr.open_dataset(f'{wdir}\\data\\socioeconomic_Data\\population\\GPOP\\GPOP_{ssp}.nc')
-    
-    # Reduce resolution to 15 min to match ERA5 data
-    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
-    
-    # Adjust last year to be multiple of 5 for interpolation
-    last_year = years[-1]
-    if last_year % 5 != 0:
-        last_year = last_year + (5 - last_year % 5)
-        
-    start_year = years[0]
-    if start_year % 5 != 0:
-        start_year = start_year - (start_year % 5)
-    
-    # Select years if provided
-    if years:
-        pop_coarse = pop_coarse.sel(time=slice(f'{start_year}-01-01', f'{last_year}-01-01'))
-        
-    # Linearly interpolate to yearly data
-    yearly_data = pd.date_range(start=f'{years[0]}/01/01', end= f'{years[-1]}/01/01', freq='YS')
-    pop_yearly = pop_coarse.interp(time=yearly_data)
-            
-    print(f'[1.2] {scenario} population NetCDF file loaded')
-    
-    return pop_yearly
 
 
 
@@ -372,7 +291,7 @@ def load_main_files(wdir, ssp, years, region_class, optimal_range, extrap_erf=Fa
     regions, regions_range = read_region_classification(wdir, region_class)
     
     # Load population nc file of the selected scenario
-    pop_ssp = get_annual_pop(wdir, ssp, years)
+    pop_ssp = pop.get_annual_pop(wdir, ssp, years)
     
     # Load Exposure Response Function files for the relevant diseases
     risk_function, min_val, max_val = get_risk_function(wdir, extrap_erf, temp_max)
@@ -420,7 +339,7 @@ def run_main(wdir, era5_dir, ssp, years, region_class, optimal_range, extrap_erf
 
     for year in years:
         
-        daily_temp, num_days = daily_temp_era5(era5_dir, year, res.pop_ssp, to_array=True)
+        daily_temp, num_days = tmp.daily_temp_era5(era5_dir, year, 'max', res.pop_ssp, to_array=True)
 
         # Select population for the corresponding year and convert to numpy array with non-negative values
         pop_ssp_year = np.clip(res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
