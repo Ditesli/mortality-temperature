@@ -333,7 +333,7 @@ def era5_temperature_to_ir(climate_path, year, ir, spatial_relation):
     day_temp_df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
     day_temp_df = day_temp_df.groupby('index_right').mean()
     day_temp_df_rounded = day_temp_df.round(1)
-    day_temp_df_rounded.insert(0, 'hierid', ir).index.values
+    day_temp_df_rounded.insert(0, 'hierid', ir)
     
     print(f'ERA5 daily temperature for {year} imported')
     
