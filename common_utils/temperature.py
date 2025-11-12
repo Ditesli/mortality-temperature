@@ -45,7 +45,5 @@ def daily_temp_era5(era5_dir, year, type, pop_ssp=None, to_array=False):
         num_days = 366
     else:
         num_days = 365
-        
-    print(f'ERA5 {year} daily temperatures imported')
     
     return daily_temp, num_days
