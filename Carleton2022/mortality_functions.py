@@ -567,8 +567,6 @@ def grid_relationship(wdir, climate_type, climate_path, years):
     
     # Keep only necessary columns
     relationship = relationship[['geometry','index_right']]
-    
-    print('Spatial relationship (temperature grid to impact region level) created')
 
     return relationship, ir['hierid']
 
