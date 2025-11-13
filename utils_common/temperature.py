@@ -4,6 +4,22 @@ import xarray as xr
 
 
 
+def temperature_type(temp_dir, temp_source, temp_type, year, pop_ssp):
+    
+    '''
+    Select the temperature data type to use (ERA5 or monthly statistics)
+    '''
+    
+    if temp_source == 'ERA5':
+        daily_temp, num_days = daily_temp_era5(temp_dir, year, temp_type, pop_ssp, to_array=True)
+        
+    elif temp_source == 'MS':
+        daily_temp, num_days = daily_from_monthly_temp(temp_dir, year, temp_type.upper())
+        
+    return daily_temp, num_days
+
+
+
 def daily_temp_era5(era5_dir, year, type, pop_ssp=None, to_array=False):
     
     '''
@@ -20,7 +36,7 @@ def daily_temp_era5(era5_dir, year, type, pop_ssp=None, to_array=False):
     '''
     
     # Read file and shift longitude coordinates
-    era5_daily = xr.open_dataset(era5_dir+f'\\era5_t2m_{type}_day_{year}.nc')
+    era5_daily = xr.open_dataset(era5_dir+f'era5_t2m_{type}_day_{year}.nc')
     
     # Shift longitudinal coordinates  
     era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
@@ -104,6 +120,15 @@ def daily_temp_normal_dist(year, num_days, temp_mean, temp_std):
         
         # Generate random daily values from normal distribution
         vals = np.random.normal(mu, sigma, size=(n_days, lats, lons))
+        
+        # Standardize generated values and rescale to original mean and std
+        vals_mean = np.mean(vals, axis=0)
+        vals_std = np.std(vals, axis=0)
+        
+        vals_std[vals_std == 0] = 1.0
+        
+        vals = (vals - vals_mean) / vals_std
+        vals = vals * sigma + mu 
 
         # Assign generated values to the correct days in the year
         synthetic_daily[..., day_idx:day_idx+n_days] = vals.swapaxes(0,1).swapaxes(1,2)
@@ -137,7 +162,7 @@ def daily_from_monthly_temp(temp_dir, year, temp_type):
     # Generate daily temperature data
     daily_temp = daily_temp_normal_dist(year, num_days, temp_mean, temp_std)
     
-    print(f'Error statistics for year {year}:', error_daily_stats(year, daily_temp, temp_mean, temp_std))
+    # print(f'Error statistics for year {year}:', error_daily_stats(year, daily_temp, temp_mean, temp_std))
     
     return daily_temp, num_days
 

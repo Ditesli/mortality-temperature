@@ -32,7 +32,7 @@ def get_all_population_data(wdir, return_pop=False):
 
 
 
-def get_annual_pop(wdir, scenario, years=None):
+def get_annual_pop(wdir, scenario, temp_source, years=None):
     
     '''
     Read scenario-dependent population data, interpolate it to yearly data, reduce resolution to 15 min,
@@ -43,8 +43,12 @@ def get_annual_pop(wdir, scenario, years=None):
     ssp = map_ssp(scenario)
     pop = xr.open_dataset(f'{wdir}\\data\\socioeconomic_Data\\population\\GPOP\\GPOP_{ssp}.nc')
     
-    # Reduce resolution to 15 min to match ERA5 data
-    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
+    if temp_source == 'ERA5':
+        # Reduce resolution to 15 min to match ERA5 data
+        pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
+        
+    elif temp_source == 'MS':
+        pop_coarse = pop.coarsen(latitude=6, longitude=6, boundary='pad').sum(skipna=True)
     
     # Adjust last year to be multiple of 5 for interpolation
     last_year = years[-1]
