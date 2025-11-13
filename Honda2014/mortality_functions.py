@@ -315,8 +315,25 @@ def load_main_files(wdir, ssp, years, region_class, optimal_range, extrap_erf=Fa
     )
 
 
+
+def temperature_type(temp_type, temp_dir, year, pop_ssp):
+    
+    '''
+    Select the temperature data type to use (ERA5 or monthly statistics)
+    '''
+    
+    if temp_type == 'ERA5':
+        daily_temp, num_days = tmp.daily_temp_era5(temp_dir, year, 'max', pop_ssp, to_array=True)
+        
+    elif temp_type == 'monthly_stats':
+        daily_temp, num_days = tmp.daily_from_monthly_temp(temp_dir, year, 'MAX')
+        
+    return daily_temp, num_days
+
+
  
-def run_main(wdir, era5_dir, ssp, years, region_class, optimal_range, extrap_erf=False, temp_max=None):
+ 
+def run_main(wdir, temp_dir, temp_type, ssp, years, region_class, optimal_range, extrap_erf=False, temp_max=None):
     
     '''
     Run the main model using ERA5 historical data
@@ -339,7 +356,7 @@ def run_main(wdir, era5_dir, ssp, years, region_class, optimal_range, extrap_erf
 
     for year in years:
         
-        daily_temp, num_days = tmp.daily_temp_era5(era5_dir, year, 'max', res.pop_ssp, to_array=True)
+        daily_temp, num_days = temperature_type(temp_type, temp_dir, year, res.pop_ssp)
 
         # Select population for the corresponding year and convert to numpy array with non-negative values
         pop_ssp_year = np.clip(res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
@@ -351,6 +368,6 @@ def run_main(wdir, era5_dir, ssp, years, region_class, optimal_range, extrap_erf
     years_part = f"_{years[0]}-{years[-1]}"
             
     # Save the results and temperature statistics
-    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}_ot-{optimal_range[-4:]}_lancet.csv')  
+    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}_ot-{optimal_range[-4:]}_{temp_type}.csv')  
     
     print('[3] Results saved. Process finished.')

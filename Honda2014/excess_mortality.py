@@ -7,7 +7,10 @@ Define scenario settings, ERF settings and file paths
 # Define path to main directory
 wdir = 'X:\\user\\liprandicn\\mt-comparison\\Honda2014'
 # ERA5 directory
-era5_dir = 'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily'
+# temp_dir = 'X:\\user\\liprandicn\\Data\\ERA5\\t2m_daily'
+temp_dir = 'X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/'
+# 
+temp_type = 'monthly_stats' # montlhy_stats or ERA5
 # Define SSP scenario
 ssp =  'SSP2' # SSP1, SSP2, SSP3, SSP5
 # Define years range
@@ -31,7 +34,8 @@ optimal_range = '1980-2010'  # 1980-2010 or 1990-2020
 Run main model 
 '''
 mf.run_main(wdir,   # Working directory
-            era5_dir, # ERA5 directory
+            temp_dir, # ERA5 directory
+            temp_type,
             ssp,   # SSP scenario
             years,  #  Years range
             region_class,   # Region classification 
