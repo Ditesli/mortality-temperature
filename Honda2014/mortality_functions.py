@@ -10,12 +10,12 @@ from dataclasses import dataclass
 
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from common_utils import temperature as tmp
-from common_utils import population as pop
+from utils_common import temperature as tmp
+from utils_common import population as pop
 
 
 
-def weight_avg_region(pafs, num_days, pop, regions, regions_range, mode, clip_baseline_temp):
+def weight_avg_region(pafs, num_days, pop_ssp, regions, regions_range, mode, clip_baseline_temp):
     
     '''
     Calculate weighted average of PAFs per region
@@ -37,7 +37,7 @@ def weight_avg_region(pafs, num_days, pop, regions, regions_range, mode, clip_ba
     # Flatten arrays
     regions_flat = np.nan_to_num(regions.ravel()).astype(int)
     pafs_flat = np.nan_to_num(pafs.ravel())
-    pop_flat = np.nan_to_num(pop.ravel())
+    pop_flat = np.nan_to_num(pop_ssp.ravel())
     
     # Calculate weighted sum of PAFs per region
     weighted_sum = np.bincount(regions_flat, weights=pafs_flat * pop_flat)
@@ -64,7 +64,7 @@ def calculate_paf(daily_temp, opt_temp, min_val, max_val, risk_function, num_day
     - pop: population data for the year as numpy array
     - regions: region classification data as numpy array
     - regions_range: range of region indices
-    - final_paf: dataframe to store final PAF results
+    - final_paf: dataframe to store final PAF resultsf
     - year: current year being processed
     Returns:
     - Updates final_paf dataframe with calculated PAFs for the year
@@ -80,9 +80,19 @@ def calculate_paf(daily_temp, opt_temp, min_val, max_val, risk_function, num_day
     temps = risk_function["baseline_temperature"].to_numpy()
     risks = risk_function["relative_risk"].to_numpy()
     min_t = temps.min()
+    
+    # Initialize relative risks array
+    relative_risks = np.full_like(baseline_temp, np.nan, dtype=float)
+    
+    # Create mask for valid baseline temperatures
+    mask = ~np.isnan(baseline_temp)
+    
+    # Get indices for lookup
+    indices = (clip_baseline_temp[mask] - min_t).astype(int)
   
     # Get relative risks from risks lookup table    
-    relative_risks = risks[(clip_baseline_temp - min_t).astype(int)]
+    relative_risks[mask] = risks[indices]
+    # relative_risks = risks[(clip_baseline_temp - min_t).astype(int)]
     
     # Calculate PAFs
     pafs = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
@@ -94,7 +104,7 @@ def calculate_paf(daily_temp, opt_temp, min_val, max_val, risk_function, num_day
 
 
 
-def load_optimal_temperatures(wdir, optimal_range):
+def load_optimal_temperatures(wdir, optimal_range, temp_source):
     
     '''
     Load the optimal temperatures netcdf file calculated for a predefiend period (1980-2010) and 
@@ -102,7 +112,11 @@ def load_optimal_temperatures(wdir, optimal_range):
     '''
     
     # Load file with optimal temperatures for 1980-2010 period (default period)
-    optimal_temps = xr.open_dataset(f'{wdir}/data/optimal_temperatures/era5_t2m_max_{optimal_range}_p84.nc')
+    optimal_temps = xr.open_dataset(wdir+f'/data/optimal_temperatures/era5_t2m_max_{optimal_range}_p84.nc')
+    
+    if temp_source == 'MS':
+        # Reduce resolution to 0.5x0.5 degrees
+        optimal_temps = optimal_temps.coarsen(latitude=2, longitude=2, boundary='pad').mean(skipna=True)
     
     # Convert to numpy array
     optimal_temps = optimal_temps.t2m_p84.values
@@ -173,7 +187,7 @@ def get_risk_function(wdir, extrap_erf=False, temp_max=None):
     2. min and max temperature values
     '''
         
-    risk_function = pd.read_csv(wdir+'\\data\\risk_function\\dummy\\interpolated_dataset.csv')
+    risk_function = pd.read_csv(wdir+'data/risk_function/dummy/interpolated_dataset.csv')
          
     risk_function = risk_function.astype(float)   
     # risk_function = risk_function.apply(lambda x: np.exp(x))
@@ -217,7 +231,7 @@ def map_ssp(ssp: str) -> str:
 
 
 
-def read_region_classification(wdir, region_class):
+def read_region_classification(wdir, region_class, temp_source):
     
     '''
     Load the region classification selected (IMAGE26 or GBD_level3) and return as numpy array 
@@ -225,12 +239,12 @@ def read_region_classification(wdir, region_class):
     '''
     
     ### Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(f'{wdir}/data/optimal_temperatures/era5_t2m_max_1980-2010_p84.nc')
+    era5_tz = xr.open_dataset(wdir+'data/optimal_temperatures/era5_t2m_max_1980-2010_p84.nc')
     
     if region_class == 'IMAGE26':
     
         ### Read in IMAGE region data and interpolate to match files resolution
-        region_nc = xr.open_dataset(f'{wdir}\\data\\IMAGE_regions\\GREG_30MIN.nc')
+        region_nc = xr.open_dataset(wdir+'data/IMAGE_regions/GREG_30MIN.nc')
         region_nc = region_nc.interp(longitude=era5_tz.longitude, 
                                      latitude=era5_tz.latitude, 
                                      method='nearest').mean(dim='time') 
@@ -240,10 +254,10 @@ def read_region_classification(wdir, region_class):
         # Get number of regions
         regions_range = range(1,27)
         
-    if region_class == 'GBD_level3':
+    if region_class == 'countries':
         
-        # Read in GBD LEVEL 3 region DATA
-        region_nc = xr.open_dataset(f'{wdir}/data/GBD_Data/GBD_locations/GBD_locations_level3.nc')
+        # Read in GBD LEVEL 3 region data: countries and territories
+        region_nc = xr.open_dataset(wdir+'data/GBD_Data/GBD_locations/GBD_locations_level3.nc')
         region_nc = region_nc.interp(longitude=era5_tz.longitude, 
                                      latitude=era5_tz.latitude, 
                                      method='nearest')
@@ -256,7 +270,15 @@ def read_region_classification(wdir, region_class):
     
     # Set negative values to 0
     region_nc = np.maximum(region_nc, 0)  
-   
+    
+    # Reduce resolution to 0.5x0.5 degrees
+    if temp_source == 'MS':
+        
+        # Reshape array to 4D blocks of 2x2
+        arr_reshaped = region_nc.reshape(360, 2, 720, 2)
+
+        # 3. Calcular la moda en los ejes de los bloques
+        
     return region_nc, regions_range
 
 
@@ -274,7 +296,7 @@ class LoadResults:
 
 
 
-def load_main_files(wdir, ssp, years, region_class, optimal_range, extrap_erf=False, temp_max=None
+def load_main_files(wdir, temp_source, ssp, years, region_class, optimal_range, extrap_erf=False, temp_max=None
                     ) -> LoadResults:
     
     '''
@@ -288,16 +310,16 @@ def load_main_files(wdir, ssp, years, region_class, optimal_range, extrap_erf=Fa
     print('[1] Loading main files...')
     
     # Load nc files that contain the region classification selected
-    regions, regions_range = read_region_classification(wdir, region_class)
+    regions, regions_range = read_region_classification(wdir, region_class, temp_source)
     
     # Load population nc file of the selected scenario
-    pop_ssp = pop.get_annual_pop(wdir, ssp, years)
+    pop_ssp = pop.get_annual_pop(wdir, ssp, temp_source, years)
     
     # Load Exposure Response Function files for the relevant diseases
     risk_function, min_val, max_val = get_risk_function(wdir, extrap_erf, temp_max)
     
     # Load file with optimal temperatures for 2020 (default year)
-    optimal_temperatures = load_optimal_temperatures(wdir, optimal_range)
+    optimal_temperatures = load_optimal_temperatures(wdir, optimal_range, temp_source)
     
     # Create final dataframe
     final_paf = pd.DataFrame(index=regions_range, 
@@ -314,26 +336,9 @@ def load_main_files(wdir, ssp, years, region_class, optimal_range, extrap_erf=Fa
         final_paf=final_paf
     )
 
-
-
-def temperature_type(temp_type, temp_dir, year, pop_ssp):
-    
-    '''
-    Select the temperature data type to use (ERA5 or monthly statistics)
-    '''
-    
-    if temp_type == 'ERA5':
-        daily_temp, num_days = tmp.daily_temp_era5(temp_dir, year, 'max', pop_ssp, to_array=True)
-        
-    elif temp_type == 'monthly_stats':
-        daily_temp, num_days = tmp.daily_from_monthly_temp(temp_dir, year, 'MAX')
-        
-    return daily_temp, num_days
-
-
  
  
-def run_main(wdir, temp_dir, temp_type, ssp, years, region_class, optimal_range, extrap_erf=False, temp_max=None):
+def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, optimal_range, extrap_erf=False, temp_max=None):
     
     '''
     Run the main model using ERA5 historical data
@@ -350,13 +355,13 @@ def run_main(wdir, temp_dir, temp_type, ssp, years, region_class, optimal_range,
     '''
     
     #pop_ssp, image_regions, temperature_zones, tmrel, df_erf_tmrel, diseases, min_dict, max_dict 
-    res = load_main_files(wdir, ssp, years, region_class, optimal_range, extrap_erf, temp_max)
+    res = load_main_files(wdir, temp_source, ssp, years, region_class, optimal_range, extrap_erf, temp_max)
     
     print('[2] Running main model...')
 
     for year in years:
         
-        daily_temp, num_days = temperature_type(temp_type, temp_dir, year, res.pop_ssp)
+        daily_temp, num_days = tmp.temperature_type(temp_dir, temp_source, 'max', year, res.pop_ssp)
 
         # Select population for the corresponding year and convert to numpy array with non-negative values
         pop_ssp_year = np.clip(res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
@@ -368,6 +373,6 @@ def run_main(wdir, temp_dir, temp_type, ssp, years, region_class, optimal_range,
     years_part = f"_{years[0]}-{years[-1]}"
             
     # Save the results and temperature statistics
-    res.final_paf.to_csv(f'{wdir}\\output\\paf_era5_{region_class}{extrap_part}{years_part}_ot-{optimal_range[-4:]}_{temp_type}.csv')  
-    
+    res.final_paf.to_csv(wdir+f'output/honda_paf_{region_class}{extrap_part}_{temp_source}{years_part}_ot-{optimal_range[-4:]}.csv')  
+
     print('[3] Results saved. Process finished.')
