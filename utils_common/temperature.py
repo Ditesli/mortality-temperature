@@ -4,7 +4,7 @@ import xarray as xr
 
 
 
-def temperature_type(temp_dir, temp_source, temp_type, year, pop_ssp):
+def load_temperature_type(temp_dir, temp_source, temp_type, year, pop_ssp):
     
     '''
     Select the temperature data type to use (ERA5 or monthly statistics)
@@ -64,6 +64,36 @@ def daily_temp_era5(era5_dir, year, type, pop_ssp=None, to_array=False):
         num_days = 365
     
     return daily_temp, num_days
+        
+    
+
+def daily_from_monthly_temp(temp_dir, year, temp_type):
+    
+    '''
+    Generate daily temperature data from monthly statistics assuming normal distribution.
+    Parameters:
+    - temp_dir: directory where monthly statistics files are stored  
+    - year: year to generate daily data for
+    - temp_type: type of temperature statistic ('MEAN', 'MAX', 'MIN')
+    Returns:
+    - daily_temp: generated daily temperature data for the year as numpy array
+    '''
+    
+    # Read monthly statistics
+    temp_mean, temp_std = open_montlhy_stats(temp_dir, year, temp_type)
+    
+    # Define num_days for leap year/non-leap year
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+        num_days = 366
+    else:
+        num_days = 365
+        
+    # Generate daily temperature data
+    daily_temp = daily_temp_normal_dist(year, num_days, temp_mean, temp_std)
+    
+    # print(f'Error statistics for year {year}:', error_daily_stats(year, daily_temp, temp_mean, temp_std))
+    
+    return daily_temp, num_days
 
 
 
@@ -99,6 +129,9 @@ def daily_temp_normal_dist(year, num_days, temp_mean, temp_std):
     - synthetic_daily: generated daily temperature data for the year as numpy array
     '''
     
+    temp_mean = temp_mean.sel(time=f'{year}-01-01').drop_vars('time')
+    temp_std = temp_std.sel(time=f'{year}-01-01').drop_vars('time')
+    
     # Generate daily dates for the year
     daily_dates = pd.date_range(f'{year}-01-01', f'{year}-12-31', freq='D')
 
@@ -115,8 +148,8 @@ def daily_temp_normal_dist(year, num_days, temp_mean, temp_std):
         n_days = np.sum(daily_dates.month == month)
         
         # Get mean and std for the month
-        mu = temp_mean.sel(NM= m).values
-        sigma = temp_std.sel(NM= m).values
+        mu = temp_mean['GTMP_MEAN_30MIN'].sel(NM= m).values
+        sigma = temp_std['GTMP_STD_30MIN'].sel(NM= m).values
         
         # Generate random daily values from normal distribution
         vals = np.random.normal(mu, sigma, size=(n_days, lats, lons))
@@ -135,36 +168,6 @@ def daily_temp_normal_dist(year, num_days, temp_mean, temp_std):
         day_idx += n_days
         
     return synthetic_daily
-        
-    
-
-def daily_from_monthly_temp(temp_dir, year, temp_type):
-    
-    '''
-    Generate daily temperature data from monthly statistics assuming normal distribution.
-    Parameters:
-    - temp_dir: directory where monthly statistics files are stored  
-    - year: year to generate daily data for
-    - temp_type: type of temperature statistic ('MEAN', 'MAX', 'MIN')
-    Returns:
-    - daily_temp: generated daily temperature data for the year as numpy array
-    '''
-    
-    # Read monthly statistics
-    temp_mean, temp_std = open_montlhy_stats(temp_dir, year, temp_type)
-    
-    # Define num_days for leap year/non-leap year
-    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
-        num_days = 366
-    else:
-        num_days = 365
-        
-    # Generate daily temperature data
-    daily_temp = daily_temp_normal_dist(year, num_days, temp_mean, temp_std)
-    
-    # print(f'Error statistics for year {year}:', error_daily_stats(year, daily_temp, temp_mean, temp_std))
-    
-    return daily_temp, num_days
 
 
 
