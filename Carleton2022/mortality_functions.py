@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from shapely.geometry import Polygon
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from common_utils import temperature as tmp
-from common_utils import population as pop
+from utils_common import temperature as tmp
+from utils_common import population as pop
 
 
 
