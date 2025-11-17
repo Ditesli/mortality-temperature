@@ -6,14 +6,18 @@ Define scenario settings, ERF settings and file paths
 '''
 # Path to main working directory
 wdir = 'X:/user/liprandicn/mt-comparison/burkart2022/'
-era5dir = 'X:/user/liprandicn/Data/ERA5/t2m_daily/'
+# temp_dir = 'X:/user/liprandicn/Data/ERA5/t2m_daily/'
+temp_dir = 'X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/'
 
+
+# Define temperature data source
+temp_source = 'MS' # MS (monthly statistics) or ERA5
 # Define SSP scenario
 ssp =  'SSP2' # SSP1, SSP2, SSP3, SSP5
 # Define years range
 years = range(2000,2020) 
 # Define region classification
-region_class = 'GBD_level3' # 'IMAGE26', 'GBD_level3',  for now...
+region_class = 'countries' # 'IMAGE26' or 'countries'
 
 
 '''
@@ -25,23 +29,19 @@ single_erf = False
 extrap_erf = False
 
 # Choose between calculating mean RR (True), specific or random draw (False). 
-# Only select one!!!
-mean = True 
-random_draw = False
-draw = None # None or integer between 0 and 999
+draw_type = 'mean'  # 'mean', 'random' or int (specific draw number)
 
 
 '''
 Main model 
 '''
 paf.run_main(wdir,   # Working directory
-             era5dir,
+             temp_dir, # Temperature data directory
+             temp_source, # Temperature data source
              ssp,   # SSP scenario
              years,  #  Years range
              region_class,   # Region classification 
+             draw_type,  # Mean RR or specific/random draw
              single_erf,   # Single ERF or use temperature zones
              extrap_erf,   # Extrapolate ERF(s)
-             mean,   # Mean RR of the 1000 draws
-             random_draw,   # Random draw
-             draw   # Specific draw
              )
