@@ -9,6 +9,8 @@ wdir = 'X:/user/liprandicn/mt-comparison/honda2014/'
 # Temperature data directory
 temp_dir = 'X:/user/liprandicn/Data/ERA5/t2m_daily/'
 # temp_dir = 'X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/'
+
+
 # Define temperature data source
 temp_source = 'ERA5' # MS (monthly statistics) or ERA5
 # Define SSP scenario

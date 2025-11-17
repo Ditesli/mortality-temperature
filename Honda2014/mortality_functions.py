@@ -231,58 +231,6 @@ def map_ssp(ssp: str) -> str:
 
 
 
-def read_region_classification(wdir, region_class, temp_source):
-    
-    '''
-    Load the region classification selected (IMAGE26 or GBD_level3) and return as numpy array 
-    along with number of regions.
-    '''
-    
-    ### Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(wdir+'data/optimal_temperatures/era5_t2m_max_1980-2010_p84.nc')
-    
-    if region_class == 'IMAGE26':
-    
-        ### Read in IMAGE region data and interpolate to match files resolution
-        region_nc = xr.open_dataset(wdir+'data/IMAGE_regions/GREG_30MIN.nc')
-        region_nc = region_nc.interp(longitude=era5_tz.longitude, 
-                                     latitude=era5_tz.latitude, 
-                                     method='nearest').mean(dim='time') 
-        ### Convert files to numpy arrays
-        region_nc = region_nc.GREG_30MIN.values
-        
-        # Get number of regions
-        regions_range = range(1,27)
-        
-    if region_class == 'countries':
-        
-        # Read in GBD LEVEL 3 region data: countries and territories
-        region_nc = xr.open_dataset(wdir+'data/GBD_Data/GBD_locations/GBD_locations_level3.nc')
-        region_nc = region_nc.interp(longitude=era5_tz.longitude, 
-                                     latitude=era5_tz.latitude, 
-                                     method='nearest')
-        
-        # Get number of regions
-        regions_range = np.unique(region_nc.loc_id.values)[1:-1].astype(int)  # Exclude -1 and nan
-        region_nc = region_nc.loc_id.values
-    
-    print(f'[1.1] {region_class} regions loaded')
-    
-    # Set negative values to 0
-    region_nc = np.maximum(region_nc, 0)  
-    
-    # Reduce resolution to 0.5x0.5 degrees
-    if temp_source == 'MS':
-        
-        # Reshape array to 4D blocks of 2x2
-        arr_reshaped = region_nc.reshape(360, 2, 720, 2)
-
-        # 3. Calcular la moda en los ejes de los bloques
-        
-    return region_nc, regions_range
-
-
-
 @dataclass
 class LoadResults:
     pop_ssp: any
@@ -361,7 +309,7 @@ def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, optimal_rang
 
     for year in years:
         
-        daily_temp, num_days = tmp.temperature_type(temp_dir, temp_source, 'max', year, res.pop_ssp)
+        daily_temp, num_days = tmp.load_temperature_type(temp_dir, temp_source, 'max', year, res.pop_ssp)
 
         # Select population for the corresponding year and convert to numpy array with non-negative values
         pop_ssp_year = np.clip(res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
@@ -373,6 +321,6 @@ def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, optimal_rang
     years_part = f"_{years[0]}-{years[-1]}"
             
     # Save the results and temperature statistics
-    res.final_paf.to_csv(wdir+f'output/honda_paf_{region_class}{extrap_part}_{temp_source}{years_part}_ot-{optimal_range[-4:]}.csv')  
+    res.final_paf.to_csv(wdir+f'output/honda_paf_{region_class}{years_part}{extrap_part}_{temp_source}_ot-{optimal_range[-4:]}.csv')  
 
     print('[3] Results saved. Process finished.')
