@@ -13,3 +13,4 @@ dependencies:
   - matplotlib
   - ipykernel
   - nbformat
+  - rioxarray 
