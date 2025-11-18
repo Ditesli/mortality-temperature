@@ -87,7 +87,7 @@ def temp_to_column_location(temp):
 
 
 @nb.njit
-def mortality_from_erf(temperature_data, mortality_data, mode, tmin_column):
+def mortality_from_erf(temperature_data, mortality_data, tmin_column, mode):
     
     """
     Compute mortality based on temperature data and the mortality response function.
@@ -165,7 +165,7 @@ def calculate_mortality_year(daily_temperature, mortality_np, t_min, mode):
     mortality = pd.concat([
         mortality,
         pd.concat([
-            pd.Series(mortality_from_erf(temperature_series.to_numpy(), mortality_np, mode, t_min), 
+            pd.Series(mortality_from_erf(temperature_series.to_numpy(), mortality_np, t_min, mode), 
                         name=day+"_mortality")
             for day, temperature_series in daily_temperature.iloc[:, temperature_other_columns:].items()
         ], axis=1)
