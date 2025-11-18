@@ -36,7 +36,7 @@ def daily_temp_era5(era5_dir, year, type, pop_ssp=None, to_array=False):
     '''
     
     # Read file and shift longitude coordinates
-    era5_daily = xr.open_dataset(era5_dir+f'era5_t2m_{type}_day_{year}.nc')
+    era5_daily = xr.open_dataset(era5_dir+f'/era5_t2m_{type}_day_{year}.nc')
     
     # Shift longitudinal coordinates  
     era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
@@ -67,7 +67,7 @@ def daily_temp_era5(era5_dir, year, type, pop_ssp=None, to_array=False):
         
     
 
-def daily_from_monthly_temp(temp_dir, year, temp_type):
+def daily_from_monthly_temp(temp_dir, year, temp_type, to_xarray=False):
     
     '''
     Generate daily temperature data from monthly statistics assuming normal distribution.
@@ -92,6 +92,16 @@ def daily_from_monthly_temp(temp_dir, year, temp_type):
     daily_temp = daily_temp_normal_dist(year, num_days, temp_mean, temp_std)
     
     # print(f'Error statistics for year {year}:', error_daily_stats(year, daily_temp, temp_mean, temp_std))
+    
+    if to_xarray == True:
+        # Convert to xarray DataArray
+        daily_dates = pd.date_range(f'{year}-01-01', f'{year}-12-31', freq='D')
+        
+        daily_temp = xr.DataArray(daily_temp,
+                               coords={'latitude':temp_mean.latitude,
+                                       'longitude':temp_mean.longitude,
+                                       'valid_time':daily_dates},
+                              dims=['latitude', 'longitude', 'valid_time'])
     
     return daily_temp, num_days
 
