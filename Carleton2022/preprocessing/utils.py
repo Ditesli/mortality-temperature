@@ -54,7 +54,7 @@ def exposure_response_functions_tmin(
     df_tmin = pd.DataFrame(df_groups['oldest']['region']).assign(**{'Tmin oldest': '', 'Tmin older': '', 'Tmin young': ''})
 
     # Iterate for each age group
-    for group in age_groups: 
+    for group_loc, group in enumerate(age_groups): 
         print(f'Computing {group} age group')
         responses = []
         
@@ -68,10 +68,10 @@ def exposure_response_functions_tmin(
             responses.append(mortality.round(2))
             
             # Generate Tmin
-            df_tmin.iloc[i,1] = get_tmin(df_groups[group]['tas'][i],
-                                    df_groups[group]['tas2'][i], 
-                                    df_groups[group]['tas3'][i], 
-                                    df_groups[group]['tas4'][i], t)
+            df_tmin.iloc[i,group_loc+1] = get_tmin(df_groups[group]['tas'][i],
+                                                  df_groups[group]['tas2'][i], 
+                                                  df_groups[group]['tas3'][i], 
+                                                  df_groups[group]['tas4'][i], t)
             
         # Round column names, add region columns and save
         df = pd.DataFrame(responses, columns=[f"{temp:.1f}" for temp in t])  
