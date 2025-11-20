@@ -13,40 +13,6 @@ from utils_common import population as pop
 
 
 ### ------------------------------------------------------------------------------
-### ----------------------------- PARAMETERS -------------------------------------
-
-
-'''
-Gamma coeficients of the covariants for the temperature response function of the 
-three age groups (young, older, oldest) from Carleton et al. (2022).
-'''
-
-gamma_np = {
-    'young': np.array([
-        [-0.2643747697030857, -0.0012157807919976, 0.0285121426008164],
-        [-0.0147654905557389, -0.0001292299812386, 0.0013467700198057],
-        [0.0000555941144027,  0.000010228738298,  -0.0000128604018705],
-        [0.0000188858412856, -2.48887855043e-07,  -1.50547526657e-06]
-    ]),
-    'older': np.array([
-        [0.2478292444689566,  0.0022092761549115, -0.0258890110895998],
-        [-0.0125437290633759, 0.0000123113770044, 0.0012019083245803],
-        [-0.0002220037659301, -2.82565977452e-06, 0.0000227328454772],
-        [0.0000129910024803,  1.82855114488e-08,  -1.21751952067e-06]
-    ]),
-    'oldest': np.array([
-        [6.399027562773568,   0.0436967573579832, -0.6751842737945384],
-        [-0.3221434191389331, 0.0013726982372035, 0.0295628065147365],
-        [-0.0044299345528043, -0.0001067884304388, 0.00050851740502],
-        [0.0002888631905257,  9.32783835571e-07,  -0.0000273410162051]
-    ])
-}
-
-
-
-### ------------------------------------------------------------------------------
-### ------------------------------ FUNCTIONS -------------------------------------
-
 
 
 def postprocess_results(wdir, years, results, climate_type, SSP, IAM_format, regions):
@@ -262,7 +228,7 @@ def read_population_csv(wdir, SSP, years):
         Dictionary with population data per age group
     '''
     
-    print(f'[2.1] Importing Population data for {SSP} scenario...')
+    print(f'[1.5] Importing Population data for {SSP} scenario...')
     
     pop_groups = {}
     
@@ -392,18 +358,164 @@ def daily_temperature_to_ir(wdir, climate_path, year, ir, spatial_relation, temp
 
 
 
+def generate_erf_group(df, group, t):
+    
+    # Extract polynomial coefficients for the specified age group
+    tas1 = df[f'coeff_1_{group}'].values[:, None]  
+    tas2 = df[f'coeff_2_{group}'].values[:, None]
+    tas3 = df[f'coeff_3_{group}'].values[:, None]
+    tas4 = df[f'coeff_4_{group}'].values[:, None]
+    
+    # Broadcasting: generate polynomial values for all regions and temperatures
+    poly_raw = (  tas1 * t + tas2 * t**2 + tas3 * t**3 + tas4 * t**4 ) 
+    
+    # Find indices for temperature range between 10 and 30 degrees Celsius
+    idx_min_start = np.where(np.isclose(t, 10.0, atol=0.05))[0][0]
+    idx_min_end   = np.where(np.isclose(t, 30.0, atol=0.05))[0][0]
+    segment = poly_raw[:, idx_min_start:idx_min_end]
+    
+    # Determine Tmin (temperature at which mortality is minimized) and add to DataFrame
+    df[f"Tmin {group}"] = t[idx_min_start + np.argmin(segment, axis=1)]
+    
+    # Shift polynomial values based on Tmin
+    tmin = df[f"Tmin {group}"].values[:, None]
+    poly_shift = (poly_raw - tas1*tmin - tas2*tmin**2 - tas3*tmin**3 - tas4*tmin**4)
+    
+    # Impose weak monotonicity: set negative values to zero
+    idx_tmin = np.searchsorted(t, df[f"Tmin {group}"].values)
+    
+    for j in range(poly_shift.shape[1] - 2, -1, -1):
+        mask = j < idx_tmin
+        poly_shift[mask, j] = np.maximum(poly_shift[mask, j], poly_shift[mask, j + 1])
+    
+    for j in range(1, poly_shift.shape[1]):
+        mask = j > idx_tmin
+        poly_shift[mask, j] = np.maximum(poly_shift[mask, j], poly_shift[mask, j - 1])
+    
+    return df[['region', f'Tmin {group}']], poly_shift
+
+
+
+def import_climate(temp_dir, year, spatial_relation, ir):
+    
+    '''
+    Import climate data from the specified directory and return 30-year mean temperature 
+    per impact region and year.
+    '''
+    
+    # Read monthly mean of daily mean temperature data
+    temp_mean = xr.open_dataset(temp_dir+f'GTMP_MEAN_30MIN.nc')
+    
+    # Calculate annual mean temperature and climatology
+    temp_mean_annual = temp_mean['GTMP_MEAN_30MIN'].mean(dim='NM')
+    
+    # Calculate 30-year rolling mean temperature
+    tmean = temp_mean_annual.rolling(time=30, min_periods=1).mean()
+    
+    temp_dict = {}
+    climate_temp = tmean.sel(time=f'{year}').values.ravel()
+    temp_dict[year] = climate_temp[spatial_relation.index]
+
+    # Calculate mean temperature per impact region and round
+    year_temp_df = pd.DataFrame(temp_dict, index=spatial_relation['index_right'])
+    year_temp_df = year_temp_df.groupby('index_right').mean()
+    
+    # Fill in nan with 20
+    year_temp_df = year_temp_df.fillna(20)
+    year_temp_df.insert(0, 'hierid', ir)
+    year_temp_df = year_temp_df.rename(columns={year: 'tmean', 'hierid':'region'})
+    
+    return year_temp_df
+    
+    
+    
+def import_gamma_coefficients(wdir):
+    
+    with open(wdir+'data/carleton_sm/Agespec_interaction_response.csvv') as f:
+        for i, line in enumerate(f, start=1):
+            if i == 23:
+                
+                # Read gamma coefficients from the specified line and convert to float
+                nums = [float(x) for x in line.split(",")]
+                
+                # Split coefficients into age groups
+                young_vals  = nums[0:12]
+                older_vals  = nums[12:24]
+                oldest_vals = nums[24:36]
+
+                # Create reshaped numpy arrays for each age group    
+                young_arr  = np.array(young_vals ).reshape(4,3)
+                older_arr  = np.array(older_vals ).reshape(4,3)
+                oldest_arr = np.array(oldest_vals).reshape(4,3)
+                
+                gamma_np = {
+                    'young' : young_arr,
+                    'older' : older_arr,
+                    'oldest': oldest_arr
+                }
+                
+    return gamma_np
+
+
+
+def generate_erfs_adapt(wdir, year, gdppc, temp_dir, spatial_relation, ir):
+    
+    '''
+    Generate the exposure response functions given an adaptation scenario.
+    '''
+    
+    print('[3.1] Generating Exposure Response Functions...')
+    
+    # Import gamma coefficients from Carletom et al. (2022)
+    gammas = import_gamma_coefficients(wdir)
+        
+    # Determine the resolution and range of daily temperatures
+    t = np.arange(-50, 60.1, 0.1).round(1)
+    
+    # Import climate
+    tmean =  import_climate(temp_dir, year, spatial_relation, ir)
+    
+    # Select GDP per capita for the given year
+    gdppc = gdppc[gdppc['year']==year][['region', 'loggdppc']]
+    
+    # Merge GDP per capita with climate data
+    climate_gdp = tmean.merge(gdppc, on='region', how='left')
+
+    for group, coef_matrix in gammas.items():
+        
+        for degree, degree_row in enumerate(coef_matrix, start=1): 
+            
+            coeff_val = np.zeros(len(climate_gdp))
+            
+            const, c_tmean, c_gdppc = degree_row
+            
+            coeff_val = (const
+                         + c_tmean * climate_gdp['tmean'].values
+                         + c_gdppc * climate_gdp['loggdppc'].values) 
+            
+            climate_gdp[f'coeff_{degree}_{group}'] = coeff_val
+            
+    tmin_young, df_young  = generate_erf_group(climate_gdp, "young", t)
+    tmin_older, df_older  = generate_erf_group(climate_gdp, "older", t)
+    tmin_oldest, df_oldest  = generate_erf_group(climate_gdp, "oldest", t)
+    
+    tmin = tmin_young.merge(tmin_older, on='region').merge(tmin_oldest, on='region')
+            
+    return tmin, {'young': df_young, 'older': df_older, 'oldest': df_oldest}
+        
+
+
 def read_mortality_response(wdir, group):
     
     '''
     Read mortality response function for a given age group
     '''
-    
     # Read mortality response function csv file created in the preprocessing step
     mor = pd.read_csv(wdir + f'/data/exposure_response_functions/erf_no-adapt_{group}.csv')
-    
+    num_other_columns = 2
+        
     # Convert columns to float type and extract mortality values as numpy array
     columns = list(mor.columns)
-    num_other_columns = 2
     mor.columns = columns[:num_other_columns] + list(np.array(columns[num_other_columns:], dtype="float"))
     mor_np = mor.iloc[:, num_other_columns:].round(2).to_numpy()
     
@@ -411,7 +523,7 @@ def read_mortality_response(wdir, group):
 
     
     
-def import_erfs(wdir):
+def import_erfs_noadapt(wdir):
     
     '''
     Read and import exposure response functions for the three age groups and Tmin.
@@ -442,6 +554,45 @@ def import_erfs(wdir):
     t_min = pd.read_csv(f'{wdir}/data/exposure_response_functions/T_min.csv')
     
     return mor_np, t_min
+    
+
+    
+def read_gdppc(wdir, SSP):
+    
+    '''
+    Read GDP per capita files for a given SSP scenario.
+    The files were created in the preprocessing step.
+    
+    Parameters:
+    wdir : str
+        Working directory
+    SSP : str
+        Socioeconomic scenario (e.g., 'SSP1', 'SSP2')
+        
+    Returns:
+    gdppc : DataFrame
+        DataFrame with GDP per capita data
+    '''
+    
+    print(f'[1.4] Importing GDP per capita data for {SSP} scenario...')
+    
+    # Read GDP per capita file
+    ssp = xr.open_dataset(wdir+f'data/carleton_sm/econ_vars/{SSP.upper()}.nc4')   
+    
+    gdppc = ssp['gdppc'].to_dataframe().reset_index()
+    gdppc = gdppc.drop(columns=['model', 'ssp'])
+    gdppc = gdppc.groupby(['region', 'year']).mean().reset_index()
+    
+    gdppc["gdppc13"] = (
+        gdppc.groupby("region")["gdppc"]
+        .rolling(window=13, min_periods=1)   
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
+    
+    gdppc['loggdppc'] = np.log(gdppc['gdppc13'])
+    
+    return gdppc[['region', 'year', 'loggdppc']]
 
 
     
@@ -624,10 +775,13 @@ class LoadResults:
     results: any
     mor_np: dict
     t_min: any
+    gammas: any
+    pop: any
+    gdppc: any
     
 
     
-def load_main_files(wdir, regions, SSP, years, climate_type, climate_path):
+def load_main_files(wdir, regions, SSP, years, climate_type, climate_path, adaptation):
     
     '''
     Read and load all main input files required for mortality calculations
@@ -680,7 +834,17 @@ def load_main_files(wdir, regions, SSP, years, climate_type, climate_path):
     results = final_dataframe(regions, region_class, age_groups, SSP, years)
     
     # Read erfs
-    mor_np, t_min = import_erfs(wdir)
+    mor_np, t_min = import_erfs_noadapt(wdir) if adaptation==False else (None, None)
+    
+    # Import gamma coefficients
+    gammas = import_gamma_coefficients(wdir)
+    
+    # Read population files
+    pop = read_population_csv(wdir, SSP, years)   
+    
+    # Read GDP per capita files if adaptation is on
+    gdppc = read_gdppc(wdir, SSP) if adaptation else None
+    
         
     return LoadResults(
         age_groups=age_groups,
@@ -690,11 +854,14 @@ def load_main_files(wdir, regions, SSP, years, climate_type, climate_path):
         results=results,
         mor_np=mor_np,
         t_min=t_min,
+        gammas = gammas,
+        pop = pop,
+        gdppc = gdppc
     )
 
 
 
-def calculate_mortality(wdir, years, temp_source, climate_path, SSP, regions, IAM_format=False):
+def calculate_mortality(wdir, years, temp_source, temp_dir, SSP, regions, adaptation, IAM_format=False):
     
     '''
     Main function to calculate mortality projections for the given parameters
@@ -721,25 +888,30 @@ def calculate_mortality(wdir, years, temp_source, climate_path, SSP, regions, IA
     climate model and scenario.
     '''
     
-    res = load_main_files(wdir, regions, SSP, years, temp_source, climate_path)    
+    res = load_main_files(wdir, regions, SSP, years, temp_source, temp_dir, adaptation)    
         
     print('[2] Starting mortality calculations')
-        
-    # Read population files
-    pop = read_population_csv(wdir, SSP, years)   
         
     # Iterate over years
     for year in years:
         
         print(f'[3] Processing year {year}...')
         
-        daily_temp = daily_temperature_to_ir(wdir, climate_path, year, res.ir, res.spatial_relation, 
+        if adaptation == True:
+            t_min, erfs = generate_erfs_adapt(wdir, year, res.gdppc, temp_dir,
+                                              res.spatial_relation, res.ir)
+            
+        else:
+            erfs = res.mor_np
+            t_min = res.t_min
+        
+        daily_temp = daily_temperature_to_ir(wdir, temp_dir, year, res.ir, res.spatial_relation, 
                                              temp_source)
         
         for age_group in res.age_groups:      
 
-            annual_regional_mortality(res.results, daily_temp, SSP, age_group, res.mor_np[age_group], 
-                                      pop, year, res.t_min, regions, res.region_class)
+            annual_regional_mortality(res.results, daily_temp, SSP, age_group, erfs[age_group], 
+                                      res.pop, year, t_min, regions, res.region_class)
         
         print('[3.2] Mortality per age group calculated.')
                 

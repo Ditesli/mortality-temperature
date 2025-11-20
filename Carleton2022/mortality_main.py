@@ -5,25 +5,25 @@ import mortality_functions as mf
 ### Define paths and variables
 
 # Working directory (root)
-wdir = 'X:/user/liprandicn/mt-comparison/Carleton2022'
+wdir = 'X:/user/liprandicn/mt-comparison/Carleton2022/'
 
 # Climate data type and path
-temp_source = 'ERA5' # ERA5, MS, AR6
+temp_source = 'MS' # ERA5, MS, AR6
 
-temp_dir = 'X:/user/liprandicn/Data/ERA5/t2m_daily'
-# temp_dir =  'D:\\Climate Models - Bias Corrected from CMIP6 precalculated data'
-# temp_dir = 'X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/'
+# temp_dir = 'X:/user/liprandicn/Data/ERA5/t2m_daily/'
+temp_dir = 'X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/'
 
 # Set years range
-years = range(2000,2020,1)
+years = range(2050,2051,1)
 
-# Define scenarios
-scenarios_RCP = [] # Climate scenarios: ['SSP126', 'SSP245', 'SSP370', 'SSP585'] 
-                    # or [] if present day climate data
+# Define SSP scenario
 SSP = 'SSP2' # Socioeconomic scenarios: 'SSP1', 'SSP2', 'SSP3', 'SSP5'
 
 # Define region definitions
 regions = 'countries' #  IMAGE26 or 'countries'
+
+# Turn on or off adaptation
+adaptation = True # True or False
 
 
 ### --------------------------------------------------------------------------------------
@@ -35,5 +35,6 @@ era5 = mf.calculate_mortality(wdir, # Working directory
                              temp_dir, # Path to climate data files
                              SSP, # Socioeconomic scenarios
                              regions, # Region classification
-                             IAM_format=False, # If True, use IAM output format
+                             adaptation=adaptation, # Adaptation on or off
+                             IAM_format=False # If True, use IAM output format
                              )
