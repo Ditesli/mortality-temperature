@@ -6,225 +6,30 @@ import rasterio
 from rasterio.features import rasterize
 import numpy as np
 from typing import Optional
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import mortality_functions as mf
 
 
 
-
-def exposure_response_functions_tmin(
-    wdir: str
-    ) -> None:
+def condense_erf_files(wdir):
     
-    '''
-    Generate Exposure Response Functions without Adaptation for different age groups. 
-    The funciton:
-
-    1. This function reads mortality predictor data for three age groups (oldest, older, young),
-    available at the author's suplementary material and saved in the data folder.
-    2. Computes the exposure response functions based on the specification of the
-    fourth-degree polynomial.
-    3. Saves the results as CSV files in the specified data directory.
-    4. Computes the temperature at which the mortality response function is minimized (Tmin)
-    for each impact region and age group.
-    5. Saves the results in a CSV file.
-
-    Parameters
-    ----------
-    wdir : str
-        Working directory where input files are located and where output CSV files will be saved.
-
-    Returns
-    -------
-    None
-        The function writes three CSV files named:
-            - `erf_no-adapt_oldest.csv`
-            - `erf_no-adapt_older.csv`
-            - `erf_no-adapt_young.csv`
-        in the subdirectory `exposure_response_functions/` of `wdir`.
-    '''
-    
-    print('Generating Exposure Response Functions for all age groups...')
-
-    # Determine the resolution and range of daily temperatures
-    t = np.arange(-50, 60.1, 0.1).round(1)
-
-    # Open predictors dataframes  
-    age_groups = ['oldest', 'older', 'young']
-    df_groups = open_predictors(age_groups, wdir+'/carleton_sm/main_specification')
-    
-    df_tmin = pd.DataFrame(df_groups['oldest']['region']).assign(**{'Tmin oldest': '', 'Tmin older': '', 'Tmin young': ''})
-
-    # Iterate for each age group
-    for group_loc, group in enumerate(age_groups): 
-        print(f'Computing {group} age group')
-        responses = []
-        
-        for i in range(len(df_groups[group])):
-            
-            # Generate the response functions and append
-            mortality = erf_per_impact_region(df_groups[group]['tas'][i], 
-                                              df_groups[group]['tas2'][i], 
-                                              df_groups[group]['tas3'][i], 
-                                              df_groups[group]['tas4'][i], t)
-            responses.append(mortality.round(2))
-            
-            # Generate Tmin
-            df_tmin.iloc[i,group_loc+1] = get_tmin(df_groups[group]['tas'][i],
-                                                  df_groups[group]['tas2'][i], 
-                                                  df_groups[group]['tas3'][i], 
-                                                  df_groups[group]['tas4'][i], t)
-            
-        # Round column names, add region columns and save
-        df = pd.DataFrame(responses, columns=[f"{temp:.1f}" for temp in t])  
-        df_merge = pd.concat([df_groups[group]['region'], df], axis=1, join='inner')  
-        df_merge.to_csv(f'{wdir}/exposure_response_functions/erf_no-adapt_{group}.csv')
-        
-    # Save csv file
-    df_tmin.to_csv(f'{wdir}/exposure_response_functions/T_min.csv') 
-    
-    print('Exposure Response Funcitons and Tmin file generated and saved.')
-    
-   
- 
-def open_predictors(
-    age_groups: np.array,
-    data_path: str
-    ) -> pd.DataFrame:
-    
-    '''
-    Load mortality data per age group for the year 2015 (No Adaptation scenario).
-
-    This function reads a CSV file containing mortality predictors, skips the first
-    13 rows (metadata or header info), filters the data for the year 2015,
-    and resets the DataFrame index.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to the CSV file containing mortality predictors. Expected columns include:
-            - 'year': Year of the data
-            - Other columns representing mortality rates per age group or region
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Filtered DataFrame containing only rows for the year 2015,
-        with the index reset. Columns correspond to those in the input CSV.
-    '''
-    
-    df_groups = {}
+    age_groups = ['young', 'older', 'oldest']
     
     for age_group in age_groups:
-        file_path = data_path+f'/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-{age_group}.csv'
-        df_groups[age_group] = pd.read_csv(file_path, skiprows=13)
-        df_groups[age_group] = df_groups[age_group][df_groups[age_group]['year'] == 2015]
-        df_groups[age_group] = df_groups[age_group].reset_index()
+        
+        # Read mortality response function csv files from Carleton SM
+        file_path = wdir+f'/carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-{age_group}.csv'
+        df_groups = pd.read_csv(file_path, skiprows=13)
+        # Filter for year 2015 "present-day" conditions
+        df_groups = df_groups[df_groups['year'] == 2015]
+        # Reset index and rename columns
+        df_groups = df_groups.reset_index()
+        df_groups = df_groups.rename(columns={'tas':'tas_'+age_group, 'tas2':'tas2_'+age_group, 
+                                                                    'tas3':'tas3_'+age_group, 'tas4':'tas4_'+age_group})
+        df_groups.to_csv(wdir+f'/erf_no-adapt/erf_no-adapt_{age_group}.csv', index=False)
     
-    return df_groups
-
-
-
-def erf_per_impact_region(
-    tas1: float,
-    tas2: float,
-    tas3: float,
-    tas4: float,
-    t: np.ndarray
-) -> np.ndarray:
     
-    '''
-    Generate the mortality-temperature exposure response function based on Carleton et al. (2022).
-
-    This function computes mortality values as a fourth-degree polynomial of temperature,
-    applies a vertical shift so that the mortality at Tmin is zero, 
-    and imposes weak monotonicity constraints outside the Tmin range, following 
-    the specifications in the appendix of Carleton et al. (2022).
-
-    Parameters
-    ----------
-    tas1, tas2, tas3, tas4 : float
-        Coefficients from the regression analysis in Carleton et al. (2022).
-        They define the fourth-degree polynomial: 
-            mortality_raw = tas1*t + tas2*t^2 + tas3*t^3 + tas4*t^4
-    t : numpy.ndarray
-        Array of temperature values (°C) at which to evaluate the mortality response.
-
-    Returns
-    -------
-    mortality : numpy.ndarray
-        Mortality values corresponding to each temperature in `t`, adjusted so that
-        the minimum mortality occurs at zero and weak monotonicity is imposed.
-
-    '''
-   
-    # Generate raw fourth degree polynomial function
-    raw = tas1*t + tas2*t**2 + tas3*t**3 + tas4*t**4   
-    
-    # Find Tmin within 10–30°C
-    idx_min_start = np.where(np.isclose(t, 10.0, atol=0.05))[0][0]
-    idx_min_end = np.where(np.isclose(t, 30.0, atol=0.05))[0][0]
-    tmin = t[idx_min_start + np.argmin(raw[idx_min_start:idx_min_end])]
-    
-    # Vertically shift the function to make Tmin be at zero
-    mortality = raw - tas1*tmin - tas2*tmin**2 - tas3*tmin**3 - tas4*tmin**4  
-    
-    # Impose weak monotonicity (from the original paper)
-    t_left = t[t < tmin]  
-    t_right = t[t > tmin]
-    
-    # Apply weak monotonicity constraints
-    if len(t_left) > 0:
-        for i in range(len(t_left) - 1, -1, -1):
-            mortality[i] = max(mortality[i], mortality[i + 1])
-    
-    if len(t_right) > 0:
-        for i in range(len(t_left)+1, len(mortality)):
-            mortality[i] = max(mortality[i-1], mortality[i]) 
-    
-    return mortality
-
-
-  
-def get_tmin(
-    tas1: float,
-    tas2: float,
-    tas3: float,
-    tas4: float,
-    t: np.ndarray
-    ) -> float:
-    
-    '''
-    Compute the temperature at which the mortality response function is minimized (Tmin).
-
-    This function evaluates a fourth-degree polynomial defined by the coefficients
-    `tas1`, `tas2`, `tas3`, and `tas4` over an array of temperatures `t` and returns
-    the temperature within 10–30°C at which the polynomial achieves its minimum value.
-
-    Parameters
-    ----------
-    tas1, tas2, tas3, tas4 : float
-        Coefficients of the fourth-degree polynomial:
-            mortality_raw = tas1*t + tas2*t^2 + tas3*t^3 + tas4*t^4
-    t : numpy.ndarray
-        Array of temperature values (°C) over which to evaluate the polynomial.
-
-    Returns
-    -------
-    tmin : float
-        Temperature (°C) at which the mortality polynomial is minimized within the range 10–30°C.
-
-    '''
-    
-    # Generate raw fourth degree polynomial function
-    raw = tas1*t + tas2*t**2 + tas3*t**3 + tas4*t**4   
-    
-    # Find Tmin within 10–30°C
-    idx_min_start = np.where(np.isclose(t, 10.0, atol=0.05))[0][0]
-    idx_min_end = np.where(np.isclose(t, 30.0, atol=0.05))[0][0]
-    tmin = t[idx_min_start + np.argmin(raw[idx_min_start:idx_min_end])]     
-    
-    return tmin
-
-
 
 def gdp_pop_ssp_projections(
     wdir: str
@@ -653,7 +458,7 @@ def get_pop_share_file(
     '''
     
     # Calculate population share per age group
-    impact_long[age_group] = impact_long['Value'] * impact_long[f'share_{age_group}']
+    impact_long = impact_long['Value'] * impact_long[f'share_{age_group}']
     
     # Pivot to wide format and save
     impact_agegroup = (
@@ -667,3 +472,15 @@ def get_pop_share_file(
     impact_agegroup.to_csv(wdir+'/gdp_pop_csv/'+'POP_historical_'+age_group+'.csv')
     
     print(f'Population share file generated for age group: {age_group}')
+    
+    
+
+def import_present_day_temperature(wdir, era5_dir):
+    
+    years = range(2000,2011)
+    
+    spatial_relation, ir = mf.grid_relationship(wdir, "ERA5", era5_dir, years)
+    
+    for year in years:
+        T_0 = mf.era5_temp_to_ir(era5_dir, year, ir, spatial_relation)
+        T_0.to_csv(wdir+f'data/climate_data/ERA5_T0_{year}.csv')
