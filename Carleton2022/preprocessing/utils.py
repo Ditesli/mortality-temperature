@@ -12,169 +12,6 @@ import mortality_functions as mf
 
 
 
-def condense_erf_files(wdir):
-    
-    age_groups = ['young', 'older', 'oldest']
-    
-    for age_group in age_groups:
-        
-        # Read mortality response function csv files from Carleton SM
-        file_path = wdir+f'/carleton_sm/main_specification/mortality-allcalcs-Agespec_interaction_GMFD_POLY-4_TINV_CYA_NW_w1-{age_group}.csv'
-        df_groups = pd.read_csv(file_path, skiprows=13)
-        # Filter for year 2015 "present-day" conditions
-        df_groups = df_groups[df_groups['year'] == 2015]
-        # Reset index and rename columns
-        df_groups = df_groups.reset_index()
-        df_groups = df_groups.rename(columns={'tas':'tas_'+age_group, 'tas2':'tas2_'+age_group, 
-                                                                    'tas3':'tas3_'+age_group, 'tas4':'tas4_'+age_group})
-        df_groups.to_csv(wdir+f'/erf_no-adapt/erf_no-adapt_{age_group}.csv', index=False)
-    
-    
-
-def gdp_pop_ssp_projections(
-    wdir: str
-    ) -> None:
-    
-    '''
-    Generate GDP and population projection CSV files from Carleton et al. (2022) 
-    Shared Socioeconomic Pathways (SSP) netCDF datasets.
-
-    This function reads SSP population and GDP projections from NetCDF files 
-    (via `var_nc_to_csv`) and exports them as CSV files for each scenario, 
-    population group, and GDP model. It also computes the mean GDP projection 
-    by averaging the "high" and "low" model variants for each scenario.
-
-    Parameters
-    ----------
-    wdir : str
-        Working directory path where NetCDF input files are located and 
-        where CSV files will be saved. 
-
-    Notes
-    -----
-    - Requires a helper function `var_nc_to_csv()` that converts a single NetCDF variable 
-      to a CSV file given the provided parameters.
-    - Generated CSV files are saved to the subdirectory `gdp_pop_csv/` within `wdir`.
-    - GDP mean files are named using the pattern `"GDP_<scenario>_mean.csv"`.
-
-    Outputs
-    -------
-    None
-        The function writes CSV files to disk but does not return any Python object.
-    '''
-    
-    # Define scenarios
-    scenarios = ['SSP1', 'SSP2', 'SSP3', 'SSP5']
-    # Define age groups
-    age_groups = ['total', 'young', 'older', 'oldest']
-    pop_groups = ['pop', 'pop0to4', 'pop5to64', 'pop65plus']
-    # Define GDP model
-    gdp_models = ['low', 'high']
-    
-    print('Generating GDP and Population projection csv files from Carleton et al. (2022)...')
-
-    for scenario in scenarios:
-        print(f'Computing data for scenario {scenario}')
-        
-        # Generate population files
-        for pop_group, age_group in zip(pop_groups, age_groups):
-            var_nc_to_csv(wdir, 'POP', scenario, pop_group, age_group, 'low')
-        
-        # Generate gdp files
-        for gdp_model in gdp_models:
-            var_nc_to_csv(wdir, 'GDP', scenario, 'gdppc', None, gdp_model)
-            
-        # Calculate mean gdp from high and low models
-        SSP_GDP_high = pd.read_csv(f'{wdir}/gdp_pop_csv/GDP_{scenario}_high.csv')
-        SSP_GDP_low = pd.read_csv(f'{wdir}/gdp_pop_csv/GDP_{scenario}_low.csv')
-        SSP_GDP_mean = SSP_GDP_high.copy()
-        for year in range(2010,2101):
-            SSP_GDP_mean[f'{year}'] = (SSP_GDP_high[f'{year}'] + SSP_GDP_low[f'{year}']) / 2
-        SSP_GDP_mean.to_csv(f'{wdir}/gdp_pop_csv/GDP_{scenario}_mean.csv')
-       
-
-
-def var_nc_to_csv(
-    file_path: str,
-    data_type: str,
-    scenario: str,
-    pop_group: Optional[str],
-    age_group: Optional[str],
-    gdp_model: str
-    ) -> pd.DataFrame:
-    
-    '''
-    Convert Carleton et al. (2022) GDP or population NetCDF files into CSV format.
-
-    This function extracts regional projections for a given SSP scenario 
-    and variable (GDP or population) from the Carleton et al. (2022) NetCDF datasets.
-    The resulting dataset is flattened into a pandas DataFrame and saved as a CSV file 
-    under the subdirectory `gdp_pop_csv/`.
-
-    Parameters
-    ----------
-    file_path : str
-        Base directory containing the Carleton et al. data structure. 
-        Expected subdirectories:
-        - `carleton_sm/econ_vars/` with NetCDF files (e.g., `"SSP1.nc4"`)
-        - `exposure_response_functions/` with reference CSVs (e.g., `"erf_no-adapt_oldest.csv"`)
-    data_type : {'GDP', 'POP'}
-        Type of variable to extract:
-        - 'GDP' for economic projections.
-        - 'POP' for population projections.
-    scenario : str
-        SSP scenario identifier (e.g., 'SSP1', 'SSP3').
-    pop_group : str or None
-        Population variable to extract from the NetCDF file.
-        If data_type == 'GDP', this parameter should typically be 'gdppc'.
-    age_group : str or None
-        Age group label to include in the output CSV filename. Ignored for GDP datasets.
-    gdp_model : str
-        GDP model variant (e.g., 'high', 'low', or 'mean').
-        Used for file selection and naming.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Flattened dataset containing the extracted variable across years and regions. 
-        Columns include:
-        - 'region'
-        - One column per year (e.g., 2010, 2015, …)
-        - 'hierid'
-    '''
-    
-    # Read in oldest population data to get regions
-    oldest = pd.read_csv(f'{file_path}/exposure_response_functions/erf_no-adapt_oldest.csv')
-    
-    # Open xarray from Carleton data
-    ssp = xr.open_dataset(f'{file_path}/carleton_sm/econ_vars/{scenario}.nc4') 
-    
-    # Select high or low GDP model
-    ssp = ssp[pop_group].sel(model=gdp_model) 
-    
-    # Convert to dataframe
-    df = ssp.to_dataframe() 
-    
-    # Unstack
-    df = df.drop(['ssp', 'model'], axis=1).unstack('year') 
-    df.columns = df.columns.get_level_values(1)
-    
-    # Reset index and nerge
-    df = df.reset_index() 
-    df['hierid'] = df['region']
-    df = df.merge(oldest['region'], on='region', how='right')
-    
-    # Save csv
-    if data_type == 'GDP':
-        df.to_csv(file_path+f'/gdp_pop_csv/GDP_{scenario}_{gdp_model}.csv')
-        
-    elif data_type == 'POP':
-        df.to_csv(file_path+f'/gdp_pop_csv/POP_{scenario}_{age_group}.csv')
-    
-    return df
- 
-
-
 def region_classification_file(
     wdir: str,
     regions_file: str
@@ -225,12 +62,12 @@ def region_classification_file(
     image_regions = pd.read_excel(regions_file, sheet_name='regions')
 
     # Read impact regions shapefile and extract regions names
-    impact_regions = gpd.read_file(f'{wdir}'+'carleton_sm/ir_shp/impact-region.shp')
+    impact_regions = gpd.read_file(wdir+'data/carleton_sm/ir_shp/impact-region.shp')
     impact_regions['ISO3'] = impact_regions['hierid'].str[:3]
 
     # Merge with IMAGE regions to get IMAGE region codes
     df = pd.merge(impact_regions[['hierid', 'ISO3']], image_regions, on='ISO3', how='left')
-    df.to_csv(f'{wdir}'+'regions/region_classification.csv', index=False)
+    df.to_csv(wdir+'data/regions/region_classification.csv', index=False)
         
 
 
@@ -398,7 +235,7 @@ def process_un_pop_data(
     '''
     
     # Read UN population data file
-    un_population = pd.read_csv(wdir+'/unpopulation_dataportal.csv')
+    un_population = pd.read_csv(wdir+'data/historical_pop/unpopulation_dataportal.csv')
 
     # Keep relevant columns and aggregate age groups
     un_population = un_population[['Iso3', 'Time', 'Age', 'Value']]
@@ -469,7 +306,7 @@ def get_pop_share_file(
         .reindex(impact_regions.set_index('hierid').index)
         )
 
-    impact_agegroup.to_csv(wdir+'/gdp_pop_csv/'+'POP_historical_'+age_group+'.csv')
+    impact_agegroup.to_csv(wdir+'data/historical_pop/POP_historical_'+age_group+'.csv')
     
     print(f'Population share file generated for age group: {age_group}')
     
