@@ -1,3 +1,4 @@
+import prism
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -12,14 +13,14 @@ from utils_common import temperature as tmp
 ### ------------------------------------------------------------------------------
 
 
-def calculate_mortality(wdir, years, temp_source, temp_dir, ssp, regions, adaptation, IAM_format=False):
+def CalculateMortality(wdir, years, temp_source, temp_dir, ssp, regions, adaptation, IAM_format=False):
     
     """
     Main function to calculate mortality projections for the given parameters.
     1. The function will first read important input data from the wdir/data/ folder 
-    through the load_main_files function.
+    through the LoadMainFiles function.
     2. Calculate mortality per year form the years range, loafing first the
-    daily temperature data and later using the function mortality_effects_minuend.
+    daily temperature data and later using the function MortalityEffectsMinuend.
     3. Calculate the conterfactual factor through the funciton
     mortality_effects_substraend. This will o isolate the role of climate change from 
     changes in temperature-induced mortality that arise due to income growth.
@@ -65,7 +66,7 @@ def calculate_mortality(wdir, years, temp_source, temp_dir, ssp, regions, adapta
     """
     
     # Load necessary files and define variables needed for calculations
-    res = load_main_files(wdir, temp_dir, regions, ssp, years, temp_source, temp_dir, adaptation)  
+    res = LoadMainFiles(wdir, temp_dir, regions, ssp, years, temp_source, temp_dir, adaptation)  
         
     print("[2] Starting mortality calculations - Part 1...")
         
@@ -73,16 +74,16 @@ def calculate_mortality(wdir, years, temp_source, temp_dir, ssp, regions, adapta
     for year in years:
         
         # Read daily temperature data from specified source
-        daily_temp = daily_temperature_to_ir(temp_dir, year, res.ir, res.spatial_relation, temp_source)
+        daily_temp = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, temp_source)
         
         # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
-        mortality_effects_minuend(wdir, year, ssp, temp_dir, adaptation, daily_temp, regions, res)
+        MortalityEffectsMinuend(wdir, year, ssp, temp_dir, adaptation, daily_temp, regions, res)
     
     # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
-    mortality_effects_subtrahend(wdir, year, ssp, temp_dir, adaptation, regions, res)
+    MortalityEffectsSubtrahend(wdir, year, ssp, temp_dir, adaptation, regions, res)
      
     # Post process and save
-    postprocess_results(wdir, years, res.results_minuend, res.results_subtrahend,ssp, IAM_format, adaptation)
+    PostprocessResults(wdir, years, res.results_minuend, res.results_subtrahend,ssp, IAM_format, adaptation)
     
     
     
@@ -104,7 +105,7 @@ class LoadInputData:
 
     
     
-def load_main_files(wdir, temp_dir, regions, ssp, years, climate_type, climate_path, adaptation):
+def LoadMainFiles(wdir, temp_dir, regions, ssp, years, climate_type, climate_path, adaptation):
     
     """
     Read and load all main input files required for mortality calculations. The necessary data is 
@@ -172,28 +173,28 @@ def load_main_files(wdir, temp_dir, regions, ssp, years, climate_type, climate_p
     T = np.arange(-40, 60.1, 0.1).round(1)
     
     # Create relationship between temperature data and impact regions
-    spatial_relation, ir = grid_relationship(wdir, climate_type, climate_path, years)
+    spatial_relation, ir = GridRelationship(wdir, climate_type, climate_path, years)
     
     # Open file with region classification
-    region_class = select_regions(wdir, regions)
+    region_class = SelectRegions(wdir, regions)
 
     # Create results dataframe
-    results_minuend = final_dataframe(regions, region_class, age_groups, years)
-    results_subtrahend = final_dataframe(regions, region_class, age_groups, range(2000,2011))
+    results_minuend = FinalDataframe(regions, region_class, age_groups, years)
+    results_subtrahend = FinalDataframe(regions, region_class, age_groups, range(2000,2011))
     
     # Import gamma coefficients
-    gammas = import_gamma_coefficients(wdir)
+    gammas = ImportGammaCoefficients(wdir)
     
     # Read population files
-    pop = read_population(wdir, ssp, years, age_groups, ir)    
+    pop = ImportPopulationData(wdir, ssp, years, age_groups, ir)    
     
     # Import present day covariates
     print("[1.4] Importing 'present day' covariates climtas and loggdppc...")
-    climtas_t0, loggdppc_t0 = import_covariates(wdir, temp_dir, ssp, ir, None, spatial_relation, None)
+    climtas_t0, loggdppc_t0 = ImportCovariates(wdir, temp_dir, ssp, ir, None, spatial_relation, None)
     
     # If no adaptation, import once the 'present day' ERFs
     if adaptation == None:
-        erfs_t0, tmin_t0 = generate_erf_all(wdir, temp_dir, ssp, ir, None, spatial_relation, 
+        erfs_t0, tmin_t0 = GenerateERFAll(wdir, temp_dir, ssp, ir, None, spatial_relation, 
                                             age_groups, T, adaptation) 
     
     # If adaptation, fill with no data
@@ -219,7 +220,7 @@ def load_main_files(wdir, temp_dir, regions, ssp, years, climate_type, climate_p
 
 
 
-def grid_relationship(wdir, temp_source, climate_path, years):
+def GridRelationship(wdir, temp_source, climate_path, years):
     
     """
     Create a geopandas.DataFrame with spatial relationship between temperature 
@@ -250,7 +251,7 @@ def grid_relationship(wdir, temp_source, climate_path, years):
     print("[1.1] Creating spatial relationship between temperature grid and impact regions...")
     
     # Define function that creates grid cells
-    def create_square(lon, lat, lon_size, lat_size): 
+    def CreateSquare(lon, lat, lon_size, lat_size): 
         
         """
         Return a square Polygon centered at (lon, lat).
@@ -277,8 +278,8 @@ def grid_relationship(wdir, temp_source, climate_path, years):
     
     # Extract coordinates
     coord_names = temperature.coords.keys()
-    lon_vals = find_coord_vals(["lon", "longitude", "x"], coord_names, temperature)
-    lat_vals = find_coord_vals(["lat", "latitude", "y"], coord_names, temperature)
+    lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, temperature)
+    lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, temperature)
     
     # Calculate grid spacing
     lon_size = np.abs(np.mean(np.diff(lon_vals)))
@@ -292,7 +293,7 @@ def grid_relationship(wdir, temp_source, climate_path, years):
         "longitude": lon2d.ravel(),
         "latitude": lat2d.ravel(),
         "geometry": [
-            create_square(lon, lat, lon_size, lat_size)
+            CreateSquare(lon, lat, lon_size, lat_size)
             for lon, lat in zip(lon2d.ravel(), lat2d.ravel())
         ]
     })
@@ -311,7 +312,7 @@ def grid_relationship(wdir, temp_source, climate_path, years):
 
 
 
-def find_coord_vals(possible_names, coord_names, temperature):
+def FindCoordinateName(possible_names, coord_names, temperature):
     
     """
     Find the correct coordinate name in the dataset. This avoids having to
@@ -339,7 +340,7 @@ def find_coord_vals(possible_names, coord_names, temperature):
 
 
 
-def select_regions(wdir, regions):
+def SelectRegions(wdir, regions):
     
     """
     Select region classification file based on user input. The function will load a file
@@ -377,7 +378,7 @@ def select_regions(wdir, regions):
 
 
 
-def final_dataframe(regions, region_class, age_groups, years):
+def FinalDataframe(regions, region_class, age_groups, years):
     
     """
     Create results dataframe with multiindex for age groups, temperature types, and regions.
@@ -416,7 +417,7 @@ def final_dataframe(regions, region_class, age_groups, years):
 
 
 
-def import_gamma_coefficients(wdir):    
+def ImportGammaCoefficients(wdir):    
     
     """
     Import gamma coefficients from Carleton Suplementary Material and convert 
@@ -466,7 +467,7 @@ def import_gamma_coefficients(wdir):
 
 
 
-def read_population(wdir, ssp, years, age_groups, ir):
+def ImportPopulationData(wdir, ssp, years, age_groups, ir):
     
     # TODO: Change this code to receive grided population data 
     
@@ -504,7 +505,7 @@ def read_population(wdir, ssp, years, age_groups, ir):
         pop_present_day = pd.read_csv(f"{wdir}/data/historical_pop/POP_historical_{age_group}.csv")
         
         # Read population files projections per age group
-        pop_projection = var_nc_to_df(wdir, ssp, age_name, ir)
+        pop_projection = SSPxarrayToDataframe(wdir, ssp, age_name, ir)
         
         # Merge 'present-day' population with relevant years of scenario projection
         cols = ["region"] + [y for y in years if y >= 2023] 
@@ -518,7 +519,7 @@ def read_population(wdir, ssp, years, age_groups, ir):
 
 
 
-def var_nc_to_df(wdir, scenario, pop_group, ir):
+def SSPxarrayToDataframe(wdir, scenario, pop_group, ir):
     
     '''
     Convert Carleton et al. (2022) GDP or population NetCDF files into dataframe format.
@@ -571,11 +572,11 @@ def var_nc_to_df(wdir, scenario, pop_group, ir):
 
 
 
-def generate_erf_all(wdir, temp_dir, ssp, ir, year, spatial_relation, age_groups, T, adaptation):
+def GenerateERFAll(wdir, temp_dir, ssp, ir, year, spatial_relation, age_groups, T, adaptation):
     
     """
     The code imports the gamma coefficients and the covariates (climtas and loggdppc) and feeds 
-    this data into the function generate_erf_group that will generate the Exposure Response Functions 
+    this data into the function GenerateERFGroup that will generate the Exposure Response Functions 
     (ERFs) and minimum temperature values per impact region and group. It will locate them in two
     dictionaries.
     
@@ -612,10 +613,10 @@ def generate_erf_all(wdir, temp_dir, ssp, ir, year, spatial_relation, age_groups
     """
     
     # Read coefficientes of covariates from Carleton SM
-    gamma_g, cov_g = import_gamma_coefficients(wdir)
+    gamma_g, cov_g = ImportGammaCoefficients(wdir)
     
     # Import covariates with or without adaptation
-    climtas, loggdppc = import_covariates(wdir, temp_dir, ssp, ir, year, spatial_relation, adaptation)
+    climtas, loggdppc = ImportCovariates(wdir, temp_dir, ssp, ir, year, spatial_relation, adaptation)
 
     # Create covariates matrix
     covariates = np.column_stack([np.ones(len(climtas)), climtas, loggdppc])
@@ -625,13 +626,13 @@ def generate_erf_all(wdir, temp_dir, ssp, ir, year, spatial_relation, age_groups
     # Generate arrays with erf and tmin per age group
     for i, group in enumerate(age_groups):
         
-        mor_np[group], tmin[group] = generate_erf_group(i, covariates, gamma_g, cov_g, T)
+        mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T)
         
     return mor_np, tmin
 
 
 
-def import_covariates(wdir, temp_dir, ssp, ir, year, spatial_relation, adaptation):
+def ImportCovariates(wdir, temp_dir, ssp, ir, year, spatial_relation, adaptation):
     
     """
     The main purpose of the function will be to give the covariates climtas and 
@@ -702,21 +703,21 @@ def import_covariates(wdir, temp_dir, ssp, ir, year, spatial_relation, adaptatio
             pass
         else:
             # Open climate data provided 
-            climtas = import_climtas(temp_dir, year, spatial_relation, ir)
+            climtas = ImportClimtas(temp_dir, year, spatial_relation, ir)
 
         # GDP -------------------------------
         if adaptation.get("loggdppc") == "default":
             # Open GDPpc provided by Carleton et al, at impact region level per SSP
-            loggdppc = import_loggdppc(wdir, ssp, ir, year)
+            loggdppc = ImportLogGDPpc(wdir, ssp, ir, year)
         else:
             gdp_dir = adaptation.get("loggdppc")
-            loggdppc = import_loggdppc_w_damages(wdir, gdp_dir, ir, year)
+            loggdppc = ImportLogGDPpcWithDamages(wdir, gdp_dir, ir, year)
         
     return climtas, loggdppc
 
 
 
-def import_loggdppc(wdir, ssp, ir, year):
+def ImportLogGDPpc(wdir, ssp, ir, year):
     
     """
     Read GDP per capita files for a given SSP scenario.
@@ -762,14 +763,14 @@ def import_loggdppc(wdir, ssp, ir, year):
 
 
 
-def import_loggdppc_w_damages(wdir, gdp_dir, ir, year):
+def ImportLogGDPpcWithDamages(wdir, gdp_dir, ir, year):
     
     ### TODO: Adapt code to Mark's output files
     
     gdppc_column = ""
     
     # Generate GDPpc shares of regions within a country
-    gdppc_shares = generate_gdppc_shares(wdir, ir)
+    gdppc_shares = GenerateGDPpcShares(wdir, ir)
     
     # Open gdp file 
     # TODO: Set correct file name
@@ -789,7 +790,7 @@ def import_loggdppc_w_damages(wdir, gdp_dir, ir, year):
 
 
 
-def generate_gdppc_shares(wdir, ir):
+def GenerateGDPpcShares(wdir, ir):
     
     # Open GDP data (can be any SSP)
     ssp = xr.open_dataset(wdir+"/data/carleton_sm/econ_vars/SSP1.nc4")
@@ -813,7 +814,7 @@ def generate_gdppc_shares(wdir, ir):
 
 
 
-def import_climtas(temp_dir, year, spatial_relation, ir):
+def ImportClimtas(temp_dir, year, spatial_relation, ir):
     
     """
     Import climate data from the specified directory and return 'climtas', defined by Carleton as the
@@ -869,7 +870,7 @@ def import_climtas(temp_dir, year, spatial_relation, ir):
     
     
     
-def generate_erf_group(model_idx, X, gamma_g, cov_g, T):
+def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T):
     
     """
     The code will receive the gamma coefficients, the covariates position and the covariates (X)
@@ -935,16 +936,16 @@ def generate_erf_group(model_idx, X, gamma_g, cov_g, T):
     )
     
     # Impose zero mortality at tmin by vertically shifting erf
-    erf, tmin_g = shift_erf_to_tmin(erf, T, tas, tas2, tas3, tas4)
+    erf, tmin_g = ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4)
     
     # Impose weak monotonicity to the left and the right of the erf
-    erf_final = monotonicity_erf(T, erf, tmin_g)
+    erf_final = MonotonicityERF(T, erf, tmin_g)
 
     return erf_final, tmin_g
 
 
 
-def shift_erf_to_tmin(raw, T, tas, tas2, tas3, tas4): 
+def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4): 
     
     """   
     The code will apply the first constraint imposed by Carleton et al (see more in Appendix pp. A62).
@@ -994,7 +995,7 @@ def shift_erf_to_tmin(raw, T, tas, tas2, tas3, tas4):
 
 
 
-def monotonicity_erf(T, erf, tmin_g):
+def MonotonicityERF(T, erf, tmin_g):
     
     """
     The code applies the second constraint from Carleton et al (see Appendix pp. A65), weak 
@@ -1045,7 +1046,7 @@ def monotonicity_erf(T, erf, tmin_g):
     
     
         
-def daily_temperature_to_ir(climate_path, year, ir, spatial_relation, temp_source):
+def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, temp_source):
     
     """
     Convert daily temperature data of one year to impact region level.
@@ -1075,11 +1076,11 @@ def daily_temperature_to_ir(climate_path, year, ir, spatial_relation, temp_sourc
     
     if temp_source == "ERA5":
         # Open daily temperature data from ERA5
-        day_temp = era5_temp_to_ir(climate_path, year, ir, spatial_relation)
+        day_temp = ERA5Temperature2IR(climate_path, year, ir, spatial_relation)
         
     if temp_source == "MS":
         # Open daily temperature data from monthly statistics
-        day_temp = ms_temp_to_ir(climate_path, year, ir, spatial_relation)
+        day_temp = MSTemperature2IR(climate_path, year, ir, spatial_relation)
     
     # Convert dataframe to numpy array    
     day_temp = day_temp.iloc[:,1:].to_numpy()
@@ -1088,7 +1089,7 @@ def daily_temperature_to_ir(climate_path, year, ir, spatial_relation, temp_sourc
 
 
 
-def ms_temp_to_ir(climate_path, year, ir, spatial_relation):
+def MSTemperature2IR(climate_path, year, ir, spatial_relation):
     
     """
     Import daily temperature data of one year from montlhy statistics and convert it
@@ -1145,7 +1146,7 @@ def ms_temp_to_ir(climate_path, year, ir, spatial_relation):
 
 
 
-def era5_temp_to_ir(climate_path, year, ir, spatial_relation):
+def ERA5Temperature2IR(climate_path, year, ir, spatial_relation):
     
     """
     Import daily temperature data of one year from ERA5 and convert it
@@ -1195,7 +1196,7 @@ def era5_temp_to_ir(climate_path, year, ir, spatial_relation):
     
     
 
-def mortality_effects_minuend(wdir, year, ssp, temp_dir, adaptation, daily_temp, regions, res):
+def MortalityEffectsMinuend(wdir, year, ssp, temp_dir, adaptation, daily_temp, regions, res):
     
     """
     Calculate mortality effects from non optimal temperatures (first term of equation 2 from paper).
@@ -1203,7 +1204,7 @@ def mortality_effects_minuend(wdir, year, ssp, temp_dir, adaptation, daily_temp,
     generate ERFs depending on the adaptation parameters.
     The daily temperature data will be converted to indices based on the range of T.
     Mortality per impact region will be calculated per age group and temperature type (all, heat and cold) 
-    in the mortality_from_temp_idx function.
+    in the MortalityFromTemperatureIndex function.
     Finally, it will agregate the results spatially to the selected region classification (IMAGE26 or 
     countries...)
     
@@ -1246,7 +1247,7 @@ def mortality_effects_minuend(wdir, year, ssp, temp_dir, adaptation, daily_temp,
     print("[2.2] Generating Exposure Response Functions...")
     
     if adaptation:    
-        erfs_t, tmin_t = generate_erf_all(wdir, temp_dir, ssp, res.ir, year, 
+        erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, ssp, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, adaptation)
         
     else: 
@@ -1255,18 +1256,18 @@ def mortality_effects_minuend(wdir, year, ssp, temp_dir, adaptation, daily_temp,
     print(f"[2.3] Calculating mortality for year {year}...")
     
     for group in res.age_groups:      
-        mor_all, mor_hot, mor_cold = mortality_from_temp_idx(daily_temp, temp_idx, rows, erfs_t, 
+        mor_all, mor_hot, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs_t, 
                                                                     tmin_t, min_temp, group)
             
         for mode, mor in zip(["All", "Hot", "Cold"],
                                     [mor_all, mor_hot, mor_cold]):
             
             # Calculate mortality difference per region and store in results dataframe
-            mortality_to_regions(year, group, mor, regions, mode, res, 'minuend')               
+            MortalityToRegions(year, group, mor, regions, mode, res, 'minuend')               
 
 
 
-def import_present_day_temperatures(wdir):
+def ImportPresentDayTemperatures(wdir):
     
     """
     The function will import the daily temperatures from 2000 to 2010 calculated in the
@@ -1289,8 +1290,10 @@ def import_present_day_temperatures(wdir):
     T_0 = {}
     
     for year in base_years:
+        
         # Read pre-calculated daily temperature at impact region level
         T_0_df = pd.read_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
+        
         # Store in dictionary as numpy arrays
         T_0[year] = T_0_df.iloc[:,2:].to_numpy()
         
@@ -1298,7 +1301,7 @@ def import_present_day_temperatures(wdir):
 
 
 
-def mortality_effects_subtrahend(wdir, year, ssp, temp_dir, adaptation, regions, res):
+def MortalityEffectsSubtrahend(wdir, year, ssp, temp_dir, adaptation, regions, res):
     
     """
     Calculate mortality effects from non optimal temperatures (eecond term of equation 2 from 
@@ -1310,7 +1313,7 @@ def mortality_effects_subtrahend(wdir, year, ssp, temp_dir, adaptation, regions,
     will be imported or new ERF functions will be generated (see equations 2' and 2a' from Carleton 
     et al).
     
-    The code will then calculate mortality using the mortality_from_temp_idx and mortality_to_regions
+    The code will then calculate mortality using the MortalityFromTemperatureIndex and MortalityToRegions
     functions, and store it in the DataFrame res.results_subtrahend
     
     Parameters:
@@ -1344,7 +1347,7 @@ def mortality_effects_subtrahend(wdir, year, ssp, temp_dir, adaptation, regions,
     print("[3.1] Loading present-day temperature data...")
     
     # Import present day temperatures
-    daily_temp_t0 = import_present_day_temperatures(wdir)
+    daily_temp_t0 = ImportPresentDayTemperatures(wdir)
     
     # Clip daily temperatures to the range of the ERFs
     min_temp = res.T[0]
@@ -1364,7 +1367,7 @@ def mortality_effects_subtrahend(wdir, year, ssp, temp_dir, adaptation, regions,
     print("[3.2] Generating Exposure Response Functions - Subtrahend part...")
     
     if adaptation:    
-        erfs_t, tmin_t = generate_erf_all(wdir, temp_dir, ssp, res.ir, year, 
+        erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, ssp, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, 
                                           {"tmean": "tmean_t0", "loggdppc": adaptation.get("loggdppc")} )
         
@@ -1379,18 +1382,18 @@ def mortality_effects_subtrahend(wdir, year, ssp, temp_dir, adaptation, regions,
         temp_idx = temp_idx_t0[year]
         
         for group in res.age_groups:      
-            mor_all, mor_hot, mor_cold = mortality_from_temp_idx(daily_temp, temp_idx, rows, 
+            mor_all, mor_hot, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, 
                                                                  erfs_t, tmin_t, min_temp, group)
             
             for mode, mor in zip(["All", "Hot", "Cold"],
                                     [mor_all, mor_hot, mor_cold]):
             
                 # Calculate mortality difference per region and store in results dataframe
-                mortality_to_regions(year, group, mor, regions, mode, res, 'subtrahend')  
+                MortalityToRegions(year, group, mor, regions, mode, res, 'subtrahend')  
     
     
 
-def mortality_from_temp_idx(daily_temp, temp_idx, rows, erfs, tmin, min_temp, group):
+def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_temp, group):
     
     """
     The code calculates annual relative mortality fusing the ERFs and the daily temperature
@@ -1438,12 +1441,12 @@ def mortality_from_temp_idx(daily_temp, temp_idx, rows, erfs, tmin, min_temp, gr
     tmin = tmin[group][:, None]
 
     # Generate temperature indices for temepratures over tmin and calculate mortality
-    temp_heat_idx = heat_and_cold_temp_index(daily_temp, tmin, "hot", min_temp)
+    temp_heat_idx = TemperatureIndexHeatAndCold(daily_temp, tmin, "hot", min_temp)
     result_heat = erfs[group][rows, temp_heat_idx]
     result_heat = result_heat.sum(axis=1)
     
     # Generate temperature indices for temepratures below tmin and calculate mortality
-    temp_cold_idx = heat_and_cold_temp_index(daily_temp, tmin, "cold", min_temp) 
+    temp_cold_idx = TemperatureIndexHeatAndCold(daily_temp, tmin, "cold", min_temp) 
     result_cold = erfs[group][rows, temp_cold_idx]
     result_cold = result_cold.sum(axis=1)
     
@@ -1451,7 +1454,7 @@ def mortality_from_temp_idx(daily_temp, temp_idx, rows, erfs, tmin, min_temp, gr
 
 
 
-def heat_and_cold_temp_index(temp_matrix, threshold, condition, min_temperature):
+def TemperatureIndexHeatAndCold(temp_matrix, threshold, condition, min_temperature):
     
     """
     Mask temperatures based on the tmin threshold, filling others with threshold value
@@ -1489,7 +1492,7 @@ def heat_and_cold_temp_index(temp_matrix, threshold, condition, min_temperature)
 
 
 
-def mortality_to_regions(year, group, mor, regions, mode, res, substraction):
+def MortalityToRegions(year, group, mor, regions, mode, res, substraction):
     
     """
     Aggregate spatially the annual relative mortality from the impact region level
@@ -1538,7 +1541,7 @@ def mortality_to_regions(year, group, mor, regions, mode, res, substraction):
     
 
 
-def postprocess_results(wdir, years, results_minuend, results_subtrahend, SSP, IAM_format, adaptation):
+def PostprocessResults(wdir, years, results_minuend, results_subtrahend, SSP, IAM_format, adaptation):
     
     """
     Postprocess final results and save to CSV file in output folder.
