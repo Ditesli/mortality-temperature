@@ -116,7 +116,7 @@ def open_montlhy_stats(temp_dir, year, temp_type):
     
     # Read file
     temp_mean = xr.open_dataset(temp_dir+f'GTMP_{temp_type}_30MIN.nc')
-    temp_std = xr.open_dataset(temp_dir+f'GTMP_{temp_type}_STD_30MIN.nc')
+    temp_std = xr.open_dataset(temp_dir+f'GTMP_STD_30MIN.nc')
     
     if temp_type == 'MAX':
         temp_mean = temp_mean.sel(time=f'{year}-01-01')[f'GTMP_MAX_30MIN']
