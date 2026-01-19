@@ -202,7 +202,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     
     # Generate a single time 'present day' ERFs (no adaptation)
     erfs_t0, tmin_t0 = GenerateERFAll(wdir, temp_dir, scenario, ir, None, spatial_relation, 
-                                            age_groups, T, None, region_class, None) 
+                                            age_groups, T, gammas, None, region_class, None) 
     
     # ------------------ If no adaptation
     if adaptation == None:
@@ -214,7 +214,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     # ------------------ If adaptation
     else:
         
-        # If adaptation is prescribed by Carleton et al. (2022)
+        # If adaptation is prescribed by Carleton et al. (2022): default mode
         if adaptation.get("loggdppc") == "default":
             gdppc_shares = None
             image_gdppc = None
@@ -224,7 +224,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
             # Generate GDPpc shares of regions within a country
             gdppc_shares = GenerateGDPpcShares(wdir, ir, region_class)
             
-            # Open TIMER gdp file 
+            # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
             gdp_dir = adaptation.get("loggdppc")
             image_gdppc = ReadOUTFiles(gdp_dir, scenario)
         
@@ -808,7 +808,7 @@ def SSPxarrayToDataframe(wdir, ssp, pop_group, ir):
 
 
 
-def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_groups, T, adaptation, 
+def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_groups, T, gammas, adaptation, 
                    gdppc_shares, image_gdppc):
     
     """
@@ -850,7 +850,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
     """
     
     # Read coefficientes of covariates from Carleton SM
-    gamma_g, cov_g = ImportGammaCoefficients(wdir)
+    gamma_g, cov_g = gammas[0], gammas[1]
     
     # Import covariates with or without adaptation
     climtas, loggdppc = ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adaptation, 
@@ -1571,7 +1571,7 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
     
     if adaptation:    
         erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
-                                          res.spatial_relation, res.age_groups, res.T, adaptation,
+                                          res.spatial_relation, res.age_groups, res.T, res.gammas, adaptation,
                                           res.gdppc_shares, res.image_gdppc)
         
         # Ensure ERFs do not exceed no-adaptation ERFs (condition imposed by the paper)
@@ -1696,9 +1696,8 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     
     if adaptation:    
         erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
-                                          res.spatial_relation, res.age_groups, res.T, 
-                                          {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
-                                          res.gdppc_shares, res.image_gdppc)
+                                          res.spatial_relation, res.age_groups, res.T, res.gammas,
+                                          {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")})
         
     else: 
         erfs_t, tmin_t = res.erfs_t0, res.tmin_t0
