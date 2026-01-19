@@ -177,7 +177,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     age_groups = ["young", "older", "oldest"]
     
     # Define daily temperature range for Exposure Response Functions
-    T = np.arange(-40, 60.1, 0.1).round(1)
+    T = np.arange(-20, 40.1, 0.1).round(1)
     
     # Create relationship between temperature data and impact regions
     spatial_relation, ir = GridRelationship(wdir, scenario, climate_path, years)
