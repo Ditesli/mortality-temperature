@@ -5,13 +5,10 @@ import geopandas as gpd
 from dataclasses import dataclass
 from shapely.geometry import Polygon
 from shapely.geometry import box
-from shapely import geometry as geom
 import re
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils_common import temperature as tmp
-import yaml
-from pym import read_mym
 import prism
 from rasterio.features import rasterize
 import country_converter as coco
@@ -509,6 +506,10 @@ def ImportPopulationData(wdir, scenario, years, age_groups, ir):
     # Extract corresponding SSP scenario
     ssp = match.group().upper()
     
+    # Include ALWAYS population data from 2000 to 2010 (used in the subtrahend part)
+    years = sorted(set(years).union(range(2000, 2011)))
+        
+    # Import population data based on scenario type
     if 'carleton' in scenario.lower() or re.search(r"SSP[1-5]_ERA5", scenario):
         # Import default population data from Carleton et al. (2022)
         pop = ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir)
@@ -600,7 +601,7 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
     total_population_ir = IMAGEPopulationtoImpactRegion(wdir, ssp, years)
     
     # Load population data projections per 5-year age group
-    pop = pd.read_csv(wdir+"/data/population/ssp_pop/pop_shares/wcde_data.csv", 
+    pop = pd.read_csv(wdir+"/data/population/IMAGE_pop/pop_shares/wcde_data.csv", 
                              skiprows=8)
     pop = pop[(pop['Scenario'] == ssp) & (pop["Year"].isin(years))]
     
@@ -702,17 +703,11 @@ def IMAGEPopulationtoImpactRegion(wdir, ssp, years):
     impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
     
     # Read IMAGE SSP population nc file
-    pop_image = xr.open_dataset(wdir+f"data/population/ssp_pop/{ssp.lower()}/GPOP.nc")
+    pop_image = xr.open_dataset(wdir+f"data/population/IMAGE_pop/{ssp.lower()}/GPOP.nc")
     
     # Ensure CRS is set to EPSG:4326 and align with impact regions
     pop_image = pop_image.rio.write_crs("EPSG:4326", inplace=False)
     impact_regions = impact_regions.to_crs(pop_image.rio.crs)
-    
-    # Select only relevant years
-    # fixed_years = list(range(2000, 2011))
-    
-    # Combine both sets
-    # desired_years = sorted(set(fixed_years + list(years)))
 
     # Select relevant years including "present-day" years (2000-2010)
     pop_image = pop_image.sel(time=pd.to_datetime([f"{y}-01-01" for y in years]))
@@ -943,8 +938,18 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
         if adaptation.get("climtas") == "default":
             # Climate data from Carleton not available
             raise ValueError("climtas cannot be 'default'. Provide a directory.")
+        
         if adaptation.get("climtas") == "tmean_t0":
-            pass
+            # Open covariates for "present day" (used for subtrahend part)
+            covariates_t0 = pd.read_csv(wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
+        
+            # Rename regions column to reindex woth ir dataframe
+            covariates_t0 = covariates_t0.rename(columns={"region":"hierid"})
+            covariates_t0 = covariates_t0.set_index("hierid").reindex(ir.values)
+            
+            # Extract only climtas and loggdppc as arrays
+            climtas = covariates_t0["climtas"].values
+            
         else:
             # Open climate data provided 
             temp_dir = adaptation.get("climtas")
@@ -1692,7 +1697,7 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     if adaptation:    
         erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, 
-                                          {"tmean": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
+                                          {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
                                           res.gdppc_shares, res.image_gdppc)
         
     else: 
@@ -1892,11 +1897,11 @@ def PostprocessResults(wdir, years, results_minuend, results_subtrahend, scenari
     results = results.rename(columns={"IMAGE26": "region"})
     
     if adaptation:
-        adapt = "_adap"
+        adapt = "_"
         gdp_dir = adaptation.get("loggdppc")
         project = re.split(r"[\\/]", gdp_dir)[-1]+"_"
     else:
-        adapt = ""
+        adapt = "_noadap"
         project = ""
         
     # Save results to CSV                
