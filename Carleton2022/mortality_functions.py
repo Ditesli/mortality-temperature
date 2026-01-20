@@ -221,6 +221,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         
         # If adaptation with custom GDP data from TIMER
         else:
+            print("[1.5] Importing GDP data from IMAGE...")
             # Generate GDPpc shares of regions within a country
             gdppc_shares = GenerateGDPpcShares(wdir, ir, region_class)
             
