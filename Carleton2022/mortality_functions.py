@@ -614,25 +614,19 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
     # Create population dataframes for each age group
     pop_young, pop_older, pop_oldest = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
 
-    # Calculate population per impact region and year
+    # Extend 5 year population to age-dependent yearly population data using shares
     for df in [pop_young, pop_older, pop_oldest]:
-        share_cols = [c for c in df.columns if c.endswith('_share')]
+        share_cols = [c for c in df.columns if "share" in c]
         
-        # Multiply shares for all but the last column
-        for col in share_cols[:-1]:
-            start_year = int(col.replace('_share', ''))
-            for offset in range(5): 
+        for col in share_cols:
+            start_year = int(col.replace("_share", ""))
+            
+            for offset in range(5):
                 target_year = start_year + offset
-                df[f"{target_year}"] = df[f"{target_year}"] * df[col] 
-        
-        # Handle last share column for remaining years
-        if share_cols:
-            last_col = share_cols[-1]
-            start_year = int(last_col.replace('_share', ''))
-            for offset in range(5):  # year + 0..4
-                target_year = start_year + offset
-                if str(target_year) in df.columns:  
-                    df[f"{target_year}"] = df[f"{target_year}"] * df[last_col]
+                
+                if str(target_year) in df.columns:
+                    df[str(target_year)] = df[col] * df[str(target_year)]
+    
                     
     non_share_cols = [c for c in df.columns if "share" not in c]
 
