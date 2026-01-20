@@ -606,7 +606,7 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
                              skiprows=8)
     pop = pop[(pop['Scenario'] == ssp) & (pop["Year"].isin(years))]
     
-    # Define age groups
+    # Define age groups to classify wcde ages
     age_groups = {
         "young": ['0--4'],
         "older": [f'{i}--{i+4}' for i in range(5, 65, 5)],
@@ -938,7 +938,7 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
         # CLIMTAS ---------------------------
         if adaptation.get("climtas") == "default":
             # Climate data from Carleton not available
-            raise ValueError("climtas cannot be 'default'. Provide a directory.")
+            raise ValueError("climtas cannot be 'default'. Provide a directory or set 'tmean_t0'.")
         
         if adaptation.get("climtas") == "tmean_t0":
             # Open covariates for "present day" (used for subtrahend part)
@@ -1029,7 +1029,9 @@ def ImportIMAGEloggdppc(year, image_gdppc, gdppc_shares):
     image_gdppc = (image_gdppc.sel(Time=slice(year-13,year))
                    .mean(dim="Time").mean(dim="Scenario")
                    .mean(dim="Variable")
-                   .to_dataframe().reset_index())
+                   .pint.dequantify() # Remove pint units and warning
+                   .to_dataframe()
+                   .reset_index())
     
     # Merge dataframes
     gdppc = gdppc_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
@@ -1555,7 +1557,7 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
     max_temp = res.T[-1]
     daily_temp = np.clip(daily_temp, min_temp, max_temp)
 
-    # Convert ALL daily temperatures to temperature indices
+    # Convert ALL daily temperatures to temperature indices with the min_temp as index 0
     temp_idx =  np.round(((daily_temp - min_temp) * 10)).astype(int)
     
     # Create rows array for indexing
@@ -1568,7 +1570,7 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
                                           res.spatial_relation, res.age_groups, res.T, res.gammas, adaptation,
                                           res.gdppc_shares, res.image_gdppc)
         
-        # Ensure ERFs do not exceed no-adaptation ERFs (condition imposed by the paper)
+        # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
         for key in erfs_t:
             erfs_t[key] = np.minimum(erfs_t[key], res.erfs_t0[key])
         

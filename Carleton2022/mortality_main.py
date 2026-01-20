@@ -12,7 +12,7 @@ era5_dir = "X:/user/liprandicn/Data/ERA5/t2m_daily/"
 temp_dir = "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/SSP2/netcdf/"
 
 # Set years range
-years = range(2000,2010,1)
+years = range(2015,2020,1)
 
 # Define SSP scenario
 scenario = "SSP2_M_CP" #  SSP#_carleton OR SSP#_ERA5 OR other
