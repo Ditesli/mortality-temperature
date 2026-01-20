@@ -599,7 +599,50 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
         and SSP scenarios.
     """
     
+    # Agregate raster IMAGE total population per impact region and year
     total_population_ir = IMAGEPopulationtoImpactRegion(wdir, ssp, years)
+    
+    # Load population data projections per age group to disagregate IMAGE data
+    pop_groups = LoadAgeGroupPopulationData(wdir, ssp, years)
+
+    # Pivot and merge function
+    def pivot_and_merge(group_name):
+        df = pop_groups[pop_groups["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
+        df = df.rename(columns={c: f"{c}_share" for c in df.columns if isinstance(c, int)})
+        return total_population_ir.merge(df, on="ISO3", how="left")
+
+    # Create population dataframes for each age group
+    pop_young, pop_older, pop_oldest = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
+
+    # Calculate population per impact region and year
+    for df in [pop_young, pop_older, pop_oldest]:
+        share_cols = [c for c in df.columns if c.endswith('_share')]
+        
+        # Multiply shares for all but the last column
+        for col in share_cols[:-1]:
+            start_year = int(col.replace('_share', ''))
+            for offset in range(5): 
+                target_year = start_year + offset
+                df[f"{target_year}"] = df[f"{target_year}"] * df[col] 
+        
+        # Handle last share column for remaining years
+        if share_cols:
+            last_col = share_cols[-1]
+            start_year = int(last_col.replace('_share', ''))
+            for offset in range(5):  # year + 0..4
+                target_year = start_year + offset
+                if str(target_year) in df.columns:  
+                    df[f"{target_year}"] = df[f"{target_year}"] * df[last_col]
+                    
+    non_share_cols = [c for c in df.columns if "share" not in c]
+
+    return {"young":pop_young[non_share_cols],
+            "older":pop_older[non_share_cols],
+            "oldest":pop_oldest[non_share_cols]}
+    
+    
+
+def LoadAgeGroupPopulationData(wdir, ssp, years):
     
     # Load population data projections per 5-year age group
     pop = pd.read_csv(wdir+"/data/population/IMAGE_pop/pop_shares/wcde_data.csv", 
@@ -636,41 +679,8 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
     unique_locations = pop_groups["Area"].unique()
     conversion_dict = {loc: coco.convert(names=loc, to='ISO3') for loc in unique_locations}
     pop_groups['ISO3'] = pop_groups["Area"].map(conversion_dict)
-
-    # Pivot and merge function
-    def pivot_and_merge(group_name):
-        df = pop_groups[pop_groups["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
-        df = df.rename(columns={c: f"{c}_share" for c in df.columns if isinstance(c, int)})
-        return total_population_ir.merge(df, on="ISO3", how="left")
-
-    # Create population dataframes for each age group
-    pop_young, pop_older, pop_oldest = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
-
-    # Calculate population per impact region and year
-    for df in [pop_young, pop_older, pop_oldest]:
-        share_cols = [c for c in df.columns if c.endswith('_share')]
-        
-        # Multiply shares for all but the last column
-        for col in share_cols[:-1]:
-            start_year = int(col.replace('_share', ''))
-            for offset in range(5): 
-                target_year = start_year + offset
-                df[f"{target_year}"] = df[f"{target_year}"] * df[col] 
-        
-        # Handle last share column for remaining years
-        if share_cols:
-            last_col = share_cols[-1]
-            start_year = int(last_col.replace('_share', ''))
-            for offset in range(5):  # year + 0..4
-                target_year = start_year + offset
-                if str(target_year) in df.columns:  
-                    df[f"{target_year}"] = df[f"{target_year}"] * df[last_col]
-                    
-    non_share_cols = [c for c in df.columns if "share" not in c]
-
-    return {"young":pop_young[non_share_cols],
-            "older":pop_older[non_share_cols],
-            "oldest":pop_oldest[non_share_cols]}
+    
+    return pop_groups
   
         
 
