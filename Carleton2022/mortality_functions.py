@@ -1454,15 +1454,8 @@ def MSTemperature2IR(climate_path, year, ir, spatial_relation):
     
     # Fill in nan with 20
     day_temp_df = day_temp_df.fillna(20)
-
-    # # Alternative nearest neighbor filling approach
-    # ir = gpd.read_file(wdir+"/data/carleton_sm/ir_shp/impact-region.shp")
-    # ir = ir.join(day_temp_df, how="right")
     
-    # ir_valid = ir[ir.notna().any(axis=1)].copy()
-    # ir_nan = ir[ir.isna().any(axis=1)].copy()
-    # ir_filled = ir_nan.sjoin_nearest(ir_valid, how="left", distance_col="dist")
-    
+    # Round temperatures and insert hierid
     day_temp_df_rounded = day_temp_df.round(1)
     day_temp_df_rounded.insert(0, "hierid", ir)
     
