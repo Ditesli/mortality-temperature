@@ -1586,11 +1586,9 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
     for group in res.age_groups:      
         mor_all, mor_hot, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs_t, 
                                                                     tmin_t, min_temp, group)
-            
-        for mode, mor in zip(["All", "Hot", "Cold"],
-                                    [mor_all, mor_hot, mor_cold]):
-            
-            # Calculate mortality difference per region and store in results dataframe
+        
+        # Calculate mortality difference per region and store in results dataframe
+        for mode, mor in zip(["All", "Hot", "Cold"], [mor_all, mor_hot, mor_cold]):
             MortalityToRegions(year, group, mor, regions, mode, res, 'minuend')               
 
 
@@ -1697,7 +1695,12 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     if adaptation:    
         erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas,
-                                          {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")})
+                                          {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
+                                          res.gdppc_shares, res.image_gdppc)
+        
+        # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
+        for key in erfs_t:
+            erfs_t[key] = np.minimum(erfs_t[key], res.erfs_t0[key])
         
     else: 
         erfs_t, tmin_t = res.erfs_t0, res.tmin_t0
@@ -1760,10 +1763,11 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
         Annual relative mortality from cold non-optimal temperatures
     """
     
-    # Calculate relative mortality for all temperatures using the temperature indices
-    result_all = erfs[group][rows, temp_idx] 
-    # Sum relative mortality across all days
-    result_all = result_all.sum(axis=1)
+    # # Calculate relative mortality for all temperatures using the temperature indices
+    # result_all = erfs[group][rows, temp_idx] 
+    
+    # # Sum relative mortality across all days
+    # result_all = result_all.sum(axis=1)
 
     # Extract tmin values for the given age group
     tmin = tmin[group][:, None]
@@ -1777,6 +1781,9 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     temp_cold_idx = TemperatureIndexHeatAndCold(daily_temp, tmin, "cold", min_temp) 
     result_cold = erfs[group][rows, temp_cold_idx]
     result_cold = result_cold.sum(axis=1)
+    
+    # Sum hot and cold mortality to get all mortality
+    result_all = result_cold + result_heat
     
     return result_all, result_heat, result_cold        
 
@@ -1855,7 +1862,7 @@ def MortalityToRegions(year, group, mor, regions, mode, res, substraction):
         results = res.results_subtrahend
     
     # Create a copy of region classification dataframe
-    regions_df = res.region_class.copy()
+    regions_df = res.region_class[["hierid", regions]]
     
     # Calculate total mortality difference per region
     regions_df["mor"] = (mor * res.pop[group][f"{year}"] /1e5)
