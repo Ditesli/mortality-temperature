@@ -198,7 +198,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     pop = ImportPopulationData(wdir, scenario, years, age_groups, ir)    
     
     # Import present day covariates
-    print("[1.4] Importing 'present day' covariates climtas and loggdppc...")
+    print("[1.4] Loading 'present day' covariates climtas and loggdppc...")
     climtas_t0, loggdppc_t0 = ImportCovariates(wdir, temp_dir, scenario, ir, None, spatial_relation, 
                                                None, None, None)
     
@@ -228,7 +228,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         
         # If adaptation with custom GDP data from TIMER
         else:
-            print("[1.6] Importing GDP data from IMAGE...")
+            print("[1.6] Loading GDP data from IMAGE...")
             # Generate GDPpc shares of regions within a country
             gdppc_shares = GenerateGDPpcShares(wdir, ir, region_class)
             
@@ -508,7 +508,7 @@ def ImportGammaCoefficients(wdir):
 
 def ImportPopulationData(wdir, scenario, years, age_groups, ir):
     
-    print(f"[1.3] Importing Population data for {scenario} scenario...")
+    print(f"[1.3] Loading Population data for {scenario} scenario...")
     
     # Extract SSP from scenario string
     match = re.search(r"(?i)\bssp\d+", scenario)
@@ -953,15 +953,9 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
             raise ValueError("climtas cannot be 'default'. Provide a directory or set 'tmean_t0'.")
         
         if adaptation.get("climtas") == "tmean_t0":
-            # Open covariates for "present day" (used for subtrahend part)
-            covariates_t0 = pd.read_csv(wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
-        
-            # Rename regions column to reindex woth ir dataframe
-            covariates_t0 = covariates_t0.rename(columns={"region":"hierid"})
-            covariates_t0 = covariates_t0.set_index("hierid").reindex(ir.values)
-            
-            # Extract only climtas and loggdppc as arrays
-            climtas = covariates_t0["climtas"].values
+            # Open climate data provided 
+            temp_dir = temp_dir
+            climtas = ImportPresentDayClimtas(temp_dir, spatial_relation, ir)
             
         else:
             # Open climate data provided 
@@ -1205,6 +1199,65 @@ def ImportClimtas(temp_dir, year, spatial_relation, ir):
     climtas = climtas.rename(columns={year: "tmean", "hierid":"region"})
     
     return climtas["tmean"].values
+
+
+
+def ImportPresentDayClimtas(temp_dir, spatial_relation, ir):
+    
+    """
+    Import climate data from the specified directory and return 'climtas', defined by Carleton as the
+    30-year running mean temperature per impact region.
+    1. The code will first calculate the annual mean from the mothly data to alter calculate the mean of 
+    the past 30 years from the selected year. 
+    2. The code will calculate the mean temperature per impact region using "spatial_relation" and will 
+    return the data as a numpy array
+    
+    Parameters:
+    ----------
+    temp_dir : str
+        Path where climate data is stored.
+    year : int
+        Year used to get the climtas.
+    spatial_relation : GeoDataFrame
+        GDF witht the relation between the grid cells of the climate data and the impact regions.
+        Every grid cell has an impact region assigned.
+    ir : DataFrame
+        DataFrame with impact regions. This file serves to align the regions of any new data.
+        
+    Returns:         
+    ----------
+    climtas : np.ndarray
+        1D array with the 30 year running mean of the anual temperature per impact region level.
+        The order of each element of the array follows the order of the impact regions given by ir.
+    """
+    
+    # Read monthly mean of daily mean temperature data
+    TEMP_MEAN = xr.open_dataset(temp_dir+f"GTMP_MEAN_30MIN.nc")
+    
+    # Calculate annual mean temperature and climatology
+    TEMP_MEAN_YEAR = TEMP_MEAN["GTMP_MEAN_30MIN"].mean(dim="NM")
+    
+    # Calculate 30-year rolling mean temperature
+    TEMP_MEAN_30YEAR = TEMP_MEAN_YEAR.rolling(time=30, min_periods=1).mean()
+    
+    START_YEAR = 2001
+    END_YEAR = 2010
+    
+    TEMP_MEAN_30YEAR_PRESENT = TEMP_MEAN_30YEAR.sel(time=slice(f"{START_YEAR}-01-01", f"{END_YEAR}-01-01")).mean(dim="time")
+    
+    # Assign pixels to every impact region
+    TEMP_MEAN_VALS = TEMP_MEAN_30YEAR_PRESENT.values.ravel()
+    TEMP_MEAN_INDEXED = TEMP_MEAN_VALS[spatial_relation.index]
+
+    # Calculate mean temperature per impact region and round
+    TEMP_MEAN_DF = pd.DataFrame(TEMP_MEAN_INDEXED, index=spatial_relation["index_right"])
+    TEMP_MEAN_PER_IR = TEMP_MEAN_DF.groupby("index_right").mean()
+    
+    # Fill in nan with 20 ensuring all regions have a value although mortality null
+    TEMP_MEAN_PER_IR = TEMP_MEAN_PER_IR.fillna(20)
+    TEMP_MEAN_PER_IR.insert(0, "hierid", ir)
+    
+    return TEMP_MEAN_PER_IR[0].values
     
     
     
@@ -1410,7 +1463,7 @@ def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
         DataFrame with daily mean temperature per impact region for the given year
     """
     
-    print("[2.1] Importing daily temperature data for year", year, "...")
+    print("[2.1] Loading daily temperature data for year", year, "...")
     
     if "ERA5" in scenario:
         # Open daily temperature data from ERA5
@@ -1745,8 +1798,7 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     ----------
     None
     The results will be stored in the DataFrame res.results_subtrahend
-    """
-    
+    """    
 
     
     if re.search(r"SSP[1-5]_ERA5", scenario):
@@ -1874,43 +1926,42 @@ def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, reg
     None
     The results will be stored in the DataFrame res.results_subtrahend
     """
-      
+    
+    # Convert "Present-day" temepratures dataframe to numpy array    
+    DAY_TEMP_T0 = res.daily_temp_t0.iloc[:,1:].to_numpy()
+    
     # Clip daily temperatures to the range of the ERFs
-    min_temp = res.T[0]
-    max_temp = res.T[-1]
-    daily_temp = np.clip(res.daily_temp_t0, min_temp, max_temp)
+    MIN_TEMP = res.T[0]
+    MAX_TEMP = res.T[-1]
+    
+    DAY_TEMP_T0 = np.clip(DAY_TEMP_T0, MIN_TEMP, MAX_TEMP)
 
-    # Convert ALL daily temperatures to temperature indices with the min_temp as index 0
-    temp_idx =  np.round(((daily_temp - min_temp) * 10)).astype(int)
+    # Convert daily temperatures to temperature indices with the MIN_TEMP value as index 0
+    TEMP_IDX =  np.round(((DAY_TEMP_T0 - MIN_TEMP) * 10)).astype(int)
     
     # Create rows array for indexing
-    rows = np.arange(temp_idx.shape[0])[:, None]
+    rows = np.arange(TEMP_IDX.shape[0])[:, None]
     
-    print("[3.2] Generating Exposure Response Functions - Subtrahend part...")
+    print("[] Generating Exposure Response Functions - Counterfactual component...")
     
     if adaptation:    
-        erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
+        ERFS_T, TMIN_T = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas,
                                           {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
                                           res.gdppc_shares, res.image_gdppc)
         
         # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
-        for key in erfs_t:
-            erfs_t[key] = np.minimum(erfs_t[key], res.erfs_t0[key])
+        for key in ERFS_T:
+            ERFS_T[key] = np.minimum(ERFS_T[key], res.erfs_t0[key])
         
     else: 
-        erfs_t, tmin_t = res.erfs_t0, res.tmin_t0
+        ERFS_T, TMIN_T = res.erfs_t0, res.tmin_t0
         
-    print("[3.3] Calculating present-day mortality...")
-    
-    for year in base_years:
+    print("[3.3] Calculating 'present-day' mortality...")
         
-        daily_temp = DAILY_TEMP_T0[year]
-        temp_idx = temp_idx_t0[year]
-        
-        MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
-                                                 regions, year, res, "subtrahend")  
-    
+    MortalityFromTemperatureMinuendSubtrahend(DAY_TEMP_T0, TEMP_IDX, rows, ERFS_T, TMIN_T, MIN_TEMP, 
+                                                regions, year, res, "subtrahend")  
+
     
 
 def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_temp, group):
