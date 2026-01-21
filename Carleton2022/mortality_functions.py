@@ -1583,13 +1583,56 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
     
     print(f"[2.3] Calculating mortality for year {year}...")
     
+    MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
+                                                 regions, year, res, "minuend")          
+            
+                
+                
+def MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
+                                                 regions, year, res, part):
+    
+    """
+    Calculate mortality from non optimal temperatures for either minuend and subtrahend parts.
+    The mrotality will be calculated using the temperature indices and the ERFs provided as input
+    for the three age groups. Later, it will aggregate the results spatially to the selected 
+    region classification in the MortalityToRegions function and will append the results in the
+    final dataframe.
+    Parameters:
+    ----------
+    daily_temp : np.ndarray
+        Array with the daily temperatures per impact region for a given region
+    temp_idx : np.ndarray
+        Array with the daily temperature indices per impact region for a given region
+    rows : np.ndarray
+        Array with the row indices for indexing
+    erfs_t : dic
+        Dictionary with the Exposure Response Functions per age group
+    tmin_t : dic    
+        Dictionary with the minimum mortality temperature per age group
+    min_temp : float
+        Minimum temperature of the ERFs
+    regions : str
+        Name of the region classification
+    year : int
+        Year to calculate mortality
+    res : class
+        Class where the input files are called
+    part : str  
+        "minuend" or "subtrahend" to store results in the corresponding DataFrame
+    Returns:
+    ----------
+    None
+    The function will appedn the results in the DataFrame called results minuend or subtrahend
+    """
+    
     for group in res.age_groups:      
-        mor_all, mor_hot, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs_t, 
-                                                                    tmin_t, min_temp, group)
+            mor_all, mor_hot, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, 
+                                                                 erfs_t, tmin_t, min_temp, group)
+            
+            # Calculate mortality difference per region and store in results dataframe
+            for mode, mor in zip(["All", "Hot", "Cold"], [mor_all, mor_hot, mor_cold]):
+                MortalityToRegions(year, group, mor, regions, mode, res, part)  
         
-        # Calculate mortality difference per region and store in results dataframe
-        for mode, mor in zip(["All", "Hot", "Cold"], [mor_all, mor_hot, mor_cold]):
-            MortalityToRegions(year, group, mor, regions, mode, res, 'minuend')               
 
 
 
@@ -1712,15 +1755,8 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
         daily_temp = daily_temp_t0[year]
         temp_idx = temp_idx_t0[year]
         
-        for group in res.age_groups:      
-            mor_all, mor_hot, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, 
-                                                                 erfs_t, tmin_t, min_temp, group)
-            
-            for mode, mor in zip(["All", "Hot", "Cold"],
-                                    [mor_all, mor_hot, mor_cold]):
-            
-                # Calculate mortality difference per region and store in results dataframe
-                MortalityToRegions(year, group, mor, regions, mode, res, 'subtrahend')  
+        MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
+                                                 regions, year, res, "subtrahend")  
     
     
 
