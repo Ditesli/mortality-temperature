@@ -80,7 +80,11 @@ def daily_from_monthly_temp(temp_dir, year, temp_type, to_xarray=False):
     '''
     
     # Read monthly statistics
-    temp_mean, temp_std = open_montlhy_stats(temp_dir, year, temp_type)
+    temp_mean, temp_std = open_montlhy_stats(temp_dir, temp_type)
+    
+    # Select data for the specific year and drop time dimension
+    temp_mean = temp_mean.sel(time=f'{year}-01-01').drop_vars('time')
+    temp_std = temp_std.sel(time=f'{year}-01-01').drop_vars('time')
     
     # Define num_days for leap year/non-leap year
     if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
@@ -90,8 +94,6 @@ def daily_from_monthly_temp(temp_dir, year, temp_type, to_xarray=False):
         
     # Generate daily temperature data
     daily_temp = daily_temp_normal_dist(year, num_days, temp_mean, temp_std)
-    
-    # print(f'Error statistics for year {year}:', error_daily_stats(year, daily_temp, temp_mean, temp_std))
     
     if to_xarray == True:
         # Convert to xarray DataArray
@@ -107,20 +109,37 @@ def daily_from_monthly_temp(temp_dir, year, temp_type, to_xarray=False):
 
 
 
-def open_montlhy_stats(temp_dir, year, temp_type):
+def open_montlhy_stats(temp_dir, temp_type):
     
     '''
-    Read monthly statistics of daily temperature data and reconstruct daily data
-    assuming a normal distribution.
+    Read monthly statistics of daily temperature data (mean and standard deviation)
+    according to the temeprature type (temp_type):
+    - temp_type = 'MEAN': mean and std of daily mean temperatures
+    - temp_type = 'MAX': mean and std of daily maximum temperatures
+    
+    -----------
+    Parameters:
+    - temp_dir: directory where monthly statistics files are stored (IMAGE folder)
+    - temp_type: type of temperature statistic ('MEAN', 'MAX')
+    
+    ----------
+    Returns:
+    - temp_mean: xarray DataArray of monthly mean temperatures
+    - temp_std: xarray DataArray of monthly standard deviation of temperatures
     '''
     
-    # Read file
+    # Read temperature mean and std files of from scenario 
     temp_mean = xr.open_dataset(temp_dir+f'GTMP_{temp_type}_30MIN.nc')
     temp_std = xr.open_dataset(temp_dir+f'GTMP_STD_30MIN.nc')
     
+    # Select temperature variable depending on type
+    if temp_type == 'MEAN':
+        temp_mean = temp_mean[f'GTMP_MEAN_30MIN']
+        temp_std = temp_std[f'GTMP_STD_30MIN']
+    
     if temp_type == 'MAX':
-        temp_mean = temp_mean.sel(time=f'{year}-01-01')[f'GTMP_MAX_30MIN']
-        temp_std = temp_std.sel(time=f'{year}-01-01')[f'GTMPMAX_STD_30MIN']
+        temp_mean = temp_mean[f'GTMP_MAX_30MIN']
+        temp_std = temp_std[f'GTMPMAX_STD_30MIN']
     
     return temp_mean, temp_std
 
@@ -139,9 +158,6 @@ def daily_temp_normal_dist(year, num_days, temp_mean, temp_std):
     - synthetic_daily: generated daily temperature data for the year as numpy array
     '''
     
-    temp_mean = temp_mean.sel(time=f'{year}-01-01').drop_vars('time')
-    temp_std = temp_std.sel(time=f'{year}-01-01').drop_vars('time')
-    
     # Generate daily dates for the year
     daily_dates = pd.date_range(f'{year}-01-01', f'{year}-12-31', freq='D')
 
@@ -158,8 +174,8 @@ def daily_temp_normal_dist(year, num_days, temp_mean, temp_std):
         n_days = np.sum(daily_dates.month == month)
         
         # Get mean and std for the month
-        mu = temp_mean['GTMP_MEAN_30MIN'].sel(NM= m).values
-        sigma = temp_std['GTMP_STD_30MIN'].sel(NM= m).values
+        mu = temp_mean.sel(NM= m).values
+        sigma = temp_std.sel(NM= m).values
         
         # Generate random daily values from normal distribution
         vals = np.random.normal(mu, sigma, size=(n_days, lats, lons))

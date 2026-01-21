@@ -1409,8 +1409,11 @@ def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
         day_temp = ERA5Temperature2IR(climate_path, year, ir, spatial_relation)
         
     else:
+        # Read daily temperature data generated from monthly statistics
+        temp_t2m, _ = tmp.daily_from_monthly_temp(climate_path, year, "MEAN", to_xarray=True)
+        
         # Open daily temperature data from monthly statistics
-        day_temp = MSTemperature2IR(climate_path, year, ir, spatial_relation)
+        day_temp = MSTemperature2IR(temp_t2m, year, ir, spatial_relation)
     
     # Convert dataframe to numpy array    
     day_temp = day_temp.iloc[:,1:].to_numpy()
@@ -1419,7 +1422,7 @@ def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
 
 
 
-def MSTemperature2IR(climate_path, year, ir, spatial_relation):
+def MSTemperature2IR(temp, year, ir, spatial_relation):
     
     """
     Import daily temperature data of one year from montlhy statistics and convert it
@@ -1442,16 +1445,13 @@ def MSTemperature2IR(climate_path, year, ir, spatial_relation):
         DataFrame with daily mean temperature per impact region for the given year
     """
     
-    # Read daily temperature data generated from monthly statistics
-    temp_t2m, _ = tmp.daily_from_monthly_temp(climate_path, year, "MEAN", to_xarray=True)
-    
     # Create a list of dates for the specified year
     date_list = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
     
     # Temporarily store daily temperatures in a dictionary
     temp_dict = {}
     for day in date_list:
-        daily_temperatures = temp_t2m.sel(valid_time=day).values.ravel()
+        daily_temperatures = temp.sel(valid_time=day).values.ravel()
         temp_dict[day] = daily_temperatures[spatial_relation.index]
 
     # Calculate mean temperature per impact region and round
@@ -1636,11 +1636,11 @@ def MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t
 
 
 
-def ImportPresentDayTemperatures(wdir):
+def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spatial_relation):
     
     """
     The function will import the daily temperatures from 2000 to 2010 calculated in the
-    preprocessing step usign ERA5 data.
+    preprocessing step usign either ERA5 data or climate data from prescribed scenario.
     
     Parameters:
     ----------
@@ -1653,20 +1653,51 @@ def ImportPresentDayTemperatures(wdir):
         Dictionary of numpy arrays with the daily temperature per impact region and year.
     """
     
-    # Definition for present day calculation
-    base_years = range(2000,2011)
-    
-    T_0 = {}
-    
-    for year in base_years:
+    # ------------------ ERA5 ------------------
+    # Load pre-calculated present day temperatures from ERA5
+    # TODO: finish this part
+    if re.search(r"SSP[1-5]_ERA5", scenario):
         
-        # Read pre-calculated daily temperature at impact region level
-        T_0_df = pd.read_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
+        T_0 = {}
         
-        # Store in dictionary as numpy arrays
-        T_0[year] = T_0_df.iloc[:,2:].to_numpy()
+        for year in base_years:
+            
+            # Read pre-calculated daily temperature at impact region level
+            T_0_df = pd.read_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
+            
+            # Store in dictionary as numpy arrays
+            T_0[year] = T_0_df.iloc[:,2:].to_numpy()
+            
+            
+    # -------------- Scenario data --------------
+    # Load daily temperature data from prescribed scenario
+    else: 
         
-    return T_0  
+        # Open monthly statistics from IMAGE data
+        MONTHLY_MEAN, MONTHLY_STD = tmp.open_montlhy_stats(temp_dir, "MEAN")
+        
+        # Calculate present day monthly mean and std (2000-2010) and discard time variable
+        MONTHLY_MEAN_PRESENT = MONTHLY_MEAN.sel(time=slice(f"{base_years[0]}-01-01", f"{base_years[-1]}-01-01")).mean(dim="time")
+        MONTHLY_STD_PRESENT = MONTHLY_STD.sel(time=slice(f"{base_years[0]}-01-01", f"{base_years[-1]}-01-01")).mean(dim="time")
+        
+        # Define random year for daily temperature generation
+        NUM_DAYS = 365
+        YEAR = 2005
+        
+        # Generate daily temperatures from normal distribution
+        DAILY_TEMP = tmp.daily_temp_normal_dist(YEAR, NUM_DAYS, MONTHLY_MEAN_PRESENT, MONTHLY_STD_PRESENT)
+        
+        # Convert to xarray DataArray for posterior region aggregation
+        DAILY_DATES = pd.date_range(f'{YEAR}-01-01', f'{YEAR}-12-31', freq='D')
+        DAILY_TEMP = xr.DataArray(DAILY_TEMP,
+                                  coords={'latitude':MONTHLY_MEAN.latitude,
+                                          'longitude':MONTHLY_MEAN.longitude,
+                                          'valid_time':DAILY_DATES},
+                                  dims=['latitude', 'longitude', 'valid_time'])
+        
+        T_0 = MSTemperature2IR(DAILY_TEMP, YEAR, ir, spatial_relation)
+        
+    return T_0
 
 
 
@@ -1711,12 +1742,12 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     
     print ("[3] Mortality calculations - Subtrahend part...")
     
-    years = range(2000,2011)
+    BASE_YEARS = range(2001,2011)
     
     print("[3.1] Loading present-day temperature data...")
     
     # Import present day temperatures
-    daily_temp_t0 = ImportPresentDayTemperatures(wdir)
+    daily_temp_t0 = ImportPresentDayTemperatures(wdir, temp_dir, scenario, BASE_YEARS, res.ir, res.spatial_relation)
     
     # Clip daily temperatures to the range of the ERFs
     min_temp = res.T[0]
