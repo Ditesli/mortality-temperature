@@ -113,6 +113,8 @@ class LoadInputData:
     tmin_t0: any
     gdppc_shares: any
     image_gdppc: any
+    daily_temp_t0: pd.DataFrame
+    base_years: list = range(2001,2011)
 
     
     
@@ -204,6 +206,11 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     erfs_t0, tmin_t0 = GenerateERFAll(wdir, temp_dir, scenario, ir, None, spatial_relation, 
                                             age_groups, T, gammas, None, region_class, None) 
     
+    print("[1.5] Loading present-day temperature data...")
+    # Import present day temperatures
+    BASE_YEARS = range(2001,2011)
+    DAILY_TEMP_T0 = ImportPresentDayTemperatures(wdir, temp_dir, scenario, BASE_YEARS, ir, spatial_relation)
+    
     # ------------------ If no adaptation
     if adaptation == None:
         
@@ -221,7 +228,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         
         # If adaptation with custom GDP data from TIMER
         else:
-            print("[1.5] Importing GDP data from IMAGE...")
+            print("[1.6] Importing GDP data from IMAGE...")
             # Generate GDPpc shares of regions within a country
             gdppc_shares = GenerateGDPpcShares(wdir, ir, region_class)
             
@@ -245,7 +252,8 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         erfs_t0 = erfs_t0,
         tmin_t0 = tmin_t0,
         gdppc_shares = gdppc_shares,
-        image_gdppc = image_gdppc
+        image_gdppc = image_gdppc,
+        daily_temp_t0 = DAILY_TEMP_T0
     )
 
 
@@ -1739,26 +1747,64 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     The results will be stored in the DataFrame res.results_subtrahend
     """
     
+
     
-    print ("[3] Mortality calculations - Subtrahend part...")
+    if re.search(r"SSP[1-5]_ERA5", scenario):
+        MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, regions, res)
+        
+    else:
+        MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, regions, res)
+
+
+
+def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, regions, res):
     
-    BASE_YEARS = range(2001,2011)
+    """
+    Calculate mortality effects from non optimal temperatures (eecond term of equation 2 from 
+    the paper). This term helps to isolate the role of climate change from changes in 
+    temperature-induced mortality that arise due to income growth (see section II of the paper).
     
-    print("[3.1] Loading present-day temperature data...")
+    The code will always calculate the "present day mortality" defined ass the mortality from 2000 
+    to 2010 adn depending whether the adaptation option is on or off, the ERF without adaptation 
+    will be imported or new ERF functions will be generated (see equations 2' and 2a' from Carleton 
+    et al).
     
-    # Import present day temperatures
-    daily_temp_t0 = ImportPresentDayTemperatures(wdir, temp_dir, scenario, BASE_YEARS, res.ir, res.spatial_relation)
+    The code will then calculate mortality using the MortalityFromTemperatureIndex and MortalityToRegions
+    functions, and store it in the DataFrame res.results_subtrahend
+    
+    Parameters:
+    ----------
+    wdir : str
+        Path to main working directory
+    year : int
+        Year to generate ERFs (if adaptation is on)
+    scenario : str
+        Socioeconomic scenario used if adaptation is on
+    temp_dir : str
+        Path where climate data is stored
+    adaptation : any
+        None OR dictionary wiht adaptation parameters
+    regions : str
+        Region classification name
+    res : class
+        class with input data
+        
+    Returns:
+    ----------
+    None
+    The results will be stored in the DataFrame res.results_subtrahend
+    """
     
     # Clip daily temperatures to the range of the ERFs
     min_temp = res.T[0]
     max_temp = res.T[-1]
-    daily_temp_t0 = {key: np.clip(arr, min_temp, max_temp) 
-               for key, arr in daily_temp_t0.items()}
+    DAILY_TEMP_T0 = {key: np.clip(arr, min_temp, max_temp) 
+                     for key, arr in res.daily_temp_t0.items()}
 
     # Convert ALL daily temperatures to temperature indices
     temp_idx_t0 = {
         key: np.round(((arr - min_temp) * 10)).astype(int)
-        for key, arr in daily_temp_t0.items()
+        for key, arr in DAILY_TEMP_T0.items()
         } 
        
     # Create rows array for indexing
@@ -1781,9 +1827,85 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
         
     print("[3.3] Calculating present-day mortality...")
     
-    for year in years:
+    for year in res.base_years:
         
-        daily_temp = daily_temp_t0[year]
+        daily_temp = DAILY_TEMP_T0[year]
+        temp_idx = temp_idx_t0[year]
+        
+        MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
+                                                 regions, year, res, "subtrahend")  
+        
+        
+        
+def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, regions, res):
+    
+    """
+    Calculate mortality effects from non optimal temperatures (eecond term of equation 2 from 
+    the paper). This term helps to isolate the role of climate change from changes in 
+    temperature-induced mortality that arise due to income growth (see section II of the paper).
+    
+    The code will always calculate the "present day mortality" defined ass the mortality from 2000 
+    to 2010 adn depending whether the adaptation option is on or off, the ERF without adaptation 
+    will be imported or new ERF functions will be generated (see equations 2' and 2a' from Carleton 
+    et al).
+    
+    The code will then calculate mortality using the MortalityFromTemperatureIndex and MortalityToRegions
+    functions, and store it in the DataFrame res.results_subtrahend
+    
+    Parameters:
+    ----------
+    wdir : str
+        Path to main working directory
+    year : int
+        Year to generate ERFs (if adaptation is on)
+    scenario : str
+        Socioeconomic scenario used if adaptation is on
+    temp_dir : str
+        Path where climate data is stored
+    adaptation : any
+        None OR dictionary wiht adaptation parameters
+    regions : str
+        Region classification name
+    res : class
+        class with input data
+        
+    Returns:
+    ----------
+    None
+    The results will be stored in the DataFrame res.results_subtrahend
+    """
+      
+    # Clip daily temperatures to the range of the ERFs
+    min_temp = res.T[0]
+    max_temp = res.T[-1]
+    daily_temp = np.clip(res.daily_temp_t0, min_temp, max_temp)
+
+    # Convert ALL daily temperatures to temperature indices with the min_temp as index 0
+    temp_idx =  np.round(((daily_temp - min_temp) * 10)).astype(int)
+    
+    # Create rows array for indexing
+    rows = np.arange(temp_idx.shape[0])[:, None]
+    
+    print("[3.2] Generating Exposure Response Functions - Subtrahend part...")
+    
+    if adaptation:    
+        erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
+                                          res.spatial_relation, res.age_groups, res.T, res.gammas,
+                                          {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
+                                          res.gdppc_shares, res.image_gdppc)
+        
+        # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
+        for key in erfs_t:
+            erfs_t[key] = np.minimum(erfs_t[key], res.erfs_t0[key])
+        
+    else: 
+        erfs_t, tmin_t = res.erfs_t0, res.tmin_t0
+        
+    print("[3.3] Calculating present-day mortality...")
+    
+    for year in base_years:
+        
+        daily_temp = DAILY_TEMP_T0[year]
         temp_idx = temp_idx_t0[year]
         
         MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
