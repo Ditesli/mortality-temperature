@@ -195,7 +195,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
                                                None, None, None)
     
     # Generate a single time 'present day' ERFs (no adaptation)
-    erfs_t0, tmin_t0 = GenerateERFAll(wdir, temp_dir, scenario, ir, None, spatial_relation, 
+    erfs_t0, tmin_t0, _, _ = GenerateERFAll(wdir, temp_dir, scenario, ir, None, spatial_relation, 
                                             age_groups, T, gammas, None, region_class, None) 
     
     print("[1.5] Loading present-day temperature data...")
@@ -543,11 +543,11 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
         
     Returns:
     ----------
-    pop_groups : dict
+    POPULATION_GROUPS : dict
         Dictionary with population data per age group
     """
     
-    pop_groups = {}
+    POPULATION_GROUPS = {}
     age_pop_names = ['pop0to4', 'pop5to64', 'pop65plus']
     
     for age_group, age_name in zip(age_groups, age_pop_names):
@@ -564,9 +564,9 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
         
         # Change column name type and store in dictionary
         pop.columns = pop.columns.astype(str)
-        pop_groups[age_group] = pop
+        POPULATION_GROUPS[age_group] = pop
     
-    return pop_groups
+    return POPULATION_GROUPS
 
 
 
@@ -587,7 +587,7 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
         
     Returns:
     ----------
-    pop_groups : dict
+    POPULATION_GROUPS : dict
         Dictionary with population data per age group
         
     Data sources:
@@ -599,85 +599,129 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
     """
     
     # Agregate raster IMAGE total population per impact region and year
-    total_population_ir = IMAGEPopulationtoImpactRegion(wdir, ssp, years)
+    TOTAL_POPULATION_IR = IMAGEPopulation2ImpactRegion(wdir, ssp, years)
     
     # Load population data projections per age group to disagregate IMAGE data
-    pop_groups = LoadAgeGroupPopulationData(wdir, ssp, years)
+    POPULATION_GROUPS = LoadAgeGroupPopulationData(wdir, ssp, years)
 
     # Pivot and merge function
     def pivot_and_merge(group_name):
-        df = pop_groups[pop_groups["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
+        df = POPULATION_GROUPS[POPULATION_GROUPS["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
         df = df.rename(columns={c: f"{c}_share" for c in df.columns if isinstance(c, int)})
-        return total_population_ir.merge(df, on="ISO3", how="left")
+        return TOTAL_POPULATION_IR.merge(df, on="ISO3", how="left")
 
     # Create population dataframes for each age group
-    pop_young, pop_older, pop_oldest = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
+    POP_YOUNG, POP_OLDER, POP_OLDEST = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
 
     # Extend 5 year population to age-dependent yearly population data using shares
-    for df in [pop_young, pop_older, pop_oldest]:
-        share_cols = [c for c in df.columns if "share" in c]
+    for pop in [POP_YOUNG, POP_OLDER, POP_OLDEST]:
+        share_cols = [c for c in pop.columns if "share" in c]
         
         for col in share_cols:
-            start_year = int(col.replace("_share", ""))
+            START_YEAR = int(col.replace("_share", ""))
             
             for offset in range(5):
-                target_year = start_year + offset
+                TARGET_YEAR = START_YEAR + offset
                 
-                if str(target_year) in df.columns:
-                    df[str(target_year)] = df[col] * df[str(target_year)]
-    
+                if str(TARGET_YEAR) in pop.columns:
+                    pop[str(TARGET_YEAR)] = pop[col] * pop[str(TARGET_YEAR)]
                     
-    non_share_cols = [c for c in df.columns if "share" not in c]
+    NON_SHARE_COLS = [c for c in pop.columns if "share" not in c]
 
-    return {"young":pop_young[non_share_cols],
-            "older":pop_older[non_share_cols],
-            "oldest":pop_oldest[non_share_cols]}
+    return {"young":POP_YOUNG[NON_SHARE_COLS],
+            "older":POP_OLDER[NON_SHARE_COLS],
+            "oldest":POP_OLDEST[NON_SHARE_COLS]}
     
     
 
 def LoadAgeGroupPopulationData(wdir, ssp, years):
     
     # Load population data projections per 5-year age group
-    pop = pd.read_csv(wdir+"/data/population/IMAGE_pop/pop_shares/wcde_data.csv", 
-                             skiprows=8)
-    pop = pop[(pop['Scenario'] == ssp) & (pop["Year"].isin(years))]
+    POPULATION_5YEAR_AGE = pd.read_csv(wdir+"/data/population/IMAGE_pop/pop_shares/wcde_data.csv", 
+                                       skiprows=8)
+    
+    POPULATION_5YEAR_AGE = CompletePopulationData(POPULATION_5YEAR_AGE)
+    
+    # Select SSP and years
+    POPULATION_5YEAR_AGE = POPULATION_5YEAR_AGE[(POPULATION_5YEAR_AGE['Scenario'] == ssp) & (POPULATION_5YEAR_AGE["Year"].isin(years))]
     
     # Define age groups to classify wcde ages
-    age_groups = {
+    AGE_GROUPS = {
         "young": ['0--4'],
         "older": [f'{i}--{i+4}' for i in range(5, 65, 5)],
         "oldest": [f'{i}--{i+4}' for i in range(65, 100, 5)] + ['100+']
     }
     
     # Assign age group to each age
-    pop['group'] = pop['Age'].map(
-        lambda x: next((grp for grp, ages in age_groups.items() if x in ages), None)
+    POPULATION_5YEAR_AGE.loc[:,'group'] = POPULATION_5YEAR_AGE['Age'].map(
+        lambda x: next((grp for grp, ages in AGE_GROUPS.items() if x in ages), None)
     )
     
     # Aggregate population by group
-    pop_groups = (
-        pop.dropna(subset=['group'])
+    POPULATION_GROUPS = (
+        POPULATION_5YEAR_AGE.dropna(subset=['group'])
            .groupby(['Area', 'Year', 'group'], as_index=False)['Population']
            .sum()
     )
     
     # Total population per area and year
-    pop_total = pop[pop["Age"] == "All"][["Area", "Year", "Population"]].rename(columns={"Population": "Population_total"})
+    # POPULATION_TOTAL = POPULATION_5YEAR_AGE[POPULATION_5YEAR_AGE["Age"] == "All"][["Area", "Year", "Population"]].rename(columns={"Population": "Population_total"})
+    POP_TOTAL = POPULATION_5YEAR_AGE[POPULATION_5YEAR_AGE["Age"] != "All"].groupby(["Area", "Year"])["Population"].sum().reset_index().rename(columns={"Population": "Population_total"})
     
     # Calculate share of each age group
-    pop_groups = pop_groups.merge(pop_total, on=["Area", "Year"])
-    pop_groups["share"] = pop_groups["Population"] / pop_groups["Population_total"]
+    POPULATION_GROUPS = POPULATION_GROUPS.merge(POP_TOTAL, on=["Area", "Year"])
+    POPULATION_GROUPS["share"] = POPULATION_GROUPS["Population"] / POPULATION_GROUPS["Population_total"]
     
     # Convert locations to ISO3
-    unique_locations = pop_groups["Area"].unique()
+    unique_locations = POPULATION_GROUPS["Area"].unique()
     conversion_dict = {loc: coco.convert(names=loc, to='ISO3') for loc in unique_locations}
-    pop_groups['ISO3'] = pop_groups["Area"].map(conversion_dict)
+    POPULATION_GROUPS['ISO3'] = POPULATION_GROUPS["Area"].map(conversion_dict)
     
-    return pop_groups
-  
-        
+    return POPULATION_GROUPS
 
-def IMAGEPopulationtoImpactRegion(wdir, ssp, years):
+
+
+def CompletePopulationData(df):
+    
+    """
+    Fill in missing years in the population data by forward-filling and backward-filling.
+    This ensure that ckountries without data for certain years will have values filled in
+    based on the nearest available data, keeping age group share consistent.
+    """
+
+    
+    # Create a MultiIndex of all combinations of Area, Scenario, and Years
+    UNIQUE_MLTIDX = pd.MultiIndex.from_product(
+        [
+            df["Area"].unique(),
+            df["Scenario"].unique(),
+            df["Year"].unique(),
+            df["Age"].unique()
+        ],
+        names=["Area", "Scenario", "Year", "Age"]
+    )
+    
+    # Reindex the DataFrame to include all combinations, filling missing values with NaN
+    df_full = (
+        df
+        .set_index(["Area", "Scenario", "Year", "Age"])
+        .reindex(UNIQUE_MLTIDX)
+        .reset_index()
+    )
+    
+    # Forward-fill and backward-fill missing values within each Population and Scenario group
+    df_full["Population"] = (
+        df_full
+        .groupby(["Area", "Scenario", "Year", "Age"])["Population"]
+        .transform("bfill")
+        .transform("ffill")
+    )
+    
+    return df_full
+
+                
+
+def IMAGEPopulation2ImpactRegion(wdir, ssp, years):
     
     '''
     Calculate total population per impact region for a specific year from IMAGE land
@@ -704,33 +748,33 @@ def IMAGEPopulationtoImpactRegion(wdir, ssp, years):
     '''
     
     # Read in impact regions shapefile
-    impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
+    IMPACT_REGIONS = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
     
     # Read IMAGE SSP population nc file
-    pop_image = xr.open_dataset(wdir+f"data/population/IMAGE_pop/{ssp.lower()}/GPOP.nc")
+    POP_IMAGE = xr.open_dataset(wdir+f"data/population/IMAGE_pop/{ssp.lower()}/GPOP.nc")
     
     # Ensure CRS is set to EPSG:4326 and align with impact regions
-    pop_image = pop_image.rio.write_crs("EPSG:4326", inplace=False)
-    impact_regions = impact_regions.to_crs(pop_image.rio.crs)
+    POP_IMAGE = POP_IMAGE.rio.write_crs("EPSG:4326", inplace=False)
+    IMPACT_REGIONS = IMPACT_REGIONS.to_crs(POP_IMAGE.rio.crs)
 
     # Select relevant years including "present-day" years (2000-2010)
-    pop_image = pop_image.sel(time=pd.to_datetime([f"{y}-01-01" for y in years]))
+    POP_IMAGE = POP_IMAGE.sel(time=pd.to_datetime([f"{y}-01-01" for y in years]))
     
-    minlength = len(impact_regions) + 1
+    MINLENGTH = len(IMPACT_REGIONS) + 1
 
     # Prepare tuples of (geometry, region_id) for rasterization
-    shapes_and_ids = [(geom, idx) for idx, geom in enumerate(impact_regions.geometry, start=1)]
+    SHAPES_AND_IDS = [(geom, idx) for idx, geom in enumerate(IMPACT_REGIONS.geometry, start=1)]
         
     # Rasterize region polygons once
-    out_shape = pop_image.isel(time=0).GPOP.shape
+    OUT_SHAPE = POP_IMAGE.isel(time=0).GPOP.shape
 
     # Get raster transform 
-    raster_affine = pop_image.rio.transform()    
+    RASTER_AFFINE = POP_IMAGE.rio.transform()    
 
-    pixel_owner = rasterize(
-        shapes_and_ids,
-        out_shape=out_shape,
-        transform=raster_affine,
+    PIXEL_OWNER = rasterize(
+        SHAPES_AND_IDS,
+        out_shape=OUT_SHAPE,
+        transform=RASTER_AFFINE,
         fill=0,          # 0 = without region
         all_touched=False,
         dtype='int32'
@@ -738,24 +782,24 @@ def IMAGEPopulationtoImpactRegion(wdir, ssp, years):
     
     for i, year in enumerate(years):
         
-        raster_data = pop_image.isel(time=i).GPOP.values
+        RASTER_DATA = POP_IMAGE.isel(time=i).GPOP.values
         
         # Mask valid data (NaN = nodata)
-        valid_mask = ~np.isnan(raster_data)
+        VALID_POP_MASK = ~np.isnan(RASTER_DATA)
 
         # Sum population per region using np.bincount in pixels without NaN
-        sums = np.bincount(pixel_owner[valid_mask], 
-                           weights=raster_data[valid_mask], 
-                           minlength=minlength)[1:]  
+        SUMS = np.bincount(PIXEL_OWNER[VALID_POP_MASK], 
+                           weights=RASTER_DATA[VALID_POP_MASK], 
+                           minlength=MINLENGTH)[1:]  
 
         # Add results to impact_regions GeoDataFrame
-        impact_regions[f'{year}'] = sums
+        IMPACT_REGIONS[f'{year}'] = SUMS
     
     # Add ISO3 column
-    impact_regions["ISO3"] = impact_regions["hierid"].str[:3]
+    IMPACT_REGIONS["ISO3"] = IMPACT_REGIONS["hierid"].str[:3]
 
     # Only return regions names and population columns
-    return impact_regions[["hierid", "ISO3"] + [c for c in impact_regions.columns if c.isdigit()]]
+    return IMPACT_REGIONS[["hierid", "ISO3"] + [c for c in IMPACT_REGIONS.columns if c.isdigit()]]
 
 
 
@@ -870,7 +914,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
         
         mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T)
         
-    return mor_np, tmin
+    return mor_np, tmin, climtas, loggdppc
 
 
 
@@ -943,7 +987,7 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
             # Climate data from Carleton not available
             raise ValueError("climtas cannot be 'default'. Provide a directory or set 'tmean_t0'.")
         
-        if adaptation.get("climtas") == "tmean_t0":
+        elif adaptation.get("climtas") == "tmean_t0":
             # Open climate data provided 
             temp_dir = temp_dir
             climtas = ImportPresentDayClimtas(temp_dir, spatial_relation, ir)
@@ -1454,7 +1498,7 @@ def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
         DataFrame with daily mean temperature per impact region for the given year
     """
     
-    print("[2.1] Loading daily temperature data for year", year, "...")
+    print("[2.1] Loading daily temperature data for year", year,"...")
     
     if "ERA5" in scenario:
         # Open daily temperature data from ERA5
@@ -1603,22 +1647,22 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     """
     
     # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
-    MOR_ALL_MIN, MOR_HEAT_MIN, MOR_COLD_MIN = MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, res)
+    MORTALITY_ALL_MIN, MORTALITY_HEAT_MIN, MORTALITY_COLD_MIN, climtas_min, loggdppc_min = MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, res)
 
     # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
-    MOR_ALL_SUB, MOR_HEAT_SUB, MOR_COLD_SUB = MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, res)
+    MORTALITY_ALL_SUB, MORTALITY_HEAT_SUB, MORTALITY_COLD_SUB, climtas_sub, loggdppc_sub  = MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, res)
     
-    print("[2.6] Aggregatin results to", regions, "regions and storing in results dataframe...")
+    print("[2.6] Aggregating results to", regions, "regions and storing in results dataframe...")
     
     # Calculate mortality difference per impact region 
     for group in res.age_groups: 
         
-        MOR_ALL = MOR_ALL_MIN[group] - MOR_ALL_SUB[group]
-        MOR_HEAT = MOR_HEAT_MIN[group] - MOR_HEAT_SUB[group]
-        MOR_COLD = MOR_COLD_MIN[group] - MOR_COLD_SUB[group]
+        MORTALITY_ALL = MORTALITY_ALL_MIN[group] - MORTALITY_ALL_SUB[group]
+        MORTALITY_HEAT = MORTALITY_HEAT_MIN[group] - MORTALITY_HEAT_SUB[group]
+        MORTALITY_COLD = MORTALITY_COLD_MIN[group] - MORTALITY_COLD_SUB[group]
         
         # Aggregate results to selected region classification and store in results dataframe
-        for mode, mor in zip(["All", "Heat", "Cold"], [MOR_ALL, MOR_HEAT, MOR_COLD]):
+        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD]):
             Mortality2Regions(year, group, mor, regions, mode, res)  
 
 
@@ -1675,27 +1719,27 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, res):
     print("[2.2] Generating Exposure Response Functions...")
     
     if adaptation:    
-        ERFS_T, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
+        ERFS_T, TMIN_T, climtas, loggdppc = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas, adaptation,
                                           res.gdppc_shares, res.image_gdppc)
         
         # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
-        for key in ERFS_T:
-            ERFS_T[key] = np.minimum(ERFS_T[key], res.erfs_t0[key])
+        for age_group in ERFS_T:
+            ERFS_T[age_group] = np.minimum(ERFS_T[age_group], res.erfs_t0[age_group])
         
     else: 
-        ERFS_T, tmin_t = res.ERFS_T0, res.tmin_t0
+        ERFS_T, TMIN_T = res.ERFS_T0, res.tmin_t0
     
     print(f"[2.3] Calculating mortality for year {year}...")
     
     
-    MOR_ALL, MOR_HEAT, MOR_COLD = {}, {}, {}
+    MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD = {}, {}, {}
     
     for group in res.age_groups:      
-        MOR_ALL[group], MOR_HEAT[group], MOR_COLD[group] = MortalityFromTemperatureIndex(DAILY_TEMP, TEMP_INDEX, ROWS, 
-                                                                ERFS_T, tmin_t, MIN_TEMP, group)
+        MORTALITY_ALL[group], MORTALITY_HEAT[group], MORTALITY_COLD[group] = MortalityFromTemperatureIndex(DAILY_TEMP, TEMP_INDEX, ROWS, 
+                                                                ERFS_T, TMIN_T, MIN_TEMP, group)
             
-    return MOR_ALL, MOR_HEAT, MOR_COLD                 
+    return MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD, climtas, loggdppc         
 
 
 
@@ -1802,12 +1846,12 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, res):
     """    
     
     if re.search(r"SSP[1-5]_ERA5", scenario):
-        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, res)
+        MORTALITY_ALL, MORTALITY_HOT, MORTALITY_COLD = MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, res)
         
     else:
-        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, res)
+        MORTALITY_ALL, MORTALITY_HOT, MORTALITY_COLD, climtas, loggdppc = MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, res)
         
-    return MOR_ALL, MOR_HOT, MOR_COLD
+    return MORTALITY_ALL, MORTALITY_HOT, MORTALITY_COLD, climtas, loggdppc
 
 
 
@@ -1851,13 +1895,13 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
     # Clip daily temperatures to the range of the ERFs
     min_temp = res.T[0]
     max_temp = res.T[-1]
-    DAILY_TEMP_T0 = {key: np.clip(arr, min_temp, max_temp) 
-                     for key, arr in res.daily_temp_t0.items()}
+    DAILY_TEMP_T0 = {age_group: np.clip(arr, min_temp, max_temp) 
+                     for age_group, arr in res.daily_temp_t0.items()}
 
     # Convert ALL daily temperatures to temperature indices
     temp_idx_t0 = {
-        key: np.round(((arr - min_temp) * 10)).astype(int)
-        for key, arr in DAILY_TEMP_T0.items()
+        age_group: np.round(((arr - min_temp) * 10)).astype(int)
+        for age_group, arr in DAILY_TEMP_T0.items()
         } 
        
     # Create rows array for indexing
@@ -1866,17 +1910,17 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
     print("[3.2] Generating Exposure Response Functions - Subtrahend part...")
     
     if adaptation:    
-        ERFS_T, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
+        ERFS_T, TMIN_T, = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas,
                                           {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
                                           res.gdppc_shares, res.image_gdppc)
         
         # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
-        for key in ERFS_T:
-            ERFS_T[key] = np.minimum(ERFS_T[key], res.erfs_t0[key])
+        for age_group in ERFS_T:
+            ERFS_T[age_group] = np.minimum(ERFS_T[age_group], res.erfs_t0[age_group])
         
     else: 
-        ERFS_T, tmin_t = res.erfs_t0, res.tmin_t0
+        ERFS_T, TMIN_T = res.erfs_t0, res.tmin_t0
         
     print("[3.3] Calculating present-day mortality...")
     
@@ -1885,7 +1929,7 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
         daily_temp = DAILY_TEMP_T0[year]
         temp_idx = temp_idx_t0[year]
         
-        MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, ERFS_T, tmin_t, min_temp, 
+        MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, ERFS_T, TMIN_T, min_temp, 
                                                   year, res, "subtrahend")  
         
     # TODO finish this part with and calculate mean
@@ -1951,26 +1995,26 @@ def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, res
     print("[2.4] Generating Exposure Response Functions - Counterfactual component...")
     
     if adaptation:    
-        ERFS_T, TMIN_T = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
+        ERFS_T, TMIN_T, climtas, loggdppc = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas,
                                           {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
                                           res.gdppc_shares, res.image_gdppc)
         
         # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
-        for key in ERFS_T:
-            ERFS_T[key] = np.minimum(ERFS_T[key], res.erfs_t0[key])
+        for age_group in ERFS_T:
+            ERFS_T[age_group] = np.minimum(ERFS_T[age_group], res.erfs_t0[age_group])
         
     else: 
         ERFS_T, TMIN_T = res.erfs_t0, res.tmin_t0
         
     print("[2.5] Calculating counterfactual mortality for year", year,"...")
     
-    MOR_ALL, MOR_HEAT, MOR_COLD = {}, {}, {}
+    MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD = {}, {}, {}
     for group in res.age_groups:      
-        MOR_ALL[group], MOR_HEAT[group], MOR_COLD[group] = MortalityFromTemperatureIndex(DAY_TEMP_T0, TEMP_IDX, ROWS, 
+        MORTALITY_ALL[group], MORTALITY_HEAT[group], MORTALITY_COLD[group] = MortalityFromTemperatureIndex(DAY_TEMP_T0, TEMP_IDX, ROWS, 
                                                                  ERFS_T,TMIN_T, MIN_TEMP, group)
             
-    return MOR_ALL, MOR_HEAT, MOR_COLD
+    return MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD, climtas, loggdppc
 
     
 
@@ -2105,17 +2149,17 @@ def Mortality2Regions(year, group, mor, regions, mode, res):
     """
     
     # Create a copy of region classification dataframe
-    regions_df = res.region_class[["hierid", regions]]
+    REGIONS_CLASS = res.region_class[["hierid", regions]]
     
     # Calculate total mortality difference per region
-    regions_df["mor"] = (mor * res.pop[group][f"{year}"] /1e5)
+    REGIONS_CLASS["mor"] = (mor * res.pop[group][f"{year}"] /1e5)
     
     # Group total mortality per selected region definition
-    regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
+    REGIONS_CLASS = REGIONS_CLASS.drop(columns=["hierid"]).groupby(regions).sum()
     
     # Locate results in dataframe
     regions_index = res.results.loc[(group, mode), year].index
-    res.results.loc[(group, mode), year] = (regions_df["mor"].reindex(regions_index)).values
+    res.results.loc[(group, mode), year] = (REGIONS_CLASS["mor"].reindex(regions_index)).values
     
 
 
@@ -2150,5 +2194,5 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation):
         project = ""
         
     # Save results to CSV                
-    results.to_csv(wdir+f"output/{project}{scenario}_carleton_mortality{adapt}_{years[0]}-{years[-1]}.csv", 
+    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
                    index=False) 
