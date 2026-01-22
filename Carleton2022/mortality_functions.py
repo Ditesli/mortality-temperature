@@ -82,11 +82,8 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
     # Iterate over years
     for year in years:
         
-        # Read daily temperature data from specified source
-        daily_temp = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
-        
         #Calculate mortality per region and year 
-        CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res)
+        CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, regions, res)
         
     # Post process and save
     PostprocessResults(wdir, years, res.results, scenario, IAM_format, adaptation)
@@ -1574,13 +1571,42 @@ def ERA5Temperature2IR(climate_path, year, ir, spatial_relation):
 
 
 
-def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res):
+def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, regions, res):
+    
+    """
+    The code calculates equaiton 2a or 2c from the paper, depending whether adaptation is on or off.
+    1. It first calculates the first part of the equation (called minuend here) and then the second part 
+    (the conterfactual mortality called subtrahend here).
+    2. The substraction is done per impact region, age group, and type of temperature (all, heat, cold).
+    3. Finally, it will agregate the results spatially to the selected region classification (IMAGE26, ISO3...)
+    
+    Parameters:
+    ----------
+    wdir : str
+        Main working directory
+    year : int
+        Year to calculate mortality
+    scenario : str
+        Scenario
+    temp_dir : str
+        Path where climate data is stored
+    adaptation : dic
+        Dictionary with the adaptation parameters
+    regions : str
+        Name of the region classification
+    res : class
+        Class where the input files are called
+    Returns:
+    ----------
+    None
+    The function will append the results in the DataFrame called results
+    """
     
     # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
-    MOR_ALL_MIN, MOR_HEAT_MIN, MOR_COLD_MIN = MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res)
+    MOR_ALL_MIN, MOR_HEAT_MIN, MOR_COLD_MIN = MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, res)
 
     # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
-    MOR_ALL_SUB, MOR_HEAT_SUB, MOR_COLD_SUB = MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regions, res)
+    MOR_ALL_SUB, MOR_HEAT_SUB, MOR_COLD_SUB = MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, res)
     
     print("[2.6] Aggregatin results to", regions, "regions and storing in results dataframe...")
     
@@ -1593,12 +1619,11 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, daily_
         
         # Aggregate results to selected region classification and store in results dataframe
         for mode, mor in zip(["All", "Heat", "Cold"], [MOR_ALL, MOR_HEAT, MOR_COLD]):
-            
             Mortality2Regions(year, group, mor, regions, mode, res)  
 
 
 
-def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res):
+def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, res):
     
     """
     Calculate mortality effects from non optimal temperatures (first term of equation 2 from paper).
@@ -1607,8 +1632,6 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
     The daily temperature data will be converted to indices based on the range of T.
     Mortality per impact region will be calculated per age group and temperature type (all, heat and cold) 
     in the MortalityFromTemperatureIndex function.
-    Finally, it will agregate the results spatially to the selected region classification (IMAGE26 or 
-    countries...)
     
     Parameters:
     ----------
@@ -1634,6 +1657,9 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
     None
     The function will appedn the results in the DataFrame called results minuend
     """
+    
+    # Read daily temperature data from specified source
+    daily_temp = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
     
     # Clip daily temperatures to the range of the ERFs
     MIN_TEMP = res.T[0]
@@ -1738,7 +1764,7 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
 
 
 
-def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regions, res):
+def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, res):
     
     """
     Calculate mortality effects from non optimal temperatures (eecond term of equation 2 from 
@@ -1776,16 +1802,16 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     """    
     
     if re.search(r"SSP[1-5]_ERA5", scenario):
-        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, regions, res)
+        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, res)
         
     else:
-        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, regions, res)
+        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, res)
         
     return MOR_ALL, MOR_HOT, MOR_COLD
 
 
 
-def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, regions, res):
+def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, res):
     
     """
     Calculate mortality effects from non optimal temperatures (eecond term of equation 2 from 
@@ -1860,7 +1886,7 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
         temp_idx = temp_idx_t0[year]
         
         MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, ERFS_T, tmin_t, min_temp, 
-                                                 regions, year, res, "subtrahend")  
+                                                  year, res, "subtrahend")  
         
     # TODO finish this part with and calculate mean
     #for group in res.age_groups:      
@@ -1869,7 +1895,7 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
         
         
         
-def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, regions, res):
+def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, res):
     
     """
     Calculate mortality effects from non optimal temperatures (eecond term of equation 2 from 
