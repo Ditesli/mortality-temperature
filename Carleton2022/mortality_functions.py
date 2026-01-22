@@ -77,7 +77,7 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(wdir, temp_dir, regions, scenario, years, temp_dir, adaptation)  
         
-    print("[2] Starting mortality calculations - Part 1...")
+    print("[2] Starting mortality calculations...")
         
     # Iterate over years
     for year in years:
@@ -85,14 +85,11 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
         # Read daily temperature data from specified source
         daily_temp = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
         
-        # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
-        MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res)
-    
-    # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
-    MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regions, res)
-     
+        #Calculate mortality per region and year 
+        CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res)
+        
     # Post process and save
-    PostprocessResults(wdir, years, res.results_minuend, res.results_subtrahend, scenario, IAM_format, adaptation)
+    PostprocessResults(wdir, years, res.results, scenario, IAM_format, adaptation)
     
     
     
@@ -103,8 +100,7 @@ class LoadInputData:
     spatial_relation: gpd.GeoDataFrame
     ir: pd.DataFrame
     region_class: pd.DataFrame
-    results_minuend: pd.DataFrame
-    results_subtrahend: pd.DataFrame
+    results: pd.DataFrame
     gammas: any
     pop: pd.DataFrame
     climtas_t0: np.ndarray
@@ -188,8 +184,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     region_class = SelectRegions(wdir, regions)
 
     # Create results dataframe
-    results_minuend = FinalDataframe(regions, region_class, age_groups, years)
-    results_subtrahend = FinalDataframe(regions, region_class, age_groups, range(2000,2011))
+    RESULTS = FinalDataframe(regions, region_class, age_groups, years)
     
     # Import gamma coefficients
     gammas = ImportGammaCoefficients(wdir)
@@ -243,8 +238,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         spatial_relation=spatial_relation,
         ir=ir,
         region_class=region_class,
-        results_minuend=results_minuend,
-        results_subtrahend = results_subtrahend,
+        results=RESULTS,
         gammas = gammas,
         pop = pop,
         climtas_t0 = climtas_t0,
@@ -443,7 +437,7 @@ def FinalDataframe(regions, region_class, age_groups, years):
     unique_regions = region_class[f"{regions}"].unique()
     unique_regions = unique_regions[~pd.isna(unique_regions)]
     
-    t_types = ["Hot", "Cold", "All"]
+    t_types = ["Heat", "Cold", "All"]
     
     # Create results multiindex dataframe
     results = pd.DataFrame(index=pd.MultiIndex.from_product([age_groups, t_types, unique_regions],
@@ -1577,8 +1571,32 @@ def ERA5Temperature2IR(climate_path, year, ir, spatial_relation):
     day_temp_df_rounded.insert(0, "hierid", ir)
     
     return day_temp_df_rounded
+
+
+
+def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res):
     
+    # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
+    MOR_ALL_MIN, MOR_HEAT_MIN, MOR_COLD_MIN = MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res)
+
+    # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
+    MOR_ALL_SUB, MOR_HEAT_SUB, MOR_COLD_SUB = MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regions, res)
     
+    print("[2.6] Aggregatin results to", regions, "regions and storing in results dataframe...")
+    
+    # Calculate mortality difference per impact region 
+    for group in res.age_groups: 
+        
+        MOR_ALL = MOR_ALL_MIN[group] - MOR_ALL_SUB[group]
+        MOR_HEAT = MOR_HEAT_MIN[group] - MOR_HEAT_SUB[group]
+        MOR_COLD = MOR_COLD_MIN[group] - MOR_COLD_SUB[group]
+        
+        # Aggregate results to selected region classification and store in results dataframe
+        for mode, mor in zip(["All", "Heat", "Cold"], [MOR_ALL, MOR_HEAT, MOR_COLD]):
+            
+            Mortality2Regions(year, group, mor, regions, mode, res)  
+
+
 
 def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_temp, regions, res):
     
@@ -1618,82 +1636,40 @@ def MortalityEffectsMinuend(wdir, year, scenario, temp_dir, adaptation, daily_te
     """
     
     # Clip daily temperatures to the range of the ERFs
-    min_temp = res.T[0]
-    max_temp = res.T[-1]
-    daily_temp = np.clip(daily_temp, min_temp, max_temp)
+    MIN_TEMP = res.T[0]
+    MAX_TEMP = res.T[-1]
+    DAILY_TEMP = np.clip(daily_temp, MIN_TEMP, MAX_TEMP)
 
     # Convert ALL daily temperatures to temperature indices with the min_temp as index 0
-    temp_idx =  np.round(((daily_temp - min_temp) * 10)).astype(int)
+    TEMP_INDEX =  np.round(((DAILY_TEMP - MIN_TEMP) * 10)).astype(int)
     
     # Create rows array for indexing
-    rows = np.arange(temp_idx.shape[0])[:, None]
+    ROWS = np.arange(TEMP_INDEX.shape[0])[:, None]
     
     print("[2.2] Generating Exposure Response Functions...")
     
     if adaptation:    
-        erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
+        ERFS_T, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas, adaptation,
                                           res.gdppc_shares, res.image_gdppc)
         
         # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
-        for key in erfs_t:
-            erfs_t[key] = np.minimum(erfs_t[key], res.erfs_t0[key])
+        for key in ERFS_T:
+            ERFS_T[key] = np.minimum(ERFS_T[key], res.erfs_t0[key])
         
     else: 
-        erfs_t, tmin_t = res.erfs_t0, res.tmin_t0
+        ERFS_T, tmin_t = res.ERFS_T0, res.tmin_t0
     
     print(f"[2.3] Calculating mortality for year {year}...")
     
-    MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
-                                                 regions, year, res, "minuend")          
-            
-                
-                
-def MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
-                                                 regions, year, res, part):
     
-    """
-    Calculate mortality from non optimal temperatures for either minuend and subtrahend parts.
-    The mrotality will be calculated using the temperature indices and the ERFs provided as input
-    for the three age groups. Later, it will aggregate the results spatially to the selected 
-    region classification in the MortalityToRegions function and will append the results in the
-    final dataframe.
-    Parameters:
-    ----------
-    daily_temp : np.ndarray
-        Array with the daily temperatures per impact region for a given region
-    temp_idx : np.ndarray
-        Array with the daily temperature indices per impact region for a given region
-    rows : np.ndarray
-        Array with the row indices for indexing
-    erfs_t : dic
-        Dictionary with the Exposure Response Functions per age group
-    tmin_t : dic    
-        Dictionary with the minimum mortality temperature per age group
-    min_temp : float
-        Minimum temperature of the ERFs
-    regions : str
-        Name of the region classification
-    year : int
-        Year to calculate mortality
-    res : class
-        Class where the input files are called
-    part : str  
-        "minuend" or "subtrahend" to store results in the corresponding DataFrame
-    Returns:
-    ----------
-    None
-    The function will appedn the results in the DataFrame called results minuend or subtrahend
-    """
+    MOR_ALL, MOR_HEAT, MOR_COLD = {}, {}, {}
     
     for group in res.age_groups:      
-            mor_all, mor_hot, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, 
-                                                                 erfs_t, tmin_t, min_temp, group)
+        MOR_ALL[group], MOR_HEAT[group], MOR_COLD[group] = MortalityFromTemperatureIndex(DAILY_TEMP, TEMP_INDEX, ROWS, 
+                                                                ERFS_T, tmin_t, MIN_TEMP, group)
             
-            # Calculate mortality difference per region and store in results dataframe
-            for mode, mor in zip(["All", "Hot", "Cold"], [mor_all, mor_hot, mor_cold]):
-                MortalityToRegions(year, group, mor, regions, mode, res, part)  
-        
+    return MOR_ALL, MOR_HEAT, MOR_COLD                 
 
 
 
@@ -1774,8 +1750,7 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     will be imported or new ERF functions will be generated (see equations 2' and 2a' from Carleton 
     et al).
     
-    The code will then calculate mortality using the MortalityFromTemperatureIndex and MortalityToRegions
-    functions, and store it in the DataFrame res.results_subtrahend
+    The code will then calculate mortality from heat, cold and all-mortality.
     
     Parameters:
     ----------
@@ -1799,13 +1774,14 @@ def MortalityEffectsSubtrahend(wdir, year, scenario, temp_dir, adaptation, regio
     None
     The results will be stored in the DataFrame res.results_subtrahend
     """    
-
     
     if re.search(r"SSP[1-5]_ERA5", scenario):
-        MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, regions, res)
+        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, regions, res)
         
     else:
-        MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, regions, res)
+        MOR_ALL, MOR_HOT, MOR_COLD = MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, regions, res)
+        
+    return MOR_ALL, MOR_HOT, MOR_COLD
 
 
 
@@ -1821,8 +1797,7 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
     will be imported or new ERF functions will be generated (see equations 2' and 2a' from Carleton 
     et al).
     
-    The code will then calculate mortality using the MortalityFromTemperatureIndex and MortalityToRegions
-    functions, and store it in the DataFrame res.results_subtrahend
+    The code will then calculate mortality and store it in the DataFrame res.results_subtrahend
     
     Parameters:
     ----------
@@ -1865,17 +1840,17 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
     print("[3.2] Generating Exposure Response Functions - Subtrahend part...")
     
     if adaptation:    
-        erfs_t, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
+        ERFS_T, tmin_t = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas,
                                           {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")},
                                           res.gdppc_shares, res.image_gdppc)
         
         # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
-        for key in erfs_t:
-            erfs_t[key] = np.minimum(erfs_t[key], res.erfs_t0[key])
+        for key in ERFS_T:
+            ERFS_T[key] = np.minimum(ERFS_T[key], res.erfs_t0[key])
         
     else: 
-        erfs_t, tmin_t = res.erfs_t0, res.tmin_t0
+        ERFS_T, tmin_t = res.erfs_t0, res.tmin_t0
         
     print("[3.3] Calculating present-day mortality...")
     
@@ -1884,8 +1859,13 @@ def MortalityEffectsSubtrahendERA5(wdir, year, scenario, temp_dir, adaptation, r
         daily_temp = DAILY_TEMP_T0[year]
         temp_idx = temp_idx_t0[year]
         
-        MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, erfs_t, tmin_t, min_temp, 
+        MortalityFromTemperatureMinuendSubtrahend(daily_temp, temp_idx, rows, ERFS_T, tmin_t, min_temp, 
                                                  regions, year, res, "subtrahend")  
+        
+    # TODO finish this part with and calculate mean
+    #for group in res.age_groups:      
+           # mor_all, mor_heat, mor_cold = MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, 
+                    #                                             erfs_t, tmin_t, min_temp, group)
         
         
         
@@ -1901,7 +1881,7 @@ def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, reg
     will be imported or new ERF functions will be generated (see equations 2' and 2a' from Carleton 
     et al).
     
-    The code will then calculate mortality using the MortalityFromTemperatureIndex and MortalityToRegions
+    The code will then calculate mortality using the MortalityFromTemperatureIndex and Mortality2Regions
     functions, and store it in the DataFrame res.results_subtrahend
     
     Parameters:
@@ -1940,9 +1920,9 @@ def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, reg
     TEMP_IDX =  np.round(((DAY_TEMP_T0 - MIN_TEMP) * 10)).astype(int)
     
     # Create rows array for indexing
-    rows = np.arange(TEMP_IDX.shape[0])[:, None]
+    ROWS = np.arange(TEMP_IDX.shape[0])[:, None]
     
-    print("[] Generating Exposure Response Functions - Counterfactual component...")
+    print("[2.4] Generating Exposure Response Functions - Counterfactual component...")
     
     if adaptation:    
         ERFS_T, TMIN_T = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
@@ -1957,10 +1937,14 @@ def MortalityEffectsSubtrahendMS(wdir, year, scenario, temp_dir, adaptation, reg
     else: 
         ERFS_T, TMIN_T = res.erfs_t0, res.tmin_t0
         
-    print("[3.3] Calculating 'present-day' mortality...")
-        
-    MortalityFromTemperatureMinuendSubtrahend(DAY_TEMP_T0, TEMP_IDX, rows, ERFS_T, TMIN_T, MIN_TEMP, 
-                                                regions, year, res, "subtrahend")  
+    print("[2.5] Calculating counterfactual mortality for year", year,"...")
+    
+    MOR_ALL, MOR_HEAT, MOR_COLD = {}, {}, {}
+    for group in res.age_groups:      
+        MOR_ALL[group], MOR_HEAT[group], MOR_COLD[group] = MortalityFromTemperatureIndex(DAY_TEMP_T0, TEMP_IDX, ROWS, 
+                                                                 ERFS_T,TMIN_T, MIN_TEMP, group)
+            
+    return MOR_ALL, MOR_HEAT, MOR_COLD
 
     
 
@@ -1972,7 +1956,7 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     1. It takes the temperature indices calculated one function outside and are used as input to
     locate the corresponding mortality value from the ERF array. 
     2. It sums the daily mortality values to the annual level
-    3. Separates the daily temperatures into temperatures above the tmin (hot temperatures) and 
+    3. Separates the daily temperatures into temperatures above the tmin (Heat temperatures) and 
     below the tmin (cold temperature) and repeats steps 2 and 3 for these temperature types.
 
     Parameters:
@@ -1996,9 +1980,9 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     Returns:
     ---------
     result_all : np.ndarray
-        Annual relative mortality from all Non-Optimal temperatures (hot and cold)
+        Annual relative mortality from all Non-Optimal temperatures (Heat and cold)
     result_heat : np.ndarray
-        Annual relative mortality from hot non-optimal temperatures
+        Annual relative mortality from heat non-optimal temperatures
     results_cold : np.ndarray
         Annual relative mortality from cold non-optimal temperatures
     """
@@ -2013,7 +1997,7 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     tmin = tmin[group][:, None]
 
     # Generate temperature indices for temepratures over tmin and calculate mortality
-    temp_heat_idx = TemperatureIndexHeatAndCold(daily_temp, tmin, "hot", min_temp)
+    temp_heat_idx = TemperatureIndexHeatAndCold(daily_temp, tmin, "heat", min_temp)
     result_heat = erfs[group][rows, temp_heat_idx]
     result_heat = result_heat.sum(axis=1)
     
@@ -2022,7 +2006,7 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     result_cold = erfs[group][rows, temp_cold_idx]
     result_cold = result_cold.sum(axis=1)
     
-    # Sum hot and cold mortality to get all mortality
+    # Sum heat and cold mortality to get all mortality
     result_all = result_cold + result_heat
     
     return result_all, result_heat, result_cold        
@@ -2041,20 +2025,20 @@ def TemperatureIndexHeatAndCold(temp_matrix, threshold, condition, min_temperatu
     temp_matrix : np.ndarray
         Daily temperature array (rows: imapct regions, columns: days)
     threshold : np.ndarray
-        Threshold to split into hot and cold temperatures (tmin)
+        Threshold to split into heat and cold temperatures (tmin)
     condition : str
-        Condition to reteive either hot or cold
+        Condition to reteive either heat or cold
     min_temp : float
         Float with the minimum temperature from T = -40.0
         
     Returns:
     ----------
     idx : np.ndarray
-        Array with temperature indices of either cold or hot temp.
+        Array with temperature indices of either cold or heat temp.
     """
     
     # Mas temperatures for heat and cold effects
-    if condition == "hot":
+    if condition == "heat":
         masked = np.where(temp_matrix > threshold, temp_matrix, threshold)
         
     elif condition == "cold":
@@ -2067,11 +2051,12 @@ def TemperatureIndexHeatAndCold(temp_matrix, threshold, condition, min_temperatu
 
 
 
-def MortalityToRegions(year, group, mor, regions, mode, res, substraction):
+def Mortality2Regions(year, group, mor, regions, mode, res):
     
     """
     Aggregate spatially the annual relative mortality from the impact region level
-    to the region classification chosen.
+    to the region classification chosen and locate the results of mortality from heat, cold and
+    all-type mortality in the final results dataframe.
     
     Parameters:
     ----------
@@ -2084,22 +2069,14 @@ def MortalityToRegions(year, group, mor, regions, mode, res, substraction):
     regions : str
         Region classification name
     mode : str
-        Determine type of temperature (Hot, Cold or All)
+        Determine type of temperature (Heat, Cold or All)
     res : class
-        Class with input data
-    substraction : str
-        Either minuend or subtrahend
         
     Returns:
     ----------
     None
     Results are stored in the results DataFrame
     """
-    
-    if substraction == "minuend":
-        results = res.results_minuend
-    else:
-        results = res.results_subtrahend
     
     # Create a copy of region classification dataframe
     regions_df = res.region_class[["hierid", regions]]
@@ -2111,12 +2088,12 @@ def MortalityToRegions(year, group, mor, regions, mode, res, substraction):
     regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
     
     # Locate results in dataframe
-    regions_index = results.loc[(group, mode), year].index
-    results.loc[(group, mode), year] = (regions_df["mor"].reindex(regions_index)).values
+    regions_index = res.results.loc[(group, mode), year].index
+    res.results.loc[(group, mode), year] = (regions_df["mor"].reindex(regions_index)).values
     
 
 
-def PostprocessResults(wdir, years, results_minuend, results_subtrahend, scenario, IAM_format, adaptation):
+def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation):
     
     """
     Postprocess final results and save to CSV file in output folder.
@@ -2124,10 +2101,6 @@ def PostprocessResults(wdir, years, results_minuend, results_subtrahend, scenari
     2. If IAM format is on, change the format of the results to match the IAM one
     3. Save results in main working directory
     """
-    
-    results_subtrahend = results_subtrahend.mean(axis=1)
-    
-    results = results_minuend.subtract(results_subtrahend, axis=0)
     
     print("[4] Postprocessing and saving results...")
     
@@ -2143,7 +2116,7 @@ def PostprocessResults(wdir, years, results_minuend, results_subtrahend, scenari
     results = results.rename(columns={"IMAGE26": "region"})
     
     if adaptation:
-        adapt = "_"
+        adapt = ""
         gdp_dir = adaptation.get("loggdppc")
         project = re.split(r"[\\/]", gdp_dir)[-1]+"_"
     else:
