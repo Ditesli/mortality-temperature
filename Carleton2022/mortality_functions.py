@@ -1860,60 +1860,27 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     # result_all = result_all.sum(axis=1)
 
     # Extract tmin values for the given age group
-    tmin = tmin[group][:, None]
+    TMIN = tmin[group][:, None]
 
     # Generate temperature indices for temepratures over tmin and calculate mortality
-    temp_heat_idx = TemperatureIndexHeatAndCold(daily_temp, tmin, "heat", min_temp)
-    result_heat = erfs[group][rows, temp_heat_idx]
-    result_heat = result_heat.sum(axis=1)
+    MASK_HEAT = np.where(daily_temp > tmin, daily_temp, TMIN)
+    # Convert temperatures to indices where TMIN is idx 0
+    TEMP_HEAT_IDX = np.round((MASK_HEAT - min_temp) * 10).astype(int)
+    # Calculate mortality from heat temperatures
+    MORTALITY_HEAT = erfs[group][rows, TEMP_HEAT_IDX]
+    # Sum mortality from heat across all days
+    ANNUAL_MORTALITY_HEAT = MORTALITY_HEAT.sum(axis=1)
     
     # Generate temperature indices for temepratures below tmin and calculate mortality
-    temp_cold_idx = TemperatureIndexHeatAndCold(daily_temp, tmin, "cold", min_temp) 
-    result_cold = erfs[group][rows, temp_cold_idx]
-    result_cold = result_cold.sum(axis=1)
+    MASK_COLD = np.where(daily_temp < tmin, daily_temp, TMIN)
+    TEMP_COLD_IDX = np.round((MASK_COLD - min_temp) * 10).astype(int)
+    MORTALITY_COLD = erfs[group][rows, TEMP_COLD_IDX]
+    ANNUAL_MORTALITY_COLD = MORTALITY_COLD.sum(axis=1)
     
     # Sum heat and cold mortality to get all mortality
-    result_all = result_cold + result_heat
+    ANNUAL_MORTALITY = ANNUAL_MORTALITY_COLD + ANNUAL_MORTALITY_HEAT
     
-    return result_all, result_heat, result_cold        
-
-
-
-def TemperatureIndexHeatAndCold(temp_matrix, threshold, condition, min_temperature):
-    
-    """
-    Mask temperatures based on the tmin threshold, filling others with threshold value
-    This ensures that temperatures that do not meet the condition will result in the minimum
-    temperature and the corresponding null mortality from the ERF (exposure response function).
-    
-    Parameters:
-    ----------
-    temp_matrix : np.ndarray
-        Daily temperature array (rows: imapct regions, columns: days)
-    threshold : np.ndarray
-        Threshold to split into heat and cold temperatures (tmin)
-    condition : str
-        Condition to reteive either heat or cold
-    min_temp : float
-        Float with the minimum temperature from T = -40.0
-        
-    Returns:
-    ----------
-    idx : np.ndarray
-        Array with temperature indices of either cold or heat temp.
-    """
-    
-    # Mas temperatures for heat and cold effects
-    if condition == "heat":
-        masked = np.where(temp_matrix > threshold, temp_matrix, threshold)
-        
-    elif condition == "cold":
-        masked = np.where(temp_matrix < threshold, temp_matrix, threshold)
-    
-    # Convert masked temperatures to temperature indices
-    idx = np.round((masked - min_temperature) * 10).astype(int)
-    
-    return idx
+    return ANNUAL_MORTALITY, ANNUAL_MORTALITY_HEAT, ANNUAL_MORTALITY_COLD     
 
 
 
