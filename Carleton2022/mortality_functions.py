@@ -615,16 +615,32 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
 
     # Extend 5 year population to age-dependent yearly population data using shares
     for pop in [POP_YOUNG, POP_OLDER, POP_OLDEST]:
-        share_cols = [c for c in pop.columns if "share" in c]
         
-        for col in share_cols:
-            START_YEAR = int(col.replace("_share", ""))
+        SHARE_COLS = [c for c in pop.columns if c.endswith("_share")]
+        
+        YEARS5 = [int(c.split("_")[0]) for c in SHARE_COLS]
+        YEARS_ALL = range(min(YEARS5), max(YEARS5) + 1)
+        
+        SHARES = pop[SHARE_COLS].copy()
+        
+        SHARES.columns = YEARS5
+        
+        SHARES = (
+            SHARES
+            .reindex(columns=YEARS_ALL)
+            .interpolate(axis=1, method="linear")
+        )
+        
+        SHARES.columns = [f"{y}_share" for y in SHARES.columns]
+        
+        SHARES_POP = pd.concat([pop.drop(columns=SHARE_COLS), SHARES], axis=1)
+        
+        for y in years:
+            share_col = f"{y}_share"
+            year_col = str(y)
             
-            for offset in range(5):
-                TARGET_YEAR = START_YEAR + offset
-                
-                if str(TARGET_YEAR) in pop.columns:
-                    pop[str(TARGET_YEAR)] = pop[col] * pop[str(TARGET_YEAR)]
+            if year_col in SHARES_POP.columns:
+                pop[str(y)] = SHARES_POP[share_col] * SHARES_POP[year_col]
                     
     NON_SHARE_COLS = [c for c in pop.columns if "share" not in c]
 
@@ -1671,7 +1687,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         MORTALITY_COLD = MORTALITY_COLD_MIN[group] - MORTALITY_COLD_SUB[group]
         
         # Aggregate results to selected region classification and store in results dataframe
-        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD]):
+        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL_MIN[group], MORTALITY_HEAT_MIN[group], MORTALITY_COLD_MIN[group]]):
             Mortality2Regions(year, group, mor, regions, mode, res)  
             
             
@@ -1863,7 +1879,7 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     TMIN = tmin[group][:, None]
 
     # Generate temperature indices for temepratures over tmin and calculate mortality
-    MASK_HEAT = np.where(daily_temp > tmin, daily_temp, TMIN)
+    MASK_HEAT = np.where(daily_temp > TMIN, daily_temp, TMIN)
     # Convert temperatures to indices where TMIN is idx 0
     TEMP_HEAT_IDX = np.round((MASK_HEAT - min_temp) * 10).astype(int)
     # Calculate mortality from heat temperatures
@@ -1872,7 +1888,7 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     ANNUAL_MORTALITY_HEAT = MORTALITY_HEAT.sum(axis=1)
     
     # Generate temperature indices for temepratures below tmin and calculate mortality
-    MASK_COLD = np.where(daily_temp < tmin, daily_temp, TMIN)
+    MASK_COLD = np.where(daily_temp < TMIN, daily_temp, TMIN)
     TEMP_COLD_IDX = np.round((MASK_COLD - min_temp) * 10).astype(int)
     MORTALITY_COLD = erfs[group][rows, TEMP_COLD_IDX]
     ANNUAL_MORTALITY_COLD = MORTALITY_COLD.sum(axis=1)
@@ -1921,8 +1937,8 @@ def Mortality2Regions(year, group, mor, regions, mode, res):
     REGIONS_CLASS = REGIONS_CLASS.drop(columns=["hierid"]).groupby(regions).sum()
     
     # Locate results in dataframe
-    regions_index = res.results.loc[(group, mode), year].index
-    res.results.loc[(group, mode), year] = (REGIONS_CLASS["mor"].reindex(regions_index)).values
+    REGIONS_INDEX = res.results.loc[(group, mode), year].index
+    res.results.loc[(group, mode), year] = (REGIONS_CLASS["mor"].reindex(REGIONS_INDEX)).values
     
 
 
@@ -1957,5 +1973,5 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation):
         project = ""
         
     # Save results to CSV                
-    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
+    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}_MIN.csv", 
                    index=False) 
