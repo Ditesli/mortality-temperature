@@ -614,33 +614,9 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
     POP_YOUNG, POP_OLDER, POP_OLDEST = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
 
     # Extend 5 year population to age-dependent yearly population data using shares
-    for pop in [POP_YOUNG, POP_OLDER, POP_OLDEST]:
-        
-        SHARE_COLS = [c for c in pop.columns if c.endswith("_share")]
-        
-        YEARS5 = [int(c.split("_")[0]) for c in SHARE_COLS]
-        YEARS_ALL = range(min(YEARS5), max(YEARS5) + 1)
-        
-        SHARES = pop[SHARE_COLS].copy()
-        
-        SHARES.columns = YEARS5
-        
-        SHARES = (
-            SHARES
-            .reindex(columns=YEARS_ALL)
-            .interpolate(axis=1, method="linear")
-        )
-        
-        SHARES.columns = [f"{y}_share" for y in SHARES.columns]
-        
-        SHARES_POP = pd.concat([pop.drop(columns=SHARE_COLS), SHARES], axis=1)
-        
+    for pop in [POP_YOUNG, POP_OLDER, POP_OLDEST]:        
         for y in years:
-            share_col = f"{y}_share"
-            year_col = str(y)
-            
-            if year_col in SHARES_POP.columns:
-                pop[str(y)] = SHARES_POP[share_col] * SHARES_POP[year_col]
+            pop[str(y)] = pop[str(y)+"_share"] * pop[str(y)]
                     
     NON_SHARE_COLS = [c for c in pop.columns if "share" not in c]
 
@@ -656,7 +632,7 @@ def LoadAgeGroupPopulationData(wdir, ssp, years):
     POPULATION_5YEAR_AGE = pd.read_csv(wdir+"/data/population/IMAGE_pop/pop_shares/wcde_data.csv", 
                                        skiprows=8)
     
-    POPULATION_5YEAR_AGE = CompletePopulationData(POPULATION_5YEAR_AGE)
+    POPULATION_5YEAR_AGE = CompletePopulationDataLustrum(POPULATION_5YEAR_AGE)
     
     # Select SSP and years
     POPULATION_5YEAR_AGE = POPULATION_5YEAR_AGE[(POPULATION_5YEAR_AGE['Scenario'] == ssp) & (POPULATION_5YEAR_AGE["Year"].isin(years))]
@@ -680,24 +656,44 @@ def LoadAgeGroupPopulationData(wdir, ssp, years):
            .sum()
     )
     
+    # Generate rows with missing years per area and group
+    dfs = []
+
+    # Interpolate for every Area and group combination
+    for (area, group), group_df in POPULATION_GROUPS.groupby(['Area', 'group']):
+        # Create year range
+        years = range(group_df['Year'].min(), group_df['Year'].max() + 1)
+        # Reindex to include all years
+        group_df = group_df.set_index('Year').reindex(years)
+        # Keep area and group columns
+        group_df['Area'] = area
+        group_df['group'] = group
+        # Interpolate population values
+        group_df['Population'] = group_df['Population'].interpolate(method='linear')
+        # Reset index
+        group_df = group_df.reset_index().rename(columns={'index': 'Year'})
+        dfs.append(group_df)
+
+    # Concateenate all dataframes
+    POPULATION_GROUPS_ANNUAL =  pd.concat(dfs, ignore_index=True)
+
     # Total population per area and year
-    # POPULATION_TOTAL = POPULATION_5YEAR_AGE[POPULATION_5YEAR_AGE["Age"] == "All"][["Area", "Year", "Population"]].rename(columns={"Population": "Population_total"})
-    POP_TOTAL = POPULATION_5YEAR_AGE[POPULATION_5YEAR_AGE["Age"] != "All"].groupby(["Area", "Year"])["Population"].sum().reset_index().rename(columns={"Population": "Population_total"})
+    POP_TOTAL = POPULATION_GROUPS_ANNUAL.groupby(["Area", "Year"])["Population"].sum().reset_index().rename(columns={"Population": "Population_total"})
     
     # Calculate share of each age group
-    POPULATION_GROUPS = POPULATION_GROUPS.merge(POP_TOTAL, on=["Area", "Year"])
-    POPULATION_GROUPS["share"] = POPULATION_GROUPS["Population"] / POPULATION_GROUPS["Population_total"]
+    POPULATION_GROUPS_ANNUAL = POPULATION_GROUPS_ANNUAL.merge(POP_TOTAL, on=["Area", "Year"])
+    POPULATION_GROUPS_ANNUAL["share"] = POPULATION_GROUPS_ANNUAL["Population"] / POPULATION_GROUPS_ANNUAL["Population_total"]
     
     # Convert locations to ISO3
-    unique_locations = POPULATION_GROUPS["Area"].unique()
+    unique_locations = POPULATION_GROUPS_ANNUAL["Area"].unique()
     conversion_dict = {loc: coco.convert(names=loc, to='ISO3') for loc in unique_locations}
-    POPULATION_GROUPS['ISO3'] = POPULATION_GROUPS["Area"].map(conversion_dict)
+    POPULATION_GROUPS_ANNUAL['ISO3'] = POPULATION_GROUPS_ANNUAL["Area"].map(conversion_dict)
     
-    return POPULATION_GROUPS
+    return POPULATION_GROUPS_ANNUAL
 
 
 
-def CompletePopulationData(df):
+def CompletePopulationDataLustrum(df):
     
     """
     Fill in missing years in the population data by forward-filling and backward-filling.
@@ -1687,7 +1683,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         MORTALITY_COLD = MORTALITY_COLD_MIN[group] - MORTALITY_COLD_SUB[group]
         
         # Aggregate results to selected region classification and store in results dataframe
-        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL_MIN[group], MORTALITY_HEAT_MIN[group], MORTALITY_COLD_MIN[group]]):
+        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL_SUB[group], MORTALITY_HEAT_SUB[group], MORTALITY_COLD_SUB[group]]):
             Mortality2Regions(year, group, mor, regions, mode, res)  
             
             
@@ -1973,5 +1969,5 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation):
         project = ""
         
     # Save results to CSV                
-    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}_MIN.csv", 
+    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}_SUB.csv", 
                    index=False) 
