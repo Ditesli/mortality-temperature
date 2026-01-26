@@ -613,7 +613,7 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
     # Create population dataframes for each age group
     POP_YOUNG, POP_OLDER, POP_OLDEST = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
 
-    # Extend 5 year population to age-dependent yearly population data using shares
+    # Multiply shares by total population to get absolute numbers
     for pop in [POP_YOUNG, POP_OLDER, POP_OLDEST]:        
         for y in years:
             pop[str(y)] = pop[str(y)+"_share"] * pop[str(y)]
