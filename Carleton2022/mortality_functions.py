@@ -196,7 +196,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     
     # Generate a single time 'present day' ERFs (no adaptation)
     erfs_t0, tmin_t0, _, _ = GenerateERFAll(wdir, temp_dir, scenario, ir, None, spatial_relation, 
-                                            age_groups, T, gammas, None, region_class, None) 
+                                            age_groups, T, gammas, None, region_class, None, None) 
     
     print("[1.5] Loading present-day temperature data...")
     # Import present day temperatures
@@ -875,7 +875,7 @@ def SSPxarrayToDataframe(wdir, ssp, pop_group, ir):
 
 
 def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_groups, T, gammas, adaptation, 
-                   gdppc_shares, image_gdppc):
+                   gdppc_shares, image_gdppc, erfs_t0):
     
     """
     The code imports the gamma coefficients and the covariates (climtas and loggdppc) and feeds 
@@ -929,8 +929,11 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
     
     # Generate arrays with erf and tmin per age group
     for i, group in enumerate(age_groups):
-        
         mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T)
+        
+        #  # Ensure ERFs do not exceed no-adaptation ERFs 
+        if erfs_t0 is not None:
+            mor_np[group] = np.minimum(mor_np[group], erfs_t0[group])
         
     return mor_np, tmin, climtas, loggdppc
 
@@ -1127,40 +1130,40 @@ def GenerateGDPpcShares(wdir, ir, region_class):
     """
     
     # Open GDP data (can be any SSP)
-    gdppc = xr.open_dataset(wdir+"/data/carleton_sm/econ_vars/SSP1.nc4")
+    GDPPC = xr.open_dataset(wdir+"/data/carleton_sm/econ_vars/SSP1.nc4")
 
     # Create coordinate for countries 
-    gdppc = gdppc.assign_coords(ISO3=("region", gdppc.region.str.slice(0, 3).data))
+    GDPPC = GDPPC.assign_coords(ISO3=("region", GDPPC.region.str.slice(0, 3).data))
 
     # Calculate GDP share per country
-    gdppc['gdppc_ir_share'] = gdppc['gdppc'].groupby("ISO3").map(lambda g: g / g.sum(dim="region"))
+    GDPPC['gdppc_ir_share'] = GDPPC['gdppc'].groupby("ISO3").map(lambda g: g / g.sum(dim="region"))
 
     # Calculate mean GDPpc per country over models and years 2010-2015 
     # (Carleton calculates shares from 2008 to 2012) but data is only available from 2010
-    gdppc = gdppc.mean(dim="model").sel(year=range(2010,2016)).mean(dim="year")
-    gdppc_country = gdppc.groupby("ISO3").sum()
+    GDPPC = GDPPC.mean(dim="model").sel(year=range(2010,2016)).mean(dim="year")
+    GDPPC_COUNTRY = GDPPC.groupby("ISO3").sum()
 
     # Create coordinate for IMAGE26 regions
     region_class = region_class.groupby(["ISO3","IMAGE26"]).first().reset_index()
     mapping = region_class.set_index("ISO3")["IMAGE26"]
-    gdppc_country = gdppc_country.assign_coords(IMAGE26=("ISO3", mapping.reindex(gdppc_country.ISO3.values).values))
+    GDPPC_COUNTRY = GDPPC_COUNTRY.assign_coords(IMAGE26=("ISO3", mapping.reindex(GDPPC_COUNTRY.ISO3.values).values))
 
     # Calculate GDP share per IMAGE26 region
-    gdppc_country['gdppc_country_share'] = gdppc_country['gdppc'].groupby("IMAGE26").map(lambda g: g / g.sum(dim="ISO3"))
+    GDPPC_COUNTRY['gdppc_country_share'] = GDPPC_COUNTRY['gdppc'].groupby("IMAGE26").map(lambda g: g / g.sum(dim="ISO3"))
 
     # Calculate final GDPpc share per impact region
-    gdppc["gdppc_share"] = gdppc["gdppc_ir_share"] * gdppc_country["gdppc_country_share"].sel(ISO3=gdppc["ISO3"])
-    
+    GDPPC["gdppc_share"] = GDPPC["gdppc_ir_share"] * GDPPC_COUNTRY["gdppc_country_share"].sel(ISO3=GDPPC["ISO3"])
+
     # Convert to dataframe
-    gdppc = gdppc.gdppc_share.to_dataframe().reset_index()
+    GDPPC_DF = GDPPC.gdppc_share.to_dataframe().reset_index()
     
     # Ensure region alignment
-    gdppc = gdppc.set_index("region").reindex(ir.values).reset_index()
+    GDPPC_DF = GDPPC_DF.set_index("region").reindex(ir.values).reset_index()
     
     # Keep relevant columns
-    gdppc = gdppc[['region', 'IMAGE26', 'gdppc_share']]    
+    GDPPC_DF = GDPPC_DF[['region', 'IMAGE26', 'gdppc_share']]    
     
-    return gdppc
+    return GDPPC_DF
 
 
 
@@ -1229,29 +1232,29 @@ def ImportClimtas(temp_dir, year, spatial_relation, ir):
     """
     
     # Read monthly mean of daily mean temperature data
-    temp_mean = xr.open_dataset(temp_dir+f"GTMP_MEAN_30MIN.nc")
+    MONTHLY_TEMPERATURE = xr.open_dataset(temp_dir+f"GTMP_MEAN_30MIN.nc")
     
     # Calculate annual mean temperature and climatology
-    temp_mean_annual = temp_mean["GTMP_MEAN_30MIN"].mean(dim="NM")
+    ANNUAL_TEMPERATURE = MONTHLY_TEMPERATURE["GTMP_MEAN_30MIN"].mean(dim="NM")
     
     # Calculate 30-year rolling mean temperature
-    tmean = temp_mean_annual.rolling(time=30, min_periods=1).mean()
+    CLIMATOLOGY_TEMPERATURE = ANNUAL_TEMPERATURE.rolling(time=30, min_periods=1).mean().sel(time=f"{year}")
     
     # Assign pixels to every impact region
-    temp_dict = {}
-    climate_temp = tmean.sel(time=f"{year}").values.ravel()
-    temp_dict[year] = climate_temp[spatial_relation.index]
+    TEMP_DICT = {}
+    CLIMATOLOGY_T_VALUES = CLIMATOLOGY_TEMPERATURE.values.ravel()
+    TEMP_DICT[year] = CLIMATOLOGY_T_VALUES[spatial_relation.index]
 
     # Calculate mean temperature per impact region and round
-    climtas = pd.DataFrame(temp_dict, index=spatial_relation["index_right"])
-    climtas = climtas.groupby("index_right").mean()
+    CLIMTAS = pd.DataFrame(TEMP_DICT, index=spatial_relation["index_right"])
+    CLIMTAS = CLIMTAS.groupby("index_right").mean()
     
     # Fill in nan with 20
-    climtas = climtas.fillna(20)
-    climtas.insert(0, "hierid", ir)
-    climtas = climtas.rename(columns={year: "tmean", "hierid":"region"})
+    CLIMTAS = CLIMTAS.fillna(20)
+    CLIMTAS.insert(0, "hierid", ir)
+    CLIMTAS = CLIMTAS.rename(columns={year: "tmean", "hierid":"region"})
     
-    return climtas["tmean"].values
+    return CLIMTAS["tmean"].values
 
 
 
@@ -1665,12 +1668,12 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     """
     
     # Read daily temperature data from specified source
-    DAILY_TEMP_T = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
+    # DAILY_TEMP_T = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
     
     print(f"[2.2] Calculating marginal mortality for year {year}...")
     
     # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
-    MORTALITY_ALL_MIN, MORTALITY_HEAT_MIN, MORTALITY_COLD_MIN, climtas, loggdppc =  CalculateMarginalMortality(wdir, temp_dir, year, scenario, DAILY_TEMP_T, 
+    MORTALITY_ALL_MIN, MORTALITY_HEAT_MIN, MORTALITY_COLD_MIN, climtas, loggdppc =  CalculateMarginalMortality(wdir, temp_dir, year, scenario, res.daily_temp_t0,#DAILY_TEMP_T, 
                                                                                                                adaptation, res)
     
     print(f"[2.3] Calculating conterfactual mortality for year {year}...")
@@ -1743,11 +1746,7 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
     if adaptation:    
         ERFS_T, TMIN_T, climtas, loggdppc = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
                                           res.spatial_relation, res.age_groups, res.T, res.gammas, adaptation,
-                                          res.gdppc_shares, res.image_gdppc)
-        
-        # Ensure ERFs do not exceed no-adaptation ERFs (3rd condition imposed by the paper)
-        for age_group in ERFS_T:
-            ERFS_T[age_group] = np.minimum(ERFS_T[age_group], res.erfs_t0[age_group])
+                                          res.gdppc_shares, res.image_gdppc, res.erfs_t0)
         
     else: 
         ERFS_T, TMIN_T = res.ERFS_T0, res.tmin_t0
