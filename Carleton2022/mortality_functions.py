@@ -74,6 +74,8 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
     Saves the mortality results to CSV files in the output folder.
     """
     
+    print(f"Starting mortality model calculations for scenario {scenario} and years {years}...")
+    
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(wdir, temp_dir, regions, scenario, years, temp_dir, adaptation)  
         
@@ -295,16 +297,31 @@ def GridRelationship(wdir, scenario, path, years):
         ])
 
     # Read climate data
+    # ---------- If ERA5 data ----------
     if re.search(r"SSP[1-5]_ERA5", scenario):
         # Use function located in the utils_common folder to import ERA5 data in the right format
-        grid,_ = tmp.daily_temp_era5(path, years[0], "mean", pop_ssp=None, to_array=False)
-        
+        grid,_ = tmp.DailyTemperatureERA5(
+            era5_dir=path, 
+            year=years[0], 
+            temp_type="mean", 
+            pop_ssp=None, 
+            to_array=False
+            )
+    
+    # --------- If POP ----------
     elif scenario == "POP":
         grid = path
-        
+    
+    # --------- If Monthly Statistics data ----------  
     else:
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
-        grid,_ = tmp.daily_from_monthly_temp(path, years[0], "MEAN", to_xarray=True)
+        grid,_ = tmp.DailyFromMonthlyTemperature(
+            temp_dir=path, 
+            years=years[0], 
+            temp_type="MEAN", 
+            std_factor=1, 
+            to_xarray=True
+            )
     
     # Extract coordinates
     coord_names = grid.coords.keys()
@@ -924,16 +941,19 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
 
     # Create covariates matrix
     covariates = np.column_stack([np.ones(len(climtas)), climtas, loggdppc])
-    
+
     mor_np = {}; tmin = {}        
-    
+
     # Generate arrays with erf and tmin per age group
     for i, group in enumerate(age_groups):
-        mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T)
         
-        #  # Ensure ERFs do not exceed no-adaptation ERFs 
         if erfs_t0 is not None:
-            mor_np[group] = np.minimum(mor_np[group], erfs_t0[group])
+            erfs_t0_group = erfs_t0[group]
+            
+        else:
+            erfs_t0_group = None
+        
+        mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T, erfs_t0_group)
         
     return mor_np, tmin, climtas, loggdppc
 
@@ -1317,7 +1337,7 @@ def ImportPresentDayClimtas(temp_dir, spatial_relation, ir):
     
     
     
-def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T):
+def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T, erfs_t0):
     
     """
     The code will receive the gamma coefficients, the covariates position and the covariates (X)
@@ -1384,6 +1404,10 @@ def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T):
     
     # Impose zero mortality at tmin by vertically shifting erf
     erf, tmin_g = ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4)
+    
+    #  # Ensure ERFs do not exceed no-adaptation ERFs 
+    if erfs_t0 is not None:
+        erf = np.minimum(erf, erfs_t0)
     
     # Impose weak monotonicity to the left and the right of the erf
     erf_final = MonotonicityERF(T, erf, tmin_g)
@@ -1523,19 +1547,28 @@ def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
     
     if "ERA5" in scenario:
         # Open daily temperature data from ERA5
-        day_temp = ERA5Temperature2IR(climate_path, year, ir, spatial_relation)
+        DAILY_TEMPERATURE = ERA5Temperature2IR(climate_path, year, ir, spatial_relation)
         
     else:
         # Read daily temperature data generated from monthly statistics
-        temp_t2m, _ = tmp.daily_from_monthly_temp(climate_path, year, "MEAN", to_xarray=True)
+        DAILY_TEMPERATURE,_ = tmp.DailyFromMonthlyTemperature(
+            temp_dir=climate_path, 
+            years=year, 
+            temp_type="MEAN", 
+            std_factor=1,
+            to_xarray=False)
         
-        # Open daily temperature data from monthly statistics
-        day_temp = MSTemperature2IR(temp_t2m, year, ir, spatial_relation)
+        # Aggregate daily temperature data to impact region level
+        DAILY_TEMPERATURE = MSTemperature2IR(
+            temp=DAILY_TEMPERATURE, 
+            year=year, 
+            ir=ir, 
+            spatial_relation=spatial_relation)
     
     # Convert dataframe to numpy array    
-    day_temp = day_temp.iloc[:,1:].to_numpy()
+    DAILY_TEMPERATURE = DAILY_TEMPERATURE.iloc[:,1:].to_numpy()
     
-    return day_temp
+    return DAILY_TEMPERATURE
 
 
 
@@ -1566,23 +1599,27 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
     date_list = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
     
     # Temporarily store daily temperatures in a dictionary
-    temp_dict = {}
-    for day in date_list:
-        daily_temperatures = temp.sel(valid_time=day).values.ravel()
-        temp_dict[day] = daily_temperatures[spatial_relation.index]
+    TEMPERATURE_DIC = {}
+    for i, day in enumerate(date_list):
+        DAILY_TEMPERATURE = temp[...,i].ravel()
+        TEMPERATURE_DIC[day] = DAILY_TEMPERATURE[spatial_relation.index]
 
     # Calculate mean temperature per impact region and round
-    day_temp_df = pd.DataFrame(temp_dict, index=spatial_relation["index_right"])
-    day_temp_df = day_temp_df.groupby("index_right").mean()
+    DAILY_TEMPERATURES_DF = pd.DataFrame(TEMPERATURE_DIC, index=spatial_relation["index_right"])
     
-    # Fill in nan with 20
-    day_temp_df = day_temp_df.fillna(20)
+    # Calculate mean temperature per impact region, fill in nan with 20 and round to 1 decimal
+    DAILY_TEMPERATURES_DF = (
+        DAILY_TEMPERATURES_DF
+        .groupby("index_right")
+        .mean()
+        .fillna(20)
+        .round(1)
+    )
     
-    # Round temperatures and insert hierid
-    day_temp_df_rounded = day_temp_df.round(1)
-    day_temp_df_rounded.insert(0, "hierid", ir)
+    # Insert hierid column with impact region names
+    DAILY_TEMPERATURES_DF.insert(0, "hierid", ir)
     
-    return day_temp_df_rounded
+    return DAILY_TEMPERATURES_DF
 
 
 
@@ -1610,29 +1647,47 @@ def ERA5Temperature2IR(climate_path, year, ir, spatial_relation):
     """
     
     # Read ERA5 daily temperature data for a specific year
-    temp_t2m, _ = tmp.daily_temp_era5(climate_path, year, "mean", pop_ssp=None, to_array=False)
-    temp_t2m = temp_t2m.t2m
+    DAILY_TEMPERATURE, _ = tmp.DailyTemperatureERA5(
+        era5_dir=climate_path,
+        year=year, 
+        temp_type="mean", 
+        pop_ssp=None, 
+        to_array=False)
+    
+    DAILY_TEMPERATURE = DAILY_TEMPERATURE.t2m
     
     # Select all available dates
-    dates = temp_t2m["valid_time"].values
+    DATES = DAILY_TEMPERATURE["valid_time"].values
     
     # Create a list of dates for the specified year
-    date_list = dates[np.isin(temp_t2m["valid_time"].values.astype("datetime64[Y]"),
-                            np.datetime64(f"{year}", "Y"))].astype("datetime64[D]").astype(str)
+    DATE_LIST =(
+        DATES[np.isin(DAILY_TEMPERATURE["valid_time"]
+                              .values
+                              .astype("datetime64[Y]"),
+                              np.datetime64(f"{year}", "Y"))]
+        .astype("datetime64[D]")
+        .astype(str)
+    )
     
     # Temporarily store daily temperatures in a dictionary
-    temp_dict = {}
-    for day in date_list:
-        daily_temperatures = temp_t2m.sel(valid_time=day).values.ravel()
-        temp_dict[day] = daily_temperatures[spatial_relation.index]
+    TEMPERATURE_DIC = {}
+    for day in DATE_LIST:
+        DAILY_TEMPERATURE_DAY = DAILY_TEMPERATURE.sel(valid_time=day).values.ravel()
+        TEMPERATURE_DIC[day] = DAILY_TEMPERATURE_DAY[spatial_relation.index]
             
     # Calculate mean temperature per impact region and round
-    day_temp_df = pd.DataFrame(temp_dict, index=spatial_relation["index_right"])
-    day_temp_df = day_temp_df.groupby("index_right").mean()
-    day_temp_df_rounded = day_temp_df.round(1)
-    day_temp_df_rounded.insert(0, "hierid", ir)
+    DAILY_TEMPERATURE_DF = pd.DataFrame(TEMPERATURE_DIC, index=spatial_relation["index_right"])
     
-    return day_temp_df_rounded
+    DAILY_TEMPERATURE_DF = (
+        DAILY_TEMPERATURE_DF
+        .groupby("index_right")
+        .mean()
+        .round(1)
+    )
+
+    DAILY_TEMPERATURE_DF.insert(0, "hierid", ir)
+    
+    return DAILY_TEMPERATURE_DF
 
 
 
@@ -1668,19 +1723,19 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     """
     
     # Read daily temperature data from specified source
-    # DAILY_TEMP_T = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
+    DAILY_TEMP_T = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
     
     print(f"[2.2] Calculating marginal mortality for year {year}...")
     
     # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
-    MORTALITY_ALL_MIN, MORTALITY_HEAT_MIN, MORTALITY_COLD_MIN, climtas, loggdppc =  CalculateMarginalMortality(wdir, temp_dir, year, scenario, res.daily_temp_t0,#DAILY_TEMP_T, 
+    MORTALITY_ALL_MIN, MORTALITY_HEAT_MIN, MORTALITY_COLD_MIN, climtas, loggdppc =  CalculateMarginalMortality(wdir, temp_dir, year, scenario, DAILY_TEMP_T, 
                                                                                                                adaptation, res)
     
     print(f"[2.3] Calculating conterfactual mortality for year {year}...")
 
     # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
     MORTALITY_ALL_SUB, MORTALITY_HEAT_SUB, MORTALITY_COLD_SUB, climtas_sub, loggdppc_sub  = CalculateMarginalMortality(wdir, temp_dir, year, scenario, res.daily_temp_t0, 
-                                                                                                                       {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")}, res)
+                                                                                                                      {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")}, res)
     
     print("[2.4] Aggregating results to", regions, "regions and storing in results dataframe...")
     
@@ -1692,7 +1747,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         MORTALITY_COLD = MORTALITY_COLD_MIN[group] - MORTALITY_COLD_SUB[group]
         
         # Aggregate results to selected region classification and store in results dataframe
-        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL[group], MORTALITY_HEAT[group], MORTALITY_COLD[group]]):
+        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL_MIN[group], MORTALITY_HEAT_MIN[group], MORTALITY_COLD_MIN[group]]):
             Mortality2Regions(year, group, mor, regions, mode, res)  
             
             
@@ -1798,29 +1853,19 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
     # Load daily temperature data from prescribed scenario
     else: 
         
-        # Open monthly statistics from IMAGE data
-        MONTHLY_MEAN, MONTHLY_STD = tmp.open_montlhy_stats(temp_dir, "MEAN")
-        
-        # Calculate present day monthly mean and std (2000-2010) and discard time variable
-        MONTHLY_MEAN_PRESENT = MONTHLY_MEAN.sel(time=slice(f"{base_years[0]}-01-01", f"{base_years[-1]}-01-01")).mean(dim="time")
-        MONTHLY_STD_PRESENT = MONTHLY_STD.sel(time=slice(f"{base_years[0]}-01-01", f"{base_years[-1]}-01-01")).mean(dim="time")
-        
-        # Define random year for daily temperature generation
-        NUM_DAYS = 365
-        YEAR = 2005
-        
-        # Generate daily temperatures from normal distribution
-        DAILY_TEMP = tmp.daily_temp_normal_dist(YEAR, NUM_DAYS, MONTHLY_MEAN_PRESENT, MONTHLY_STD_PRESENT)
-        
-        # Convert to xarray DataArray for posterior region aggregation
-        DAILY_DATES = pd.date_range(f'{YEAR}-01-01', f'{YEAR}-12-31', freq='D')
-        DAILY_TEMP = xr.DataArray(DAILY_TEMP,
-                                  coords={'latitude':MONTHLY_MEAN.latitude,
-                                          'longitude':MONTHLY_MEAN.longitude,
-                                          'valid_time':DAILY_DATES},
-                                  dims=['latitude', 'longitude', 'valid_time'])
-        
-        T_0 = MSTemperature2IR(DAILY_TEMP, YEAR, ir, spatial_relation)
+        DAILY_TEMPERATURE,_ = tmp.DailyFromMonthlyTemperature(
+            temp_dir=temp_dir, 
+            years=base_years,
+            temp_type="MEAN",
+            std_factor=1, 
+            to_xarray=False
+        )
+
+        T_0 = MSTemperature2IR(
+            temp=DAILY_TEMPERATURE, 
+            year=2000, 
+            ir=ir, 
+            spatial_relation=spatial_relation)
         
     # Convert "Present-day" temepratures dataframe to numpy array    
     T_0 = T_0.iloc[:,1:].to_numpy()
@@ -2017,7 +2062,6 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, p
     
     print("[3] Postprocessing and saving results...")
     
-    
     # Calculate total mortality and relative mortality for all-ages group
     results = AddMortalityAllAges(results, pop, region_class, years)
     
@@ -2044,7 +2088,7 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, p
         project = ""
         
     # Save results to CSV                
-    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
+    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}_MIN.csv", 
                    index=False) 
     
     print("Scenario ran successfully!")
