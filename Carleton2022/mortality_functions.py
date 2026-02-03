@@ -197,8 +197,19 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
                                                None, None, None)
     
     # Generate a single time 'present day' ERFs (no adaptation)
-    erfs_t0, tmin_t0, _, _ = GenerateERFAll(wdir, temp_dir, scenario, ir, None, spatial_relation, 
-                                            age_groups, T, gammas, None, region_class, None, None) 
+    ERFS_T0, TMIN_T0, _, _ = GenerateERFAll(wdir=wdir,
+                                            temp_dir=temp_dir, 
+                                            scenario=scenario, 
+                                            ir=ir, 
+                                            year=None, 
+                                            spatial_relation=spatial_relation, 
+                                            age_groups=age_groups, 
+                                            T=T, 
+                                            gammas=gammas, 
+                                            adaptation=None, 
+                                            gdppc_shares=None, 
+                                            image_gdppc=None, 
+                                            erfs_t0=None) 
     
     print("[1.5] Loading present-day temperature data...")
     # Import present day temperatures
@@ -224,11 +235,14 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         else:
             print("[1.6] Loading GDP data from IMAGE...")
             # Generate GDPpc shares of regions within a country
-            gdppc_shares = GenerateGDPpcShares(wdir, ir, region_class)
+            gdppc_shares = GenerateGDPpcShares(wdir=wdir, 
+                                               ir=ir, 
+                                               region_class=region_class)
             
             # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
             gdp_dir = adaptation.get("loggdppc")
-            image_gdppc = ReadOUTFiles(gdp_dir, scenario)
+            image_gdppc = ReadOUTFiles(gdp_dir=gdp_dir, 
+                                       scenario=scenario)
         
         
     return LoadInputData(
@@ -242,8 +256,8 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         pop = pop,
         climtas_t0 = climtas_t0,
         loggdppc_t0 = loggdppc_t0,
-        erfs_t0 = erfs_t0,
-        tmin_t0 = tmin_t0,
+        erfs_t0 = ERFS_T0,
+        tmin_t0 = TMIN_T0,
         gdppc_shares = gdppc_shares,
         image_gdppc = image_gdppc,
         daily_temp_t0 = DAILY_TEMP_T0
@@ -1108,18 +1122,22 @@ def ImportIMAGEloggdppc(year, image_gdppc, gdppc_shares):
     """
     
     # Extract relevant year data (13 year rolling mean)
-    image_gdppc = (image_gdppc.sel(Time=slice(year-13,year))
-                   .mean(dim="Time").mean(dim="Scenario")
-                   .mean(dim="Variable")
-                   .pint.dequantify() # Remove pint units and warning
-                   .to_dataframe()
-                   .reset_index())
+    image_gdppc = (
+        image_gdppc
+        .sel(Time=slice(year-13,year))
+        .mean(dim="Time")
+        .mean(dim="Scenario")
+        .mean(dim="Variable")
+        .pint.dequantify() # Remove pint units and warning
+        .to_dataframe()
+        .reset_index()
+    )
     
-    # Merge dataframes
+    # Merge IMAGE GDPpc with GDPpc shares
     gdppc = gdppc_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
     
     # Calculate share of log(GDPpc) based on regional GDPpc
-    gdppc["gdppc"] = gdppc["Value"] * gdppc["gdppc_share"] * 1000 # TODO: Check units of TIMER 
+    gdppc["gdppc"] = gdppc["Value"] * gdppc["gdppc_share"] 
     gdppc["loggdppc"] = np.log(gdppc["gdppc"])
     
     return gdppc["loggdppc"].values
@@ -1149,41 +1167,40 @@ def GenerateGDPpcShares(wdir, ir, region_class):
         DataFrame with GDPpc shares per impact region.
     """
     
-    # Open GDP data (can be any SSP)
-    GDPPC = xr.open_dataset(wdir+"/data/carleton_sm/econ_vars/SSP1.nc4")
-
-    # Create coordinate for countries 
-    GDPPC = GDPPC.assign_coords(ISO3=("region", GDPPC.region.str.slice(0, 3).data))
-
-    # Calculate GDP share per country
-    GDPPC['gdppc_ir_share'] = GDPPC['gdppc'].groupby("ISO3").map(lambda g: g / g.sum(dim="region"))
-
-    # Calculate mean GDPpc per country over models and years 2010-2015 
-    # (Carleton calculates shares from 2008 to 2012) but data is only available from 2010
-    GDPPC = GDPPC.mean(dim="model").sel(year=range(2010,2016)).mean(dim="year")
-    GDPPC_COUNTRY = GDPPC.groupby("ISO3").sum()
-
-    # Create coordinate for IMAGE26 regions
-    region_class = region_class.groupby(["ISO3","IMAGE26"]).first().reset_index()
-    mapping = region_class.set_index("ISO3")["IMAGE26"]
-    GDPPC_COUNTRY = GDPPC_COUNTRY.assign_coords(IMAGE26=("ISO3", mapping.reindex(GDPPC_COUNTRY.ISO3.values).values))
-
-    # Calculate GDP share per IMAGE26 region
-    GDPPC_COUNTRY['gdppc_country_share'] = GDPPC_COUNTRY['gdppc'].groupby("IMAGE26").map(lambda g: g / g.sum(dim="ISO3"))
-
-    # Calculate final GDPpc share per impact region
-    GDPPC["gdppc_share"] = GDPPC["gdppc_ir_share"] * GDPPC_COUNTRY["gdppc_country_share"].sel(ISO3=GDPPC["ISO3"])
-
-    # Convert to dataframe
-    GDPPC_DF = GDPPC.gdppc_share.to_dataframe().reset_index()
+    # GDPPC_CETAL_DF = GDPPC_CETAL.to_dataframe().reset_index().merge(region_class, left_on='region', right_on="hierid")
+    # GDPPC_CETAL_DF["gdppc_ir_shares"]=GDPPC_CETAL_DF.groupby(["model", "year", "ssp", "ISO3"])["gdppc"].transform(lambda x: x/x.sum())
+    # GDPPC_CETAL_DF["gdppc_times_shares"] = GDPPC_CETAL_DF["gdppc"] * GDPPC_CETAL_DF["gdppc_ir_shares"]
+    # GDPPC_CETAL_DF["gdppc_country"]=GDPPC_CETAL_DF.groupby(["model", "year", "ssp", "ISO3"])["gdppc_times_shares"].transform(lambda x: x.sum())
+    # GDPPC_CETAL_DF["share_country_gdp"] = GDPPC_CETAL_DF["gdppc_times_shares"] / GDPPC_CETAL_DF["gdppc_country"]
+    # GDPPC_CETAL_DF["ir_factor"] = GDPPC_CETAL_DF["share_country_gdp"]/GDPPC_CETAL_DF["gdppc_ir_shares"]
     
-    # Ensure region alignment
-    GDPPC_DF = GDPPC_DF.set_index("region").reindex(ir.values).reset_index()
+    # Open GDP data (can be any SSP), convert to dataframe, merge with region classification and filter
+    GDPPC_CETAL_DF = (
+        xr.open_dataset(f"{wdir}/data/carleton_sm/econ_vars/SSP2.nc4")
+        .to_dataframe()
+        .reset_index()
+        .merge(region_class, left_on="region", right_on="hierid")
+        .query("model == 'high' and year == 2010")
+        .drop(["model", "year", "ssp"], axis=1)
+    )
     
-    # Keep relevant columns
-    GDPPC_DF = GDPPC_DF[['region', 'IMAGE26', 'gdppc_share']]    
+    # Calculate GDPpc shares per impact region within IMAGE region
+    GDPPC_CETAL_DF["gdppc_ir_shares"] = GDPPC_CETAL_DF.groupby(["IMAGE26"])["gdppc"].transform(lambda x: x/x.sum())
+    GDPPC_CETAL_DF["gdppc_times_shares"] = GDPPC_CETAL_DF["gdppc"] * GDPPC_CETAL_DF["gdppc_ir_shares"]
+    GDPPC_CETAL_DF["gdppc_country"]=GDPPC_CETAL_DF.groupby(["IMAGE26"])["gdppc_times_shares"].transform(lambda x: x.sum())
+    GDPPC_CETAL_DF["share_country_gdp"] = GDPPC_CETAL_DF["gdppc_times_shares"] / GDPPC_CETAL_DF["gdppc_country"]
+    GDPPC_CETAL_DF["gdppc_share"] = GDPPC_CETAL_DF["share_country_gdp"]/GDPPC_CETAL_DF["gdppc_ir_shares"]
+
+    # Reindex according to ir dataframe and select relevant columns
+    GDPPC_CETAL_DF = (
+        GDPPC_CETAL_DF
+            .set_index("region")
+            .reindex(ir.values)
+            .reset_index()
+            .loc[:, ["region", "IMAGE26", "gdppc_share"]]
+    )
     
-    return GDPPC_DF
+    return GDPPC_CETAL_DF
 
 
 
@@ -1199,13 +1216,14 @@ def ReadOUTFiles(gdp_dir, scenario):
     Timeline = prism.Timeline(start=_DIM_TIME['start'],
                             end=_DIM_TIME['end'],
                             stepsize=_DIM_TIME['stepsize'])
-    prism_regions = prism.Dimension('region', _DIM_IMAGE_REGIONS + ["Other"] + ["World"])
+    # prism_regions = prism.Dimension('region', _DIM_IMAGE_REGIONS + ["Other"] + ["World"])
     prism_regions_world = prism.Dimension('region', _DIM_IMAGE_REGIONS + ["World"])
     
     listy = []
 
     path_clim = gdp_dir+f"/2_TIMER/outputlib/TIMER_3_4/{re.split(r"[\\/]", gdp_dir)[-1]}/"+scenario+"/indicators/Economy/"
     
+    # TODO: Change variable name as it is GDPpc with or without impacts depending on scenario
     VAR = "GDPpc_incl_impacts"
     
     datafile = prism.TimeVariable(
@@ -1742,9 +1760,9 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     # Calculate mortality difference per impact region 
     for group in res.age_groups: 
         
-        MORTALITY_ALL = MORTALITY_ALL_MIN[group] - MORTALITY_ALL_SUB[group]
-        MORTALITY_HEAT = MORTALITY_HEAT_MIN[group] - MORTALITY_HEAT_SUB[group]
-        MORTALITY_COLD = MORTALITY_COLD_MIN[group] - MORTALITY_COLD_SUB[group]
+    #     MORTALITY_ALL = MORTALITY_ALL_MIN[group] - MORTALITY_ALL_SUB[group]
+    #     MORTALITY_HEAT = MORTALITY_HEAT_MIN[group] - MORTALITY_HEAT_SUB[group]
+    #     MORTALITY_COLD = MORTALITY_COLD_MIN[group] - MORTALITY_COLD_SUB[group]
         
         # Aggregate results to selected region classification and store in results dataframe
         for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL_MIN[group], MORTALITY_HEAT_MIN[group], MORTALITY_COLD_MIN[group]]):
@@ -1798,13 +1816,29 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
     # Create rows array for indexing
     ROWS = np.arange(TEMP_INDEX.shape[0])[:, None]
     
+    # ------------------- Generate ERFs ------------------
+    
+    # Generate ERFs used when there is income growth and adaptation
     if adaptation:    
-        ERFS_T, TMIN_T, climtas, loggdppc = GenerateERFAll(wdir, temp_dir, scenario, res.ir, year, 
-                                          res.spatial_relation, res.age_groups, res.T, res.gammas, adaptation,
-                                          res.gdppc_shares, res.image_gdppc, res.erfs_t0)
-        
+        ERFS_T, TMIN_T, climtas, loggdppc = GenerateERFAll(wdir=wdir,
+                                                           temp_dir=temp_dir,
+                                                           scenario=scenario,
+                                                           ir=res.ir,
+                                                           year=year,
+                                                           spatial_relation=res.spatial_relation, 
+                                                           age_groups=res.age_groups, 
+                                                           T=res.T, 
+                                                           gammas=res.gammas, 
+                                                           adaptation=adaptation,
+                                                           gdppc_shares=res.gdppc_shares, 
+                                                           image_gdppc=res.image_gdppc, 
+                                                           erfs_t0=res.erfs_t0)
+    
+    # Use pre-calculated ERFs with no adaptation or income growth
     else: 
         ERFS_T, TMIN_T = res.ERFS_T0, res.tmin_t0
+        
+    # ------------------- Calculate mortality ------------------
     
     MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD = {}, {}, {}
     
