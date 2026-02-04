@@ -244,6 +244,8 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         gdppc_shares=None, 
         image_gdppc=None, 
         erfs_t0=None
+        erfs_t0=None,
+        tmin_t0=None
         ) 
     
     print("[1.5] Loading present-day temperature data...")
@@ -686,6 +688,7 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
 
     # Pivot and merge function
     def pivot_and_merge(group_name):
+        
         df = POPULATION_GROUPS[POPULATION_GROUPS["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
         df = df.rename(columns={c: f"{c}_share" for c in df.columns if isinstance(c, int)})
         return TOTAL_POPULATION_IR.merge(df, on="ISO3", how="left")
@@ -951,11 +954,11 @@ def SSPxarrayToDataframe(wdir, ssp, pop_group, ir):
 
 
 def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_groups, T, gammas, adaptation, 
-                   gdppc_shares, image_gdppc, erfs_t0):
+                   gdppc_shares, image_gdppc, erfs_t0, tmin_t0):
     
     """
     The code imports the gamma coefficients and the covariates (climtas and loggdppc) and feeds 
-    this data into the function GenerateERFGroup that will generate the Exposure Response Functions 
+    this data into the function Generate ERF Group that will generate the Exposure Response Functions 
     (ERFs) and minimum temperature values per impact region and group. It will locate them in two
     dictionaries.
     
@@ -1014,13 +1017,15 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
     # Generate arrays with erf and tmin per age group
     for i, group in enumerate(age_groups):
         
-        if erfs_t0 is not None:
-            erfs_t0_group = erfs_t0[group]
+        if erfs_t0 is None or tmin_t0 is None:
+            erfs_t0_group = None
+            tmin_t0_group = None
             
         else:
-            erfs_t0_group = None
+            erfs_t0_group = erfs_t0[group]
+            tmin_t0_group = tmin_t0[group]           
         
-        mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T, erfs_t0_group)
+        mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T, erfs_t0_group, tmin_t0_group)
         
     return mor_np, tmin, climtas, loggdppc
 
@@ -1414,7 +1419,7 @@ def ImportPresentDayClimtas(temp_dir, spatial_relation, ir):
     
     
     
-def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T, erfs_t0):
+def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T, erfs_t0, tmin):
     
     """
     The code will receive the gamma coefficients, the covariates position and the covariates (X)
@@ -1480,26 +1485,27 @@ def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T, erfs_t0):
     )
     
     # Impose zero mortality at tmin by vertically shifting erf
-    erf, tmin_g = ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4)
+    erf_shifted, tmin_g = ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4, tmin)
     
     #  # Ensure ERFs do not exceed no-adaptation ERFs 
     if erfs_t0 is not None:
-        erf = np.minimum(erf, erfs_t0)
+        erf_shifted = np.minimum(erf_shifted, erfs_t0)
     
     # Impose weak monotonicity to the left and the right of the erf
-    erf_final = MonotonicityERF(T, erf, tmin_g)
+    erf_final = MonotonicityERF(T, erf_shifted, tmin_g)
 
     return erf_final, tmin_g
 
 
 
-def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4): 
+def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4, tmin): 
     
     """   
     The code will apply the first constraint imposed by Carleton et al (see more in Appendix pp. A62).
-    Following the paper, the minimum of the ERF is located between 20 and 30 degrees. Later the function
-    is shifted vertucally to ensure the minimum matches null mortality. This procedure is done for all
-    the ERF per age groups.
+    Following the paper, the minimum of the ERF at Present Day temperatures is located between 20 and 
+    30 degrees. Later the function is shifted vertucally to ensure the minimum matches null mortality. 
+    This procedure is done for all the ERF per age groups.
+    The tmin remains fixed at future times.
      
     Parameters:
     ----------    
@@ -1524,22 +1530,23 @@ def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4):
         1D array with the rows being the daily temperature at which the ERF of an impact region are minimized.
     """
     
-    # Locate idx of T (temperature array) between 20 and 30 degrees C
-    idx_min_start = np.where(np.isclose(T, 10.0, atol=0.05))[0][0]
-    idx_min_end   = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
-    segment = raw[:, idx_min_start:idx_min_end]
-    
-    # Find local minimum of erf between 20 and 30 degrees
-    idx_local_min = np.argmin(segment, axis=1)
-    tmin_g = T[idx_min_start + idx_local_min]
-    
-    # Calcualte mortality value at tmin
-    erf_at_tmin = tas*tmin_g + tas2*tmin_g**2 + tas3*tmin_g**3 + tas4*tmin_g**4
+    if tmin is None:
+        # Locate idx of T (temperature array) between 20 and 30 degrees C
+        idx_min_start = np.where(np.isclose(T, 10.0, atol=0.05))[0][0]
+        idx_min_end   = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
+        segment = raw[:, idx_min_start:idx_min_end]
+        
+        # Find local minimum of erf between 20 and 30 degrees
+        idx_local_min = np.argmin(segment, axis=1)
+        tmin = T[idx_min_start + idx_local_min]
+        
+    # Calcualte mortality value at fixed tmin
+    erf_at_tmin = tas*tmin + tas2*tmin**2 + tas3*tmin**3 + tas4*tmin**4
     
     # Shift vertical functions so tmin matches 0 deaths
     erf = raw - erf_at_tmin[:,None]
-    
-    return erf, tmin_g
+        
+    return erf, tmin
 
 
 
@@ -1589,6 +1596,9 @@ def MonotonicityERF(T, erf, tmin_g):
         mask_left, left_monotone,
         np.where(mask_right, right_monotone, erf)
         )
+    
+    # Ensure no negative values
+    erf_final = np.maximum(erf_final, 0)
     
     return erf_final     
     
@@ -1842,7 +1852,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         MOR_COLD = MOR_COLD_MIN[group] - MOR_COLD_SUB[group]
         
         # Aggregate results to selected region classification and store in results dataframe
-        MORTALITY = [MOR_ALL[group], MOR_HEAT[group], MOR_COLD[group]]
+        MORTALITY = [MOR_ALL, MOR_HEAT, MOR_COLD]
         
         for mode, mor in zip(["All", "Heat", "Cold"], MORTALITY):
             Mortality2Regions(year, group, mor, regions, mode, res)  
@@ -1912,12 +1922,13 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
             adaptation=adaptation,
             gdppc_shares=res.gdppc_shares, 
             image_gdppc=res.image_gdppc, 
-            erfs_t0=res.erfs_t0
+            erfs_t0=res.erfs_t0,
+            tmin_t0=res.tmin_t0
             )
     
     # Use pre-calculated ERFs with no adaptation or income growth
     else: 
-        ERFS_T = res.ERFS_T0, 
+        ERFS_T = res.erfs_t0, 
         
     # ------------------- Calculate mortality ------------------
     
