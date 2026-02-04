@@ -243,7 +243,6 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         adaptation=None, 
         gdppc_shares=None, 
         image_gdppc=None, 
-        erfs_t0=None
         erfs_t0=None,
         tmin_t0=None
         ) 
@@ -2047,25 +2046,26 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group)
     # Extract tmin values for the given age group
     TMIN = tmin[group][:, None]
 
-    # Generate temperature indices for temepratures over tmin and calculate mortality
-    MASK_HEAT = np.where(daily_temp > TMIN, daily_temp, TMIN)
-    # Convert temperatures to indices where TMIN is idx 0
-    TEMP_HEAT_IDX = np.round((MASK_HEAT - min_temp) * 10).astype(int)
-    # Calculate mortality from heat 
-    MOR_HEAT = erfs[group][rows, TEMP_HEAT_IDX]
-    # Sum mortality from heat across all days
-    ANNUAL_MOR_HEAT = MOR_HEAT.sum(axis=1)
+    # Calculate mortality for temperatures above tmin
+    ANNUAL_MORTALITY_HEAT = (
+        erfs[group][rows,
+            np.round((np.maximum(daily_temp, TMIN) - min_temp) * 10).astype(int)
+        ]
+        .sum(axis=1)
+    )
     
-    # Generate temperature indices for temepratures below tmin and calculate mortality
-    MASK_COLD = np.where(daily_temp < TMIN, daily_temp, TMIN)
-    TEMP_COLD_IDX = np.round((MASK_COLD - min_temp) * 10).astype(int)
-    MOR_COLD = erfs[group][rows, TEMP_COLD_IDX]
-    ANNUAL_MOR_COLD = MOR_COLD.sum(axis=1)
+    # Calculate mortality for temperatures below tmin
+    ANNUAL_MORTALITY_COLD = (
+        erfs[group][rows,
+            np.round((np.minimum(daily_temp, TMIN) - min_temp) * 10).astype(int)
+        ]
+        .sum(axis=1)
+    )
     
-    # Sum heat and cold mortality to get all mortality
-    ANNUAL_MORTALITY = ANNUAL_MOR_COLD + ANNUAL_MOR_HEAT
+    # Sum heat and cold mortality to get all-temperatures mortality
+    ANNUAL_MORTALITY = ANNUAL_MORTALITY_COLD + ANNUAL_MORTALITY_HEAT
     
-    return ANNUAL_MORTALITY, ANNUAL_MOR_HEAT, ANNUAL_MOR_COLD     
+    return ANNUAL_MORTALITY, ANNUAL_MORTALITY_HEAT, ANNUAL_MORTALITY_COLD     
 
 
 
