@@ -77,7 +77,15 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
     print(f"Starting mortality model calculations for scenario {scenario} and years {years}...")
     
     # Load necessary files and define variables needed for calculations
-    res = LoadMainFiles(wdir, temp_dir, regions, scenario, years, temp_dir, adaptation)  
+    res = LoadMainFiles(
+        wdir=wdir, 
+        temp_dir=temp_dir, 
+        regions=regions, 
+        scenario=scenario, 
+        years=years,
+        climate_path=temp_dir, 
+        adaptation=adaptation
+        )  
         
     print("[2] Starting mortality calculations...")
         
@@ -85,10 +93,26 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
     for year in years:
         
         #Calculate mortality per region and year 
-        CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, regions, res)
+        CalculateMortalityEffects(
+            wdir=wdir, 
+            year=year, 
+            scenario=scenario, 
+            temp_dir=temp_dir, 
+            adaptation=adaptation, 
+            regions=regions, 
+            res=res
+            )
         
     # Post process and save
-    PostprocessResults(wdir, years, res.results, scenario, IAM_format, adaptation, res.pop, res.region_class)
+    PostprocessResults(
+        wdir=wdir, 
+        years=years, 
+        results=res.results, 
+        scenario=scenario, 
+        IAM_format=IAM_format, 
+        adaptation=adaptation, 
+        pop=res.pop, 
+        region_class=res.region_class)
     
     
     
@@ -193,28 +217,45 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     
     # Import present day covariates
     print("[1.4] Loading 'present day' covariates climtas and loggdppc...")
-    climtas_t0, loggdppc_t0 = ImportCovariates(wdir, temp_dir, scenario, ir, None, spatial_relation, 
-                                               None, None, None)
+    climtas_t0, loggdppc_t0 = ImportCovariates(
+        wdir=wdir, 
+        temp_dir=temp_dir, 
+        scenario=scenario, 
+        ir=ir, 
+        year=None, 
+        spatial_relation=spatial_relation, 
+        adaptation=None, 
+        gdppc_shares=None, 
+        image_gdppc=None
+        )
     
     # Generate a single time 'present day' ERFs (no adaptation)
-    ERFS_T0, TMIN_T0, _, _ = GenerateERFAll(wdir=wdir,
-                                            temp_dir=temp_dir, 
-                                            scenario=scenario, 
-                                            ir=ir, 
-                                            year=None, 
-                                            spatial_relation=spatial_relation, 
-                                            age_groups=age_groups, 
-                                            T=T, 
-                                            gammas=gammas, 
-                                            adaptation=None, 
-                                            gdppc_shares=None, 
-                                            image_gdppc=None, 
-                                            erfs_t0=None) 
+    ERFS_T0, TMIN_T0, _, _ = GenerateERFAll(
+        wdir=wdir,
+        temp_dir=temp_dir, 
+        scenario=scenario, 
+        ir=ir, 
+        year=None, 
+        spatial_relation=spatial_relation, 
+        age_groups=age_groups, 
+        T=T, 
+        gammas=gammas, 
+        adaptation=None, 
+        gdppc_shares=None, 
+        image_gdppc=None, 
+        erfs_t0=None
+        ) 
     
     print("[1.5] Loading present-day temperature data...")
     # Import present day temperatures
-    BASE_YEARS = range(2001,2011)
-    DAILY_TEMP_T0 = ImportPresentDayTemperatures(wdir, temp_dir, scenario, BASE_YEARS, ir, spatial_relation)
+    DAILY_TEMP_T0 = ImportPresentDayTemperatures(
+        wdir=wdir, 
+        temp_dir=temp_dir, 
+        scenario=scenario, 
+        base_years=range(2001,2011), 
+        ir=ir, 
+        spatial_relation=spatial_relation
+        )
     
     # ------------------ If no adaptation
     if adaptation == None:
@@ -474,9 +515,11 @@ def FinalDataframe(regions, region_class, age_groups, years):
     results_units = ["Total deaths", "Deaths per 100,000"]
     
     # Create results multiindex dataframe
-    results = pd.DataFrame(index=pd.MultiIndex.from_product([age_groups, t_types, results_units, unique_regions],
-                                                            names=["age_group", "t_type", "units", regions]), 
-                           columns=years)
+    results = pd.DataFrame(
+        index=pd.MultiIndex.from_product([age_groups, t_types, results_units, unique_regions],
+                                         names=["age_group", "t_type", "units", regions]), 
+        columns=years
+        )
     
     results.sort_index(inplace=True)
     
@@ -672,7 +715,9 @@ def LoadAgeGroupPopulationData(wdir, ssp, years):
     POPULATION_5YEAR_AGE = CompletePopulationDataLustrum(POPULATION_5YEAR_AGE)
     
     # Select SSP and years
-    POPULATION_5YEAR_AGE = POPULATION_5YEAR_AGE[(POPULATION_5YEAR_AGE['Scenario'] == ssp) & (POPULATION_5YEAR_AGE["Year"].isin(years))]
+    POPULATION_5YEAR_AGE = POPULATION_5YEAR_AGE.query(
+        "Scenario == @ssp and Year in @years"
+    )
     
     # Define age groups to classify wcde ages
     AGE_GROUPS = {
@@ -950,8 +995,16 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
     gamma_g, cov_g = gammas[0], gammas[1]
     
     # Import covariates with or without adaptation
-    climtas, loggdppc = ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adaptation, 
-                                         gdppc_shares, image_gdppc)
+    climtas, loggdppc = ImportCovariates(
+        wdir=wdir, temp_dir=temp_dir, 
+        scenario=scenario, 
+        ir=ir, 
+        year=year, 
+        spatial_relation=spatial_relation, 
+        adaptation=adaptation, 
+        gdppc_shares=gdppc_shares, 
+        image_gdppc=image_gdppc
+        )
 
     # Create covariates matrix
     covariates = np.column_stack([np.ones(len(climtas)), climtas, loggdppc])
@@ -1090,21 +1143,23 @@ def ImportLogGDPpc(wdir, scenario, ir, year):
     scenario = re.search(r"(?i)\bssp\d+", scenario).group()
         
     # Read GDP per capita file
-    ssp_xarray = xr.open_dataset(wdir+f"data/carleton_sm/econ_vars/{scenario.upper()}.nc4")   
-    
-    # Caclulate mean of economic models (high and low projections) and 13 yr rolling mean
-    gdppc = ssp_xarray.gdppc.mean(dim='model').rolling(year=13, min_periods=1).mean().sel(year=year)
-    
-    # Convert to dataframe for reindexing
-    gdppc = gdppc.to_dataframe().reset_index()
-    gdppc = gdppc.drop(columns=["year", "ssp"])
-    gdppc = gdppc.rename(columns={"region":"hierid"})
+    gdppc = (
+        xr.open_dataset(wdir+f"data/carleton_sm/econ_vars/{scenario.upper()}.nc4")   
+        .gdppc
+        .mean(dim='model')  # Mean across models
+        .rolling(year=13, min_periods=1)  # 13 year rolling mean
+        .mean()
+        .sel(year=year)  # Select relevant year
+        .to_dataframe() # Convert to dataframe
+        .reset_index()
+        .drop(columns=["year", "ssp"])
+        .rename(columns={"region":"hierid"})
+        .set_index("hierid")
+        .reindex(ir.values) # Reindex according to hierid
+    )
     
     # Calculate log(GDPpc)
     gdppc["loggdppc"] = np.log(gdppc["gdppc"])
-    
-    # Reindex according to hierid
-    gdppc = gdppc.set_index("hierid").reindex(ir.values)
     
     # Return numpy array
     return gdppc["loggdppc"].values
@@ -1337,7 +1392,11 @@ def ImportPresentDayClimtas(temp_dir, spatial_relation, ir):
     START_YEAR = 2001
     END_YEAR = 2010
     
-    TEMP_MEAN_30YEAR_PRESENT = TEMP_MEAN_30YEAR.sel(time=slice(f"{START_YEAR}-01-01", f"{END_YEAR}-01-01")).mean(dim="time")
+    TEMP_MEAN_30YEAR_PRESENT = (
+        TEMP_MEAN_30YEAR
+        .sel(time=slice(f"{START_YEAR}-01-01", f"{END_YEAR}-01-01"))
+        .mean(dim="time")
+    )
     
     # Assign pixels to every impact region
     TEMP_MEAN_VALS = TEMP_MEAN_30YEAR_PRESENT.values.ravel()
@@ -1741,31 +1800,51 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     """
     
     # Read daily temperature data from specified source
-    DAILY_TEMP_T = DailyTemperatureToIR(temp_dir, year, res.ir, res.spatial_relation, scenario)
+    DAILY_TEMP_T = DailyTemperatureToIR(climate_path=temp_dir, 
+                                        year=year, 
+                                        ir=res.ir, 
+                                        spatial_relation=res.spatial_relation, 
+                                        scenario=scenario)
     
     print(f"[2.2] Calculating marginal mortality for year {year}...")
     
     # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
-    MORTALITY_ALL_MIN, MORTALITY_HEAT_MIN, MORTALITY_COLD_MIN, climtas, loggdppc =  CalculateMarginalMortality(wdir, temp_dir, year, scenario, DAILY_TEMP_T, 
-                                                                                                               adaptation, res)
+    MOR_ALL_MIN, MOR_HEAT_MIN, MOR_COLD_MIN =  CalculateMarginalMortality(
+        wdir=wdir, 
+        temp_dir=temp_dir, 
+        year=year, 
+        scenario=scenario, 
+        daily_temp=DAILY_TEMP_T, 
+        adaptation=adaptation, 
+        res=res
+        )
     
     print(f"[2.3] Calculating conterfactual mortality for year {year}...")
 
     # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
-    MORTALITY_ALL_SUB, MORTALITY_HEAT_SUB, MORTALITY_COLD_SUB, climtas_sub, loggdppc_sub  = CalculateMarginalMortality(wdir, temp_dir, year, scenario, res.daily_temp_t0, 
-                                                                                                                      {"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")}, res)
-    
+    MOR_ALL_SUB, MOR_HEAT_SUB, MOR_COLD_SUB = CalculateMarginalMortality(
+        wdir=wdir, 
+        temp_dir=temp_dir, 
+        year=year,
+        scenario=scenario, 
+        daily_temp=res.daily_temp_t0, 
+        adaptation={"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")}, 
+        res=res
+        )
+
     print("[2.4] Aggregating results to", regions, "regions and storing in results dataframe...")
     
     # Calculate mortality difference per impact region 
     for group in res.age_groups: 
         
-    #     MORTALITY_ALL = MORTALITY_ALL_MIN[group] - MORTALITY_ALL_SUB[group]
-    #     MORTALITY_HEAT = MORTALITY_HEAT_MIN[group] - MORTALITY_HEAT_SUB[group]
-    #     MORTALITY_COLD = MORTALITY_COLD_MIN[group] - MORTALITY_COLD_SUB[group]
+        MOR_ALL = MOR_ALL_MIN[group] - MOR_ALL_SUB[group]
+        MOR_HEAT = MOR_HEAT_MIN[group] - MOR_HEAT_SUB[group]
+        MOR_COLD = MOR_COLD_MIN[group] - MOR_COLD_SUB[group]
         
         # Aggregate results to selected region classification and store in results dataframe
-        for mode, mor in zip(["All", "Heat", "Cold"], [MORTALITY_ALL_MIN[group], MORTALITY_HEAT_MIN[group], MORTALITY_COLD_MIN[group]]):
+        MORTALITY = [MOR_ALL[group], MOR_HEAT[group], MOR_COLD[group]]
+        
+        for mode, mor in zip(["All", "Heat", "Cold"], MORTALITY):
             Mortality2Regions(year, group, mor, regions, mode, res)  
             
             
@@ -1820,33 +1899,40 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
     
     # Generate ERFs used when there is income growth and adaptation
     if adaptation:    
-        ERFS_T, TMIN_T, climtas, loggdppc = GenerateERFAll(wdir=wdir,
-                                                           temp_dir=temp_dir,
-                                                           scenario=scenario,
-                                                           ir=res.ir,
-                                                           year=year,
-                                                           spatial_relation=res.spatial_relation, 
-                                                           age_groups=res.age_groups, 
-                                                           T=res.T, 
-                                                           gammas=res.gammas, 
-                                                           adaptation=adaptation,
-                                                           gdppc_shares=res.gdppc_shares, 
-                                                           image_gdppc=res.image_gdppc, 
-                                                           erfs_t0=res.erfs_t0)
+        ERFS_T, _, climtas, loggdppc = GenerateERFAll(
+            wdir=wdir,
+            temp_dir=temp_dir,
+            scenario=scenario,
+            ir=res.ir,
+            year=year,
+            spatial_relation=res.spatial_relation, 
+            age_groups=res.age_groups, 
+            T=res.T, 
+            gammas=res.gammas, 
+            adaptation=adaptation,
+            gdppc_shares=res.gdppc_shares, 
+            image_gdppc=res.image_gdppc, 
+            erfs_t0=res.erfs_t0
+            )
     
     # Use pre-calculated ERFs with no adaptation or income growth
     else: 
-        ERFS_T, TMIN_T = res.ERFS_T0, res.tmin_t0
+        ERFS_T = res.ERFS_T0, 
         
     # ------------------- Calculate mortality ------------------
     
-    MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD = {}, {}, {}
+    MOR_ALL, MOR_HEAT, MOR_COLD = {}, {}, {}
     
     for group in res.age_groups:      
-        MORTALITY_ALL[group], MORTALITY_HEAT[group], MORTALITY_COLD[group] = MortalityFromTemperatureIndex(DAILY_TEMP, TEMP_INDEX, ROWS, 
-                                                                ERFS_T, TMIN_T, MIN_TEMP, group)
+        MOR_ALL[group], MOR_HEAT[group], MOR_COLD[group] = MortalityFromTemperatureIndex(
+            daily_temp=DAILY_TEMP, 
+            rows=ROWS, 
+            erfs=ERFS_T, 
+            tmin=res.tmin_t0,
+            min_temp=MIN_TEMP, 
+            group=group)
             
-    return MORTALITY_ALL, MORTALITY_HEAT, MORTALITY_COLD, climtas, loggdppc 
+    return MOR_ALL, MOR_HEAT, MOR_COLD
 
 
 
@@ -1908,7 +1994,7 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
 
     
 
-def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_temp, group):
+def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group):
     
     """
     The code calculates annual relative mortality fusing the ERFs and the daily temperature
@@ -1946,12 +2032,6 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     results_cold : np.ndarray
         Annual relative mortality from cold non-optimal temperatures
     """
-    
-    # # Calculate relative mortality for all temperatures using the temperature indices
-    # result_all = erfs[group][rows, temp_idx] 
-    
-    # # Sum relative mortality across all days
-    # result_all = result_all.sum(axis=1)
 
     # Extract tmin values for the given age group
     TMIN = tmin[group][:, None]
@@ -1960,21 +2040,21 @@ def MortalityFromTemperatureIndex(daily_temp, temp_idx, rows, erfs, tmin, min_te
     MASK_HEAT = np.where(daily_temp > TMIN, daily_temp, TMIN)
     # Convert temperatures to indices where TMIN is idx 0
     TEMP_HEAT_IDX = np.round((MASK_HEAT - min_temp) * 10).astype(int)
-    # Calculate mortality from heat temperatures
-    MORTALITY_HEAT = erfs[group][rows, TEMP_HEAT_IDX]
+    # Calculate mortality from heat 
+    MOR_HEAT = erfs[group][rows, TEMP_HEAT_IDX]
     # Sum mortality from heat across all days
-    ANNUAL_MORTALITY_HEAT = MORTALITY_HEAT.sum(axis=1)
+    ANNUAL_MOR_HEAT = MOR_HEAT.sum(axis=1)
     
     # Generate temperature indices for temepratures below tmin and calculate mortality
     MASK_COLD = np.where(daily_temp < TMIN, daily_temp, TMIN)
     TEMP_COLD_IDX = np.round((MASK_COLD - min_temp) * 10).astype(int)
-    MORTALITY_COLD = erfs[group][rows, TEMP_COLD_IDX]
-    ANNUAL_MORTALITY_COLD = MORTALITY_COLD.sum(axis=1)
+    MOR_COLD = erfs[group][rows, TEMP_COLD_IDX]
+    ANNUAL_MOR_COLD = MOR_COLD.sum(axis=1)
     
     # Sum heat and cold mortality to get all mortality
-    ANNUAL_MORTALITY = ANNUAL_MORTALITY_COLD + ANNUAL_MORTALITY_HEAT
+    ANNUAL_MORTALITY = ANNUAL_MOR_COLD + ANNUAL_MOR_HEAT
     
-    return ANNUAL_MORTALITY, ANNUAL_MORTALITY_HEAT, ANNUAL_MORTALITY_COLD     
+    return ANNUAL_MORTALITY, ANNUAL_MOR_HEAT, ANNUAL_MOR_COLD     
 
 
 
@@ -2107,7 +2187,7 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, p
                                + " Temperatures" 
                                + "|" 
                                + results["age_group"].str.capitalize() 
-                               + "population"
+                               + " population"
                                + "|"
                                + results["units"])
         results = results[["IMAGE26", "Variable"] + list(results.columns[4:-1])]
