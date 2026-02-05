@@ -1,38 +1,39 @@
 import mortality_functions as mf
 
 
-### --------------------------------------------------------------------------------------
+### --------------------------------------------------------------------------------------""
 ### Define paths and variables
 
 # Working directory (root)
-wdir = 'X:/user/liprandicn/mt-comparison/Carleton2022'
+wdir = ""
 
-# Climate data type and path
-climate_type = 'ERA5' # ERA5, AR6
-climate_path = 'X:/user/liprandicn/Data/ERA5/t2m_daily'
-# climate_path =  D:\\Climate Models - Bias Corrected from CMIP6 precalculated data
+# Climate data path 
+era5_dir = ""
+temp_dir = ""
 
 # Set years range
-years = range(2000,2020,1)
+years = []
 
-# Define scenarios
-scenarios_RCP = [] # Climate scenarios: ['SSP126', 'SSP245', 'SSP370', 'SSP585'] 
-                    # or [] if present day climate data
-scenarios_SSP = ['SSP2'] # Socioeconomic scenarios: ['SSP1', 'SSP2', 'SSP3', 'SSP5']
+# Define SSP scenario
+scenario = "" #  SSP#_carleton OR SSP#_ERA5 OR other
 
 # Define region definitions
-regions = 'gbd_level3' #  impact_regions, ISO3, gbd_level3, UN_M49_level1,	IMAGE26, continents
+regions = "" #  "IMAGE26" or "countries"
+
+# Turn adaptation on or off (and define path to GDPpc data if on)
+# {"climtas": "temp_dir", "loggdppc": "default" or "/path/to/project/folder"} OR None (Default No adaptation)
+adaptation = ""
+            
 
 
 ### --------------------------------------------------------------------------------------
 ### Run main model
 
-era5 = mf.calculate_mortality(wdir, # Working directory
+era5 = mf.CalculateMortality(wdir, # Working directory
                              years, # Years range
-                             climate_type, # Climate data type
-                             climate_path, # Path to climate data files
-                             scenarios_SSP, # Socioeconomic scenarios
-                             scenarios_RCP, # Climate scenarios if projections are done
+                             temp_dir, # Path to climate data files
+                             scenario, # Scenario name
                              regions, # Region classification
-                             IAM_format=False, # If True, use IAM output format
+                             adaptation=adaptation, # Adaptation on or off
+                             IAM_format=True # If True, use IAM output format
                              )

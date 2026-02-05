@@ -13,3 +13,7 @@ dependencies:
   - matplotlib
   - ipykernel
   - nbformat
+  - rioxarray 
+  - prism
+  - pym
+  - country_converter
