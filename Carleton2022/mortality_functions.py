@@ -112,7 +112,8 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
         IAM_format=IAM_format, 
         adaptation=adaptation, 
         pop=res.pop, 
-        region_class=res.region_class)
+        region_class=res.region_class,
+        age_groups=res.age_groups)
     
     
     
@@ -230,7 +231,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         )
     
     # Generate a single time 'present day' ERFs (no adaptation)
-    ERFS_T0, TMIN_T0, _, _ = GenerateERFAll(
+    ERFS_T0, TMIN_T0 = GenerateERFAll(
         wdir=wdir,
         temp_dir=temp_dir, 
         scenario=scenario, 
@@ -1026,7 +1027,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
         
         mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, T, erfs_t0_group, tmin_t0_group)
         
-    return mor_np, tmin, climtas, loggdppc
+    return mor_np, tmin
 
 
 
@@ -1908,7 +1909,7 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
     
     # Generate ERFs used when there is income growth and adaptation
     if adaptation:    
-        ERFS_T, _, climtas, loggdppc = GenerateERFAll(
+        ERFS_T, _ = GenerateERFAll(
             wdir=wdir,
             temp_dir=temp_dir,
             scenario=scenario,
@@ -2097,64 +2098,60 @@ def Mortality2Regions(year, group, mor, regions, mode, res):
     """
     
     # Create a copy of region classification dataframe
-    REGIONS_CLASS = res.region_class[["hierid", regions]]
+    REGIONS_DF = res.region_class[["hierid", regions]]
     
-    # Calculate total mortality difference per region
-    REGIONS_CLASS["mor"] = (mor * res.pop[group][f"{year}"] /1e5)
-    
-    # Add population column to calculate relative mortality
-    REGIONS_CLASS["pop"] = res.pop[group][f"{year}"]
+    # Add mortality and population to df
+    REGIONS_DF["mor"] = (mor * res.pop[group][f"{year}"] / 1e5)
+    REGIONS_DF["pop"] = res.pop[group][f"{year}"]
     
     # Group total mortality per selected region definition
-    REGIONS_CLASS = REGIONS_CLASS.drop(columns=["hierid"]).groupby(regions).sum()
+    REGIONS_DF = REGIONS_DF.drop(columns=["hierid"]).groupby(regions).sum()
     
     # Calculate relative mortality per 100,000 people
-    REGIONS_CLASS["rel_mor"] = REGIONS_CLASS["mor"] * 1e5 / REGIONS_CLASS["pop"]
+    REGIONS_DF["rel_mor"] = REGIONS_DF["mor"] * 1e5 / REGIONS_DF["pop"]
     
     # Locate results in dataframe
     REGIONS_INDEX = res.results.loc[(group, mode, "Total deaths"), year].index[:-1]
-    
-    # Locating regional results in results dataframe
-    res.results.loc[(group, mode, "Total deaths", REGIONS_INDEX), year] = (REGIONS_CLASS["mor"].reindex(REGIONS_INDEX)).values
-    res.results.loc[(group, mode, "Deaths per 100,000", REGIONS_INDEX), year] = (REGIONS_CLASS["rel_mor"].reindex(REGIONS_INDEX)).values
+    res.results.loc[(group, mode, "Total deaths", REGIONS_INDEX), year] = (REGIONS_DF["mor"].reindex(REGIONS_INDEX)).values
+    res.results.loc[(group, mode, "Deaths per 100,000", REGIONS_INDEX), year] = (REGIONS_DF["rel_mor"].reindex(REGIONS_INDEX)).values
     
     # Locate global results in results dataframe
-    res.results.loc[(group, mode, "Total deaths", "World"), year] = REGIONS_CLASS["mor"].sum()
-    res.results.loc[(group, mode, "Deaths per 100,000", "World"), year] = (REGIONS_CLASS["mor"].sum() * 1e5 / REGIONS_CLASS["pop"].sum())
+    res.results.loc[(group, mode, "Total deaths", "World"), year] = REGIONS_DF["mor"].sum()
+    res.results.loc[(group, mode, "Deaths per 100,000", "World"), year] = (REGIONS_DF["mor"].sum() * 1e5 / REGIONS_DF["pop"].sum())
 
 
 
-def AddMortalityAllAges(results, pop, regions_class, years):
-    
-    # Prepare population data per IMAGE26 region
-    pop["young"] = pop["young"].set_index("hierid")
-    pop["older"] = pop["older"].set_index("hierid")
-    pop["oldest"] = pop["oldest"].set_index("hierid")
-    
-    pop_all = pop["young"] + pop["older"] + pop["oldest"]
-    pop_all = pop_all.iloc[:,1:-1]
+def AddMortalityAllAges(results, pop, regions_class, years, age_groups):
     
     regions_class = regions_class.set_index("hierid")
     
-    pop_all = pop_all.merge(regions_class, right_index=True, left_index=True)
-    pop_all = pop_all.groupby("IMAGE26").sum().iloc[:,:-1]
+    # Prepare population dataframes for aggregation
+    pop = {
+        age: df.set_index("hierid")
+        for age, df in pop.items()
+    }
     
-    years_str = [str(y) for y in years]
+    pop_all = pop["young"] + pop["older"] + pop["oldest"]
     
-    pop_all = pop_all.loc[:, pop_all.columns.isin(years_str)]
+    pop_all = (
+        pop_all
+        .iloc[:,1:-1]
+        .merge(regions_class, right_index=True, left_index=True)
+        .groupby("IMAGE26")
+        .sum()   # Sum population per IMAGE26 region
+        .loc[:, lambda df: df.columns.isin([str(y) for y in years])]
+        .rename(columns=int)  # Convert column names to integers 
+    )
     
-    pop_all.columns = pop_all.columns.astype(int)
-    
+    # Calculate global population by summing all regions
     pop_all_world = pop_all.sum(axis=0)
     
-
+    # Calculate total mortality and relative mortality for all-ages groups 
     for mode in ["All", "Heat", "Cold"]:
         
         # Calculate total mortality for all age groups
         results.loc[("all", mode, "Total deaths")] = (
-            results.loc[("young", mode, "Total deaths")] + 
-            results.loc[("older", mode, "Total deaths")] + 
-            results.loc[("oldest", mode, "Total deaths")]
+            sum(results.loc[(age, mode, "Total deaths")] for age in age_groups)
         ).values
         
         # Calculate relative mortality for all-age group        
@@ -2163,32 +2160,34 @@ def AddMortalityAllAges(results, pop, regions_class, years):
         results.loc[("all", mode, "Deaths per 100,000", IMAGE26)] = (
             results.loc[("all", mode, "Total deaths", IMAGE26)]
             .mul(1e5)
-            .div(pop_all.where(pop_all != 0))
+            .div(pop_all.where(pop_all.reindex(IMAGE26) != 0))
         ).values
         
         # Calculate global relative mortality for all-age group
         results.loc[("all", mode, "Deaths per 100,000", "World")] = (
             results.loc[("all", mode, "Total deaths", "World")]
-            * 1e5
-            / pop_all_world.sum()
+            .mul(1e5)
+            .div(pop_all_world.sum())
         )
 
     return results
 
 
-def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, pop, region_class):
+
+def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, pop, region_class, age_groups):
     
     """
     Postprocess final results and save to CSV file in output folder.
-    1. Substract the subtrahend dataframe from the minuend one (following equations 2' and 2a')
-    2. If IAM format is on, change the format of the results to match the IAM one
-    3. Save results in main working directory
+    1. Calculate total mortality and relative mortality for all-ages group by summing the results
+    of the three age groups and dividing by the total population of the three age groups respectively.
+    2. If IAM format is on, change the format of the results to match the IAM one.
+    3. Save results in main working directory.
     """
     
     print("[3] Postprocessing and saving results...")
     
     # Calculate total mortality and relative mortality for all-ages group
-    results = AddMortalityAllAges(results, pop, region_class, years)
+    results = AddMortalityAllAges(results, pop, region_class, years, age_groups)
     
     # Reset index and format results for IAMs if specified
     if IAM_format==True:
@@ -2213,7 +2212,8 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, p
         project = ""
         
     # Save results to CSV                
-    results.to_csv(wdir+f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}_MIN.csv", 
+    results.to_csv(wdir+
+                   f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
                    index=False) 
     
     print("Scenario ran successfully!")
