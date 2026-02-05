@@ -130,10 +130,15 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
             TEMPERATURE_MONTHLY_MEAN
             .sel(time=f"{y}-01-01")
         )
+    
+    if YEARS[-1] == 2100:
+        FINAL_YEAR = YEARS[-1]
+    else:
+        FINAL_YEAR = YEARS[-1]+1
         
     TEMPERATURE_MOTNHLY_MEAN_PRESENT.append(
         TEMPERATURE_MONTHLY_MEAN
-        .sel(time=f"{YEARS[-1]+1}-01-01")
+        .sel(time=f"{FINAL_YEAR}-01-01")
         .isel(NM=0)
     )
 
