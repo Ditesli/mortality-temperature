@@ -2192,15 +2192,34 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, p
     # Reset index and format results for IAMs if specified
     if IAM_format==True:
         results = results.reset_index()
-        results["Variable"] = ("Mortality|Non-optimal Temperatures|"
-                               + results["t_type"].str.capitalize() 
-                               + " Temperatures" 
-                               + "|" 
-                               + results["age_group"].str.capitalize() 
-                               + " population"
-                               + "|"
-                               + results["units"])
-        results = results[["IMAGE26", "Variable"] + list(results.columns[4:-1])]
+        
+    # Asign mortality name according to units
+    results.loc[results["units"] == "Deaths per 100,000", "var"] = "Relative Mortality"
+    results.loc[results["units"] != "Deaths per 100,000", "var"] = "Mortality"
+
+    # Rename all temperatures name
+    results.loc[results["t_type"] == "all", "t_type"] = "All temperatures"
+
+    # Rename 'age_group'
+    results.loc[results["age_group"] == "all", "age_group"] = "All ages"
+    results.loc[results["age_group"] == "young", "age_group"] = "<5 years"
+    results.loc[results["age_group"] == "older", "age_group"] = "5-64 years"
+    results.loc[results["age_group"] == "oldest", "age_group"] = ">65 years"
+
+    # Create column 'Variable'
+    results["Variable"] = (
+        "Health|"
+        + results["var"]
+        + "|Non-optimal Temperatures|"
+        + results["t_type"].str.capitalize()
+        + "|"
+        + results["age_group"].str.capitalize()
+        + "|"
+        + results["units"]
+    )
+        
+    results = results[["IMAGE26", "Variable"] + list(results.columns[4:-2])]
+        
     results = results.rename(columns={"IMAGE26": "region"})
     
     if adaptation:
