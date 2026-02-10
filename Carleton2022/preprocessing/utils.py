@@ -2,10 +2,11 @@ import pandas as pd
 import numpy as np
 import xarray as xr
 import geopandas as gpd
+from pathlib import Path
 import rasterio
 from rasterio.features import rasterize
 import numpy as np
-from typing import Optional
+import country_converter as coco
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import mortality_functions as mf
@@ -71,7 +72,7 @@ def region_classification_file(
         
 
 
-def generate_historical_pop(
+def generate_pop_historical(
     wdir: str,
     landscan_file: str,
     impact_regions: str
@@ -321,3 +322,299 @@ def import_present_day_temperature(wdir, era5_dir):
     for year in years:
         T_0 = mf.era5_temp_to_ir(era5_dir, year, ir, spatial_relation)
         T_0.to_csv(wdir+f'data/climate_data/ERA5_T0_{year}.csv')
+        
+
+
+def generate_pop_projections(wdir, pop_dir):
+    
+    """
+    The code imports the population data produced by an IMAGE run and converts it to population data
+    for the three age groups and SSP scenarios at the impact region level.
+    
+    Parameters:
+    ----------
+    wdir : str
+        Working directory
+        
+    Returns:
+    ----------
+    None. 
+        The function saves CSV files with population projections per age group and SSP scenario at the 
+        impact region level in the subdirectory `data/population/pop_ssp` of the working directory.
+        If no folder exists, it will be created.
+        
+    Data sources:
+    ----------
+    1. Population data projections per age group from the SSP projections, available at:
+        https://dataexplorer.wittgensteincentre.org/wcde-v3/  (K.C. et al. (2024)).
+        The data was populaiton size (000's) at country level for all the 5-year age groups
+        and SSP scenarios.
+    """
+    
+    SSP = ['SSP1', 'SSP2', 'SSP3', 'SSP5']
+    YEARS = range(2000, 2101)
+    
+    for ssp in SSP:
+        
+        # Agregate raster IMAGE total population per impact region and year
+        TOTAL_POPULATION_IR = IMAGEPopulation2ImpactRegion(wdir=wdir, pop_dir=pop_dir, ssp=ssp, years=YEARS)
+        
+        # Load population data projections per age group to disagregate IMAGE data
+        POPULATION_GROUPS = LoadAgeGroupPopulationData(pop_dir=pop_dir, ssp=ssp, years=YEARS)
+        
+        # Pivot and merge function
+        def pivot_and_merge(group_name):
+            
+            df = POPULATION_GROUPS[POPULATION_GROUPS["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
+            df = df.rename(columns={c: f"{c}_share" for c in df.columns if isinstance(c, int)})
+            return TOTAL_POPULATION_IR.merge(df, on="ISO3", how="left")
+        
+        # Create population dataframes for each age group
+        POP_YOUNG, POP_OLDER, POP_OLDEST = (pivot_and_merge(g) for g in ['young', 'older', 'oldest'])
+        
+        # Create output directory if it doesn't exist
+        out_path = Path(wdir) / "data" / "population" / "pop_ssp"
+        out_path.mkdir(parents=True, exist_ok=True)
+
+        # Multiply shares by total population to get absolute numbers
+        for pop, group in zip([POP_YOUNG, POP_OLDER, POP_OLDEST],["young", "older", "oldest"]):        
+            for y in YEARS:
+                pop[str(y)] = pop[str(y)+"_share"] * pop[str(y)]
+                        
+            NON_SHARE_COLS = [c for c in pop.columns if "share" not in c]
+            
+            # Save population projection files per age group and SSP scenario
+            pop[NON_SHARE_COLS].to_csv(out_path/ f"pop_{ssp.lower()}_{group}.csv", index=False)
+
+        
+        
+def IMAGEPopulation2ImpactRegion(wdir, pop_dir, ssp, years):
+    
+    '''
+    Calculate total population per impact region for a specific year from IMAGE land
+    population data files.
+
+    This function assigns raster pixels from the IMAGE land population data to impact regions,
+    sums the population values within each region, and adds the results as a new column to
+    the input GeoDataFrame.
+
+    Parameters
+    ----------
+    pop :  xarray
+        IMAGE Land population nc4 file. Usually 5min resolution.
+    impact_regions : geopandas.GeoDataFrame
+        GeoDataFrame containing impact region polygons.
+    year : int
+        Year for which the population is being calculated (e.g., 2000, 2010).
+
+    Returns
+    -------
+    impact_regions : pd.DataFrame
+        oDataFrame with columns for the impact region, ISO3 and the corresponding population 
+        per year.
+    '''
+    
+    print(f'Calculating population per impact region for SSP: {ssp}...')
+    
+    # Read in impact regions shapefile
+    IMPACT_REGIONS = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
+    
+    # Read IMAGE SSP population nc file
+    POP_IMAGE = xr.open_dataset(pop_dir+f"/IMAGE_POP/{ssp.upper()}/GPOP.nc")
+    
+    # Ensure CRS is set to EPSG:4326 and align with impact regions
+    POP_IMAGE = POP_IMAGE.rio.write_crs("EPSG:4326", inplace=False)
+    IMPACT_REGIONS = IMPACT_REGIONS.to_crs(POP_IMAGE.rio.crs)
+
+    # Select relevant years including "present-day" years (2000-2010)
+    POP_IMAGE = POP_IMAGE.sel(time=pd.to_datetime([f"{y}-01-01" for y in years]))
+    
+    MINLENGTH = len(IMPACT_REGIONS) + 1
+
+    # Prepare tuples of (geometry, region_id) for rasterization
+    SHAPES_AND_IDS = [(geom, idx) for idx, geom in enumerate(IMPACT_REGIONS.geometry, start=1)]
+        
+    # Rasterize region polygons once
+    OUT_SHAPE = POP_IMAGE.isel(time=0).GPOP.shape
+
+    # Get raster transform 
+    RASTER_AFFINE = POP_IMAGE.rio.transform()    
+
+    PIXEL_OWNER = rasterize(
+        SHAPES_AND_IDS,
+        out_shape=OUT_SHAPE,
+        transform=RASTER_AFFINE,
+        fill=0,          # 0 = without region
+        all_touched=False,
+        dtype='int32'
+    )
+    
+    year_data = {}
+    
+    for i, year in enumerate(years):
+        
+        RASTER_DATA = POP_IMAGE.isel(time=i).GPOP.values
+        
+        # Mask valid data (NaN = nodata)
+        VALID_POP_MASK = ~np.isnan(RASTER_DATA)
+
+        # Sum population per region using np.bincount in pixels without NaN
+        SUMS = np.bincount(
+            PIXEL_OWNER[VALID_POP_MASK], 
+            weights=RASTER_DATA[VALID_POP_MASK], 
+            minlength=MINLENGTH
+        )[1:]  
+
+        # Add results to impact_regions GeoDataFrame
+        year_data[str(year)] = SUMS
+        
+    IMPACT_REGIONS = pd.concat(
+        [IMPACT_REGIONS, pd.DataFrame(year_data, index=IMPACT_REGIONS.index)],
+        axis=1
+    )
+    
+    # Add ISO3 column
+    IMPACT_REGIONS["ISO3"] = IMPACT_REGIONS["hierid"].str[:3]
+
+    # Only return regions names and population columns
+    return IMPACT_REGIONS[["hierid", "ISO3"] + [c for c in IMPACT_REGIONS.columns if str(c).isdigit()]]
+
+
+
+def LoadAgeGroupPopulationData(pop_dir, ssp, years):
+    
+    """
+    Load and process population data projections per age group from the SSP projections.
+    This function reads the population projections from the SSP data, classifies ages into three groups
+    (young, older, oldest), aggregates population by these groups, and calculates the share of each age group
+    for each country and year. The resulting DataFrame includes the population share of each age group
+    for each country and year, along with the corresponding ISO3 country codes.
+    
+    Parameters:
+    ----------
+    pop_dir : str
+        Directory path where the population data projections are stored.
+    ssp : str
+        SSP scenario name (e.g., 'SSP1', 'SSP2', 'SSP3', 'SSP5').
+    years : list or range
+        List or range of years to include in the analysis (e.g., range(2000, 2101)).
+        
+    Returns:
+    ----------
+    pd.DataFrame
+        A DataFrame containing the population share of each age group for each country and year, 
+        along with ISO3 country codes. The DataFrame has columns:
+            - 'Area': Country name
+            - 'Year': Year
+            - 'group': Age group ('young', 'older', 'oldest')
+            - 'Population': Population count for that age group
+            - 'Population_total': Total population for that country and year
+            - 'share': Share of the population in that age group (Population / Population_total)
+            - 'ISO3': ISO3 country code
+    """
+    
+    # Load population data projections per 5-year age group
+    POPULATION_5YEAR_AGE = (pd.read_csv(pop_dir+"/WCDE_POP_SSP/wcde_data.csv", 
+                                       skiprows=8)
+                            .query("Scenario == @ssp and Year in @years")
+    )
+    
+    POPULATION_5YEAR_AGE = CompletePopulationDataLustrum(POPULATION_5YEAR_AGE)
+    
+    # Define age groups to classify wcde ages
+    AGE_GROUPS = {
+        "young": ['0--4'],
+        "older": [f'{i}--{i+4}' for i in range(5, 65, 5)],
+        "oldest": [f'{i}--{i+4}' for i in range(65, 100, 5)] + ['100+']
+    }
+    
+    # Assign age group to each age
+    POPULATION_5YEAR_AGE.loc[:,'group'] = POPULATION_5YEAR_AGE['Age'].map(
+        lambda x: next((grp for grp, ages in AGE_GROUPS.items() if x in ages), None)
+    )
+    
+    # Aggregate population by group
+    POPULATION_GROUPS = (
+        POPULATION_5YEAR_AGE
+        .dropna(subset=['group']) # Drop rows with ages that don't fit into defined groups ('All')
+        .groupby(['Area', 'Year', 'group'], as_index=False)['Population']
+        .sum()
+    )
+    
+    # Generate rows with missing years per area and group
+    dfs = []
+
+    # Interpolate for every Area and group combination
+    for (area, group), group_df in POPULATION_GROUPS.groupby(['Area', 'group']):
+        # Create year range
+        # years = range(group_df['Year'].min(), group_df['Year'].max() + 1)
+        # Reindex to include all years
+        group_df = group_df.set_index('Year').reindex(years)
+        # Extend area and group columns
+        group_df['Area'] = area
+        group_df['group'] = group
+        # Interpolate population values
+        group_df['Population'] = group_df['Population'].interpolate(method='linear')
+        # Reset index
+        group_df = group_df.reset_index().rename(columns={'index': 'Year'})
+        dfs.append(group_df)
+
+    # Concateenate all dataframes
+    POPULATION_GROUPS_ANNUAL =  pd.concat(dfs, ignore_index=True)
+    
+    # Calculate share of each age group
+    POPULATION_GROUPS_ANNUAL["Population_total"] = (
+        POPULATION_GROUPS_ANNUAL
+        .groupby(["Area", "Year"])["Population"]
+        .transform("sum")
+    )
+    POPULATION_GROUPS_ANNUAL["share"] = (
+        POPULATION_GROUPS_ANNUAL["Population"] / 
+        POPULATION_GROUPS_ANNUAL["Population_total"]
+    )
+    
+    # Convert locations to ISO3
+    unique_locations = POPULATION_GROUPS_ANNUAL["Area"].unique()
+    conversion_dict = {loc: coco.convert(names=loc, to='ISO3') for loc in unique_locations}
+    POPULATION_GROUPS_ANNUAL['ISO3'] = POPULATION_GROUPS_ANNUAL["Area"].map(conversion_dict)
+    
+    return POPULATION_GROUPS_ANNUAL
+
+
+
+def CompletePopulationDataLustrum(df):
+    
+    """
+    Fill in missing years in the population data by forward-filling and backward-filling.
+    This ensure that countries without data for certain years will have values filled in
+    based on the nearest available data, keeping age group share consistent.
+    """
+    
+    # Create a MultiIndex of all combinations of Area, Scenario, and Years
+    UNIQUE_MLTIDX = pd.MultiIndex.from_product(
+        [
+            df["Area"].unique(),
+            df["Scenario"].unique(),
+            df["Year"].unique(),
+            df["Age"].unique()
+        ],
+        names=["Area", "Scenario", "Year", "Age"]
+    )
+    
+    # Reindex the DataFrame to include all combinations, filling missing values with NaN
+    DF_FULL = (
+        df
+        .set_index(["Area", "Scenario", "Year", "Age"])
+        .reindex(UNIQUE_MLTIDX)
+        .reset_index()
+    )
+    
+    # Forward-fill and backward-fill missing values within each Population and Scenario group
+    DF_FULL["Population"] = (
+        DF_FULL
+        .groupby(["Area", "Scenario", "Year", "Age"])["Population"]
+        .transform("bfill")
+        .transform("ffill")
+    )
+    
+    return DF_FULL
