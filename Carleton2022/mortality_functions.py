@@ -113,6 +113,7 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
         wdir=wdir, 
         years=years, 
         results=res.results, 
+        project=project,
         scenario=scenario, 
         IAM_format=IAM_format, 
         adaptation=adaptation, 
@@ -231,7 +232,7 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
         ir=ir, 
         year=None, 
         spatial_relation=spatial_relation, 
-        adaptation=None, 
+        adaptation=False, 
         gdppc_shares=None, 
         image_gdppc=None,
         counterfactual=None
@@ -270,7 +271,7 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
     
     #  Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
     
-    if 'carleton' not in scenario.lower() and (adaptation == True):
+    if ("carleton" not in scenario.lower() and "era5" not in scenario.lower() and adaptation):
             
         print("[1.6] Loading GDP data from IMAGE...")
         # Generate GDPpc shares of regions within a country
@@ -361,7 +362,7 @@ def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
     if re.search(r"SSP[1-5]_ERA5", scenario):
         # Use function located in the utils_common folder to import ERA5 data in the right format
         grid,_ = tmp.DailyTemperatureERA5(
-            era5_dir=path, 
+            era5_dir=temp_dir, 
             year=years[0], 
             temp_type="mean", 
             pop_ssp=None, 
@@ -1162,11 +1163,11 @@ def ImportLogGDPpc(wdir, scenario, ir, year):
         DataFrame with GDP per capita data
     """
     
-    scenario = re.search(r"(?i)\bssp\d+", scenario).group()
+    SCENARIO = re.search(r"(?i)\bssp\d+", scenario).group()
         
     # Read GDP per capita file
-    gdppc = (
-        xr.open_dataset(wdir+f"data/carleton_sm/econ_vars/{scenario.upper()}.nc4")   
+    GDPPC = (
+        xr.open_dataset(wdir+f"data/carleton_sm/econ_vars/{SCENARIO.upper()}.nc4")   
         .gdppc
         .mean(dim='model')  # Mean across models
         .rolling(year=13, min_periods=1)  # 13 year rolling mean
@@ -1181,10 +1182,10 @@ def ImportLogGDPpc(wdir, scenario, ir, year):
     )
     
     # Calculate log(GDPpc)
-    gdppc["loggdppc"] = np.log(gdppc["gdppc"])
+    GDPPC["loggdppc"] = np.log(GDPPC["gdppc"])
     
     # Return numpy array
-    return gdppc["loggdppc"].values
+    return GDPPC["loggdppc"].values
 
 
 
@@ -2190,7 +2191,7 @@ def AddMortalityAllAges(results, pop, regions_class, years, age_groups):
     
     pop_all = (
         pop_all
-        .iloc[:,1:-1]
+        .loc[:,[col for col in pop_all.columns if any(str(y) in col for y in years)]]
         .merge(regions_class, right_index=True, left_index=True)
         .groupby("IMAGE26")
         .sum()   # Sum population per IMAGE26 region
@@ -2215,7 +2216,7 @@ def AddMortalityAllAges(results, pop, regions_class, years, age_groups):
         results.loc[("all", mode, "Deaths per 100,000", IMAGE26)] = (
             results.loc[("all", mode, "Total deaths", IMAGE26)]
             .mul(1e5)
-            .div(pop_all.where(pop_all.reindex(IMAGE26) != 0))
+            .div(pop_all.reindex(IMAGE26))
         ).values
         
         # Calculate global relative mortality for all-age group
@@ -2229,7 +2230,7 @@ def AddMortalityAllAges(results, pop, regions_class, years, age_groups):
 
 
 
-def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, pop, region_class, age_groups):
+def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adaptation, pop, region_class, age_groups):
     
     """
     Postprocess final results and save to CSV file in output folder.
@@ -2242,52 +2243,49 @@ def PostprocessResults(wdir, years, results, scenario, IAM_format, adaptation, p
     print("[3] Postprocessing and saving results...")
     
     # Calculate total mortality and relative mortality for all-ages group
-    results = AddMortalityAllAges(results, pop, region_class, years, age_groups)
+    RESULTS = AddMortalityAllAges(results, pop, region_class, years, age_groups)
     
     # Reset index and format results for IAMs if specified
     if IAM_format==True:
-        results = results.reset_index()
+        RESULTS = RESULTS.reset_index()
         
-    # Asign mortality name according to units
-    results.loc[results["units"] == "Deaths per 100,000", "var"] = "Relative Mortality"
-    results.loc[results["units"] != "Deaths per 100,000", "var"] = "Mortality"
+        # Asign mortality name according to units
+        RESULTS.loc[RESULTS["units"] == "Deaths per 100,000", "var"] = "Relative Mortality"
+        RESULTS.loc[RESULTS["units"] != "Deaths per 100,000", "var"] = "Mortality"
 
-    # Rename all temperatures name
-    results.loc[results["t_type"] == "all", "t_type"] = "All temperatures"
+        # Rename all temperatures name
+        RESULTS.loc[RESULTS["t_type"] == "all", "t_type"] = "All temperatures"
 
-    # Rename 'age_group'
-    results.loc[results["age_group"] == "all", "age_group"] = "All ages"
-    results.loc[results["age_group"] == "young", "age_group"] = "<5 years"
-    results.loc[results["age_group"] == "older", "age_group"] = "5-64 years"
-    results.loc[results["age_group"] == "oldest", "age_group"] = ">65 years"
+        # Rename 'age_group'
+        RESULTS.loc[RESULTS["age_group"] == "all", "age_group"] = "All ages"
+        RESULTS.loc[RESULTS["age_group"] == "young", "age_group"] = "<5 years"
+        RESULTS.loc[RESULTS["age_group"] == "older", "age_group"] = "5-64 years"
+        RESULTS.loc[RESULTS["age_group"] == "oldest", "age_group"] = ">65 years"
 
-    # Create column 'Variable'
-    results["Variable"] = (
-        "Health|"
-        + results["var"]
-        + "|Non-optimal Temperatures|"
-        + results["t_type"].str.capitalize()
-        + "|"
-        + results["age_group"].str.capitalize()
-        + "|"
-        + results["units"]
-    )
-        
-    results = results[["IMAGE26", "Variable"] + list(results.columns[4:-2])]
-        
-    results = results.rename(columns={"IMAGE26": "region"})
+        # Create column 'Variable'
+        RESULTS["Variable"] = (
+            "Health|"
+            + RESULTS["var"]
+            + "|Non-optimal Temperatures|"
+            + RESULTS["t_type"].str.capitalize()
+            + "|"
+            + RESULTS["age_group"].str.capitalize()
+            + "|"
+            + RESULTS["units"]
+        )
+            
+        RESULTS = RESULTS[["IMAGE26", "Variable"] + list(RESULTS.columns[4:-2])]
+            
+        RESULTS = RESULTS.rename(columns={"IMAGE26": "region"})
     
-    if adaptation:
+    if adaptation == True:
         adapt = ""
-        gdp_dir = adaptation.get("loggdppc")
-        project = re.split(r"[\\/]", gdp_dir)[-1]+"_"
     else:
-        adapt = "_noadap"
-        project = ""
+        adapt = "_noadapt"
         
     # Save results to CSV                
-    results.to_csv(wdir+
-                   f"output/mortality_carleton_{project}{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
+    RESULTS.to_csv(wdir +
+                   f"output/mortality_carleton_{project}_{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
                    index=False) 
     
     print("Scenario ran successfully!")
