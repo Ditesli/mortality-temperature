@@ -4,9 +4,7 @@ import xarray as xr
 import geopandas as gpd
 from dataclasses import dataclass
 from shapely.geometry import Polygon
-from shapely.geometry import box
-import re
-import sys, os
+import re, sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils_common import temperature as tmp
 import prism
@@ -17,7 +15,7 @@ import country_converter as coco
 ### ------------------------------------------------------------------------------
 
 
-def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM_format=False):
+def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, regions, adaptation, IAM_format):
     
     """
     Main function to calculate mortality projections for the given parameters.
@@ -76,28 +74,35 @@ def CalculateMortality(wdir, years, temp_dir, scenario, regions, adaptation, IAM
     
     print(f"Starting mortality model calculations for scenario {scenario} and years {years}...")
     
+    
+    if temp_dir == gdp_dir:
+        path = temp_dir + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
+    else:
+        path = temp_dir  
+    
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(
-        wdir=wdir, 
-        temp_dir=temp_dir, 
+        wdir=wdir,  
         regions=regions, 
+        project=project,
         scenario=scenario, 
         years=years,
-        climate_path=temp_dir, 
+        temp_dir=path, 
+        gdp_dir=gdp_dir,
         adaptation=adaptation
         )  
         
     print("[2] Starting mortality calculations...")
         
     # Iterate over years
-    for year in years:
+    for year in years:          
         
         #Calculate mortality per region and year 
         CalculateMortalityEffects(
             wdir=wdir, 
             year=year, 
             scenario=scenario, 
-            temp_dir=temp_dir, 
+            temp_dir=path, 
             adaptation=adaptation, 
             regions=regions, 
             res=res
@@ -138,7 +143,7 @@ class LoadInputData:
 
     
     
-def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adaptation):
+def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, adaptation):
     
     """
     Read and load all main input files required for mortality calculations. The necessary data is 
@@ -156,7 +161,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         Region classification 
     scenario : str
     years : list
-    climate_path : str
+    temp_dir : str
         Path to climate data files
     adaptation: dic
         This dictionary will serve to turn adaptation on or off. 
@@ -202,7 +207,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     T = np.arange(-20, 40.1, 0.1).round(1)
     
     # Create relationship between temperature data and impact regions
-    spatial_relation, ir = GridRelationship(wdir, scenario, climate_path, years)
+    spatial_relation, ir = GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years)
     
     # Open file with region classification
     region_class = SelectRegions(wdir, regions)
@@ -218,7 +223,8 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     
     # Import present day covariates
     print("[1.4] Loading 'present day' covariates climtas and loggdppc...")
-    climtas_t0, loggdppc_t0 = ImportCovariates(
+    
+    CLIMTAS_T0, LOGGDPPC_T0 = ImportCovariates(
         wdir=wdir, 
         temp_dir=temp_dir, 
         scenario=scenario, 
@@ -227,7 +233,8 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         spatial_relation=spatial_relation, 
         adaptation=None, 
         gdppc_shares=None, 
-        image_gdppc=None
+        image_gdppc=None,
+        counterfactual=None
         )
     
     # Generate a single time 'present day' ERFs (no adaptation)
@@ -241,14 +248,16 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         age_groups=age_groups, 
         T=T, 
         gammas=gammas, 
-        adaptation=None, 
+        adaptation=False, 
         gdppc_shares=None, 
         image_gdppc=None, 
         erfs_t0=None,
-        tmin_t0=None
+        tmin_t0=None,
+        counterfactual=None
         ) 
     
     print("[1.5] Loading present-day temperature data...")
+    
     # Import present day temperatures
     DAILY_TEMP_T0 = ImportPresentDayTemperatures(
         wdir=wdir, 
@@ -259,33 +268,26 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         spatial_relation=spatial_relation
         )
     
-    # ------------------ If no adaptation
-    if adaptation == None:
+    #  Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
+    
+    if 'carleton' not in scenario.lower() and (adaptation == True):
+            
+        print("[1.6] Loading GDP data from IMAGE...")
+        # Generate GDPpc shares of regions within a country
+        gdppc_shares = GenerateGDPpcShares(wdir=wdir, 
+                                            ir=ir, 
+                                            region_class=region_class)
         
-        # Set gdppc shares to None
+        # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
+        image_gdppc = ReadOUTFiles(gdp_dir=gdp_dir,
+                                   project=project, 
+                                    scenario=scenario)
+            
+    # Set to None when using Carleton's socioeconomic data or when adaptation is off        
+    else:  
+    
         gdppc_shares = None
         image_gdppc = None
-    
-    # ------------------ If adaptation
-    else:
-        
-        # If adaptation is prescribed by Carleton et al. (2022): default mode
-        if adaptation.get("loggdppc") == "default":
-            gdppc_shares = None
-            image_gdppc = None
-        
-        # If adaptation with custom GDP data from TIMER
-        else:
-            print("[1.6] Loading GDP data from IMAGE...")
-            # Generate GDPpc shares of regions within a country
-            gdppc_shares = GenerateGDPpcShares(wdir=wdir, 
-                                               ir=ir, 
-                                               region_class=region_class)
-            
-            # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
-            gdp_dir = adaptation.get("loggdppc")
-            image_gdppc = ReadOUTFiles(gdp_dir=gdp_dir, 
-                                       scenario=scenario)
         
         
     return LoadInputData(
@@ -297,8 +299,8 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
         results=RESULTS,
         gammas = gammas,
         pop = pop,
-        climtas_t0 = climtas_t0,
-        loggdppc_t0 = loggdppc_t0,
+        climtas_t0 = CLIMTAS_T0,
+        loggdppc_t0 = LOGGDPPC_T0,
         erfs_t0 = ERFS_T0,
         tmin_t0 = TMIN_T0,
         gdppc_shares = gdppc_shares,
@@ -307,7 +309,7 @@ def LoadMainFiles(wdir, temp_dir, regions, scenario, years, climate_path, adapta
     )
 
 
-def GridRelationship(wdir, scenario, path, years):
+def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
     
     """
     Create a geopandas.DataFrame with spatial relationship between temperature 
@@ -323,7 +325,7 @@ def GridRelationship(wdir, scenario, path, years):
     scenario : str
         Determines the type of climate data to use (ERA5 if "ERA5" is specified OR monthly statistics
         if any other scenario is given)
-    climate_path : str
+    temp_dir : str
         Path to climate data files
     years : list
         List of years to process
@@ -354,6 +356,7 @@ def GridRelationship(wdir, scenario, path, years):
         ])
 
     # Read climate data
+    
     # ---------- If ERA5 data ----------
     if re.search(r"SSP[1-5]_ERA5", scenario):
         # Use function located in the utils_common folder to import ERA5 data in the right format
@@ -365,12 +368,17 @@ def GridRelationship(wdir, scenario, path, years):
             to_array=False
             )
     
-    # --------- If POP ----------
-    elif scenario == "POP":
-        grid = path
-    
-    # --------- If Monthly Statistics data ----------  
+    # --------- If Monthly Statistics (MS) data ----------  
     else:
+        
+        # --------- IMAGE scenario climate data ----------
+        if temp_dir == gdp_dir:
+            path = temp_dir + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
+    
+        # --------- Other MS scenario data ----------
+        else:
+            path = temp_dir
+        
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
             temp_dir=path, 
@@ -954,7 +962,7 @@ def SSPxarrayToDataframe(wdir, ssp, pop_group, ir):
 
 
 def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_groups, T, gammas, adaptation, 
-                   gdppc_shares, image_gdppc, erfs_t0, tmin_t0):
+                   gdppc_shares, image_gdppc, erfs_t0, tmin_t0, counterfactual):
     
     """
     The code imports the gamma coefficients and the covariates (climtas and loggdppc) and feeds 
@@ -1006,7 +1014,8 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
         spatial_relation=spatial_relation, 
         adaptation=adaptation, 
         gdppc_shares=gdppc_shares, 
-        image_gdppc=image_gdppc
+        image_gdppc=image_gdppc,
+        counterfactual=counterfactual
         )
 
     # Create covariates matrix
@@ -1032,7 +1041,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
 
 
 def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adaptation, 
-                     gdppc_shares, image_gdppc):
+                     gdppc_shares, image_gdppc, counterfactual):
     
     """
     The main purpose of the function will be to give the covariates climtas and 
@@ -1080,41 +1089,49 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
     """
     
     # No adaptation -----------------------------------------
-    if adaptation==None:
+    # Use the "present day" covariates from Carleton et al. (2022) as the default covariates for the ERF generation.
+    if adaptation==False:
         
         # Open covariates for "present day" (no adaptation)
         covariates_t0 = pd.read_csv(wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
         
         # Rename regions column to reindex woth ir dataframe
-        covariates_t0 = covariates_t0.rename(columns={"region":"hierid"})
-        covariates_t0 = covariates_t0.set_index("hierid").reindex(ir.values)
+        covariates_t0 = (
+            covariates_t0
+            .rename(columns={"region":"hierid"})
+            .set_index("hierid")
+            .reindex(ir.values)
+        )
         
         # Extract only climtas and loggdppc as arrays
         climtas = covariates_t0["climtas"].values
         loggdppc = covariates_t0["loggdppc"].values
     
     # Adaptation ---------------------------------------------
+    # Open covariates depending on the year and the scenario.
     else:
-        # CLIMTAS ---------------------------
-        if adaptation.get("climtas") == "default":
-            # Climate data from Carleton not available
-            raise ValueError("climtas cannot be 'default'. Provide a directory or set 'tmean_t0'.")
         
-        elif adaptation.get("climtas") == "tmean_t0":
-            # Open climate data provided 
-            temp_dir = temp_dir
-            climtas = ImportPresentDayClimtas(temp_dir, spatial_relation, ir)
-            
-        else:
-            # Open climate data provided 
-            temp_dir = adaptation.get("climtas")
+        # CLIMTAS ---------------------------
+        if counterfactual==False:
+            # Load climatology (30-year running mean, climtas) of the selected year
             climtas = ImportClimtas(temp_dir, year, spatial_relation, ir)
-
+            
+        else: 
+            # Load climatology (30-year running mean, climtas) of the "present-day" period (2000-2010)
+            climtas = ImportPresentDayClimtas(temp_dir, spatial_relation, ir)
+        
         # GDP -------------------------------
-        if adaptation.get("loggdppc") == "default":
-            # Open GDPpc provided by Carleton et al, at impact region level per SSP
+        if 'carleton' in scenario.lower():
+            # Load log(GDPpc) from Carleton et al. (2022) for the selected year and scenario
             loggdppc = ImportLogGDPpc(wdir, scenario, ir, year)
-        else:
+            
+        elif gdppc_shares is None or image_gdppc is None:
+            # Do not load any GDP data as these settings are used when loading present day covariates
+            loggdppc = None
+            
+        else: 
+            # Load log(GDPpc) at the impact region level using the GDPpc output from a TIMER run and 
+            # the GDPpc shares to disaggregate it to the impact region level for a selected year
             loggdppc = ImportIMAGEloggdppc(year, image_gdppc, gdppc_shares)
         
     return climtas, loggdppc
@@ -1264,8 +1281,27 @@ def GenerateGDPpcShares(wdir, ir, region_class):
 
 
 
-def ReadOUTFiles(gdp_dir, scenario):
+def ReadOUTFiles(gdp_dir, project, scenario):
     
+    """
+    Read GDPpc data from TIMER output files. The code will read the files for the selected scenario and project.
+    
+    Parameters:
+    ----------
+    gdp_dir : str
+        Directory where the GDP data is stored.
+    project : str
+        Project name.
+    scenario : str
+        Scenario name.
+        
+    Returns:
+    ----------
+    xr_vars : xarray.Dataset
+        Dataset containing the GDPpc data per IMAGEregion and year.
+    """
+    
+    # Define dimensions and timeline for the xarray dataset
     _DIM_TIME = dict(start=1971, end=2100, stepsize=1)
     _DIM_IMAGE_REGIONS = ["CAN", "USA", "MEX", "RCAM", "BRA",
                         "RSAM", "NAF", "WAF", "EAF", "SAF",
@@ -1281,18 +1317,24 @@ def ReadOUTFiles(gdp_dir, scenario):
     
     listy = []
 
-    path_clim = gdp_dir+f"/2_TIMER/outputlib/TIMER_3_4/{re.split(r"[\\/]", gdp_dir)[-1]}/"+scenario+"/indicators/Economy/"
+    # Read GDPpc data from TIMER output files. The code will read the files for the selected scenario and project.
+    path_clim = gdp_dir + "/" + project + "/2_TIMER/outputlib/TIMER_3_4/" + project + "/"+ scenario + "/indicators/Economy/"
     
     # TODO: Change variable name as it is GDPpc with or without impacts depending on scenario
     VAR = "GDPpc_incl_impacts"
     
+    # Create xarray dataset with the data from the OUT files. The code will read the files for the selected scenario and project.
     datafile = prism.TimeVariable(
             timeline=Timeline,
             dims=[prism_regions_world],
             file=path_clim+VAR+".OUT",
         )
     
-    listy.append(xr.merge([datafile[i].rename('Value').expand_dims({"Time": [i]}) for i in np.arange(_DIM_TIME['start'], 2101)]).expand_dims({"Scenario": [scenario], "Variable": [VAR]}))
+    # The code will read the files for the selected scenario and project and create an xarray dataset with the data from the OUT files.
+    listy.append(xr.merge([datafile[i]
+                           .rename('Value')
+                           .expand_dims({"Time": [i]}) for i in np.arange(_DIM_TIME['start'], 2101)])
+                 .expand_dims({"Scenario": [scenario], "Variable": [VAR]}))
     
     xr_vars = xr.merge(listy)
  
@@ -1604,7 +1646,7 @@ def MonotonicityERF(T, erf, tmin_g):
     
     
         
-def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
+def DailyTemperature2IR(temp_dir, year, ir, spatial_relation, scenario):
     
     """
     Convert daily temperature data of one year to impact region level.
@@ -1613,7 +1655,7 @@ def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
     
     Parameters:
     ----------
-    climate_path : str
+    temp_dir : str
         Path where climate data is stored
     year : int
         Year of interest
@@ -1633,13 +1675,15 @@ def DailyTemperatureToIR(climate_path, year, ir, spatial_relation, scenario):
     print(f"[2.1] Loading daily temperature data for year {year}...")
     
     if "ERA5" in scenario:
+        
         # Open daily temperature data from ERA5
-        DAILY_TEMPERATURE = ERA5Temperature2IR(climate_path, year, ir, spatial_relation)
+        DAILY_TEMPERATURE = ERA5Temperature2IR(temp_dir, year, ir, spatial_relation)
         
     else:
+                
         # Read daily temperature data generated from monthly statistics
         DAILY_TEMPERATURE,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=climate_path, 
+            temp_dir=temp_dir, 
             years=year, 
             temp_type="MEAN", 
             std_factor=1,
@@ -1667,7 +1711,7 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
     
     Parameters:
     ----------
-    climate_path : str
+    temp_dir : str
         Path where climate data is stored
     year : int
         Year of interest
@@ -1710,7 +1754,7 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
 
 
 
-def ERA5Temperature2IR(climate_path, year, ir, spatial_relation):
+def ERA5Temperature2IR(temp_dir, year, ir, spatial_relation):
     
     """
     Import daily temperature data of one year from ERA5 and convert it
@@ -1718,7 +1762,7 @@ def ERA5Temperature2IR(climate_path, year, ir, spatial_relation):
     
     Parameters:
     ----------
-    climate_path : str
+    temp_dir : str
         Path where climate data is stored
     year : int
         Year of interest
@@ -1735,7 +1779,7 @@ def ERA5Temperature2IR(climate_path, year, ir, spatial_relation):
     
     # Read ERA5 daily temperature data for a specific year
     DAILY_TEMPERATURE, _ = tmp.DailyTemperatureERA5(
-        era5_dir=climate_path,
+        era5_dir=temp_dir,
         year=year, 
         temp_type="mean", 
         pop_ssp=None, 
@@ -1810,11 +1854,11 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     """
     
     # Read daily temperature data from specified source
-    DAILY_TEMP_T = DailyTemperatureToIR(climate_path=temp_dir, 
-                                        year=year, 
-                                        ir=res.ir, 
-                                        spatial_relation=res.spatial_relation, 
-                                        scenario=scenario)
+    DAILY_TEMP_T = DailyTemperature2IR(temp_dir=temp_dir, 
+                                       year=year, 
+                                       ir=res.ir, 
+                                       spatial_relation=res.spatial_relation, 
+                                       scenario=scenario)
     
     print(f"[2.2] Calculating marginal mortality for year {year}...")
     
@@ -1826,7 +1870,8 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         scenario=scenario, 
         daily_temp=DAILY_TEMP_T, 
         adaptation=adaptation, 
-        res=res
+        res=res,
+        counterfactual=False
         )
     
     print(f"[2.3] Calculating conterfactual mortality for year {year}...")
@@ -1838,8 +1883,9 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         year=year,
         scenario=scenario, 
         daily_temp=res.daily_temp_t0, 
-        adaptation={"climtas": "tmean_t0", "loggdppc": adaptation.get("loggdppc")}, 
-        res=res
+        adaptation=adaptation, 
+        res=res,
+        counterfactual=True
         )
 
     print("[2.4] Aggregating results to", regions, "regions and storing in results dataframe...")
@@ -1859,7 +1905,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
             
             
 
-def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adaptation, res):
+def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adaptation, res, counterfactual):
     
     """
     Calculate mortality effects from non optimal temperatures (first term of equation 2 from paper).
@@ -1908,7 +1954,7 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
     # ------------------- Generate ERFs ------------------
     
     # Generate ERFs used when there is income growth and adaptation
-    if adaptation:    
+    if adaptation==True:    
         ERFS_T, _ = GenerateERFAll(
             wdir=wdir,
             temp_dir=temp_dir,
@@ -1923,7 +1969,8 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
             gdppc_shares=res.gdppc_shares, 
             image_gdppc=res.image_gdppc, 
             erfs_t0=res.erfs_t0,
-            tmin_t0=res.tmin_t0
+            tmin_t0=res.tmin_t0,
+            counterfactual=counterfactual
             )
     
     # Use pre-calculated ERFs with no adaptation or income growth
@@ -1974,10 +2021,18 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
         for year in base_years:
             
             # Read pre-calculated daily temperature at impact region level
-            T_0_df = pd.read_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
+            ERA5_T0 = pd.read_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
             
             # Store in dictionary as numpy arrays
-            T_0[year] = T_0_df.iloc[:,2:].to_numpy()
+            T_0[year] = ERA5_T0.iloc[:,2:].to_numpy()
+            
+        YEARS_NO_LEAP = []
+        
+        for year, arr in T_0.items():
+            if arr.shape[1] == 366:
+                arr = np.delete(arr, 59, axis=1)
+            YEARS_NO_LEAP.append(year)
+        T0_MEAN = np.mean(YEARS_NO_LEAP, axis=0)
             
             
     # -------------- Scenario data --------------
@@ -1992,16 +2047,16 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
             to_xarray=False
         )
 
-        T_0 = MSTemperature2IR(
+        T0_MEAN = MSTemperature2IR(
             temp=DAILY_TEMPERATURE, 
             year=2000, 
             ir=ir, 
             spatial_relation=spatial_relation)
         
-    # Convert "Present-day" temepratures dataframe to numpy array    
-    T_0 = T_0.iloc[:,1:].to_numpy()
+        # Convert "Present-day" temepratures dataframe to numpy array    
+        T0_MEAN = T0_MEAN.iloc[:,1:].to_numpy()
         
-    return T_0
+    return T0_MEAN
 
     
 
