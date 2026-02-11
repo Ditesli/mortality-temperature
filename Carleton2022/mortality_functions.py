@@ -618,8 +618,9 @@ def ImportPopulationData(wdir, scenario, years, age_groups, ir):
 def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir): 
     
     """
-    Read dafault Carleton et al. (2022) population files for a given SSP scenario and age group.
-    The files were created in the preprocessing step.
+    Read default Carleton et al. (2022) population file for a given SSP scenario and age group
+    and convert it to the right format (dataframe) to be used later on in the model in the 
+    spatial aggregation of mortality. 
     
     Parameters:
     ----------
