@@ -2043,9 +2043,9 @@ def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adap
 
         # Rename 'age_group'
         RESULTS.loc[RESULTS["age_group"] == "all", "age_group"] = "All ages"
-        RESULTS.loc[RESULTS["age_group"] == "young", "age_group"] = "<5 years"
+        RESULTS.loc[RESULTS["age_group"] == "young", "age_group"] = "0-4 years"
         RESULTS.loc[RESULTS["age_group"] == "older", "age_group"] = "5-64 years"
-        RESULTS.loc[RESULTS["age_group"] == "oldest", "age_group"] = ">65 years"
+        RESULTS.loc[RESULTS["age_group"] == "oldest", "age_group"] = "+65 years"
 
         # Create column 'Variable'
         RESULTS["Variable"] = (
