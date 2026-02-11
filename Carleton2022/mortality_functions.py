@@ -21,7 +21,7 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
     through the LoadMainFiles function.
     2. Calculate mortality per year form the years range, loafing first the
     daily temperature data and later using the function MortalityEffectsMinuend.
-    3. Calculate the conterfactual factor through the funciton
+    3. Calculate the counterfactual factor through the funciton
     mortality_effects_substraend. This will o isolate the role of climate change from 
     changes in temperature-induced mortality that arise due to income growth.
     4. Substract the factors calculated in steps 2 and 3 and save the results
@@ -77,6 +77,10 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
         path = temp_dir + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
     else:
         path = temp_dir  
+        
+    if ("carleton" in scenario.lower()) and (years[0]<2010):
+        print("Error: Carleton's socioeconomic data only reaches 2010. Changing years range...")
+        years = [y for y in years if y >= 2010]
     
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(
@@ -588,7 +592,7 @@ def ImportGammaCoefficients(wdir):
 
 def ImportPopulationData(wdir, scenario, years, age_groups, ir):
     
-    print(f"[1.3] Loading Population data for {scenario} scenario and aggregate it to impact regions...")
+    print(f"[1.3] Loading Population data for {scenario} scenario at the impact regions level...")
     
     # Extract SSP from scenario string
     match = re.search(r"(?i)\bssp\d+", scenario)
@@ -659,7 +663,7 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
 
 
 
-def ImportIMAGEPopulationData(wdir, ssp):
+def ImportIMAGEPopulationData(wdir, ssp, years):
     
     """
     Read population data from IMAGE nc4 files for a given SSP scenario and age group.
@@ -678,8 +682,11 @@ def ImportIMAGEPopulationData(wdir, ssp):
     """
     
     POP_SSP_YOUNG = pd.read_csv(f"{wdir}/data/population/pop_ssp/pop_{ssp.lower()}_young.csv")
+    POP_SSP_YOUNG = POP_SSP_YOUNG[["hierid", "ISO3"] + [c for c in POP_SSP_YOUNG.columns if c.isdigit()]]
     POP_SSP_OLDER = pd.read_csv(f"{wdir}/data/population/pop_ssp/POP_{ssp.lower()}_older.csv")
-    POP_SSP_OLDEST = pd.read_csv(f"{wdir}/data/population/pop_ssp/POP_{ssp.lower}_oldest.csv")
+    POP_SSP_OLDER = POP_SSP_OLDER[["hierid", "ISO3"] + [c for c in POP_SSP_OLDER.columns if c.isdigit()]]
+    POP_SSP_OLDEST = pd.read_csv(f"{wdir}/data/population/pop_ssp/POP_{ssp.lower()}_oldest.csv")
+    POP_SSP_OLDEST = POP_SSP_OLDEST[["hierid", "ISO3"] + [c for c in POP_SSP_OLDEST.columns if c.isdigit()]]
     
     return {"young":POP_SSP_YOUNG,
             "older":POP_SSP_OLDER,
@@ -1606,7 +1613,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     """
     The code calculates equaiton 2a or 2c from the paper, depending whether adaptation is on or off.
     1. It first calculates the first part of the equation (called minuend here) and then the second part 
-    (the conterfactual mortality called subtrahend here).
+    (the counterfactual mortality called subtrahend here).
     2. The substraction is done per impact region, age group, and type of temperature (all, heat, cold).
     3. Finally, it will agregate the results spatially to the selected region classification (IMAGE26, ISO3...)
     
@@ -1653,7 +1660,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         counterfactual=False
         )
     
-    print(f"[2.3] Calculating conterfactual mortality for year {year}...")
+    print(f"[2.3] Calculating counterfactual mortality for year {year}...")
 
     # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
     MOR_ALL_SUB, MOR_HEAT_SUB, MOR_COLD_SUB = CalculateMarginalMortality(
@@ -1955,9 +1962,9 @@ def Mortality2Regions(year, group, mor, regions, mode, res):
 
 
 
-def AddMortalityAllAges(results, pop, regions_class, years, age_groups):
+def AddMortalityAllAges(results, pop, region_class, years, age_groups):
     
-    regions_class = regions_class.set_index("hierid")
+    region_class = region_class.set_index("hierid")
     
     # Prepare population dataframes for aggregation
     pop = {
@@ -1970,7 +1977,7 @@ def AddMortalityAllAges(results, pop, regions_class, years, age_groups):
     pop_all = (
         pop_all
         .loc[:,[col for col in pop_all.columns if any(str(y) in col for y in years)]]
-        .merge(regions_class, right_index=True, left_index=True)
+        .merge(region_class, right_index=True, left_index=True)
         .groupby("IMAGE26")
         .sum()   # Sum population per IMAGE26 region
         .loc[:, lambda df: df.columns.isin([str(y) for y in years])]
@@ -1994,7 +2001,7 @@ def AddMortalityAllAges(results, pop, regions_class, years, age_groups):
         results.loc[("all", mode, "Deaths per 100,000", IMAGE26)] = (
             results.loc[("all", mode, "Total deaths", IMAGE26)]
             .mul(1e5)
-            .div(pop_all.reindex(IMAGE26))
+         .div(pop_all.where(pop_all.reindex(IMAGE26) != 0))
         ).values
         
         # Calculate global relative mortality for all-age group
