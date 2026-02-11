@@ -609,7 +609,7 @@ def ImportPopulationData(wdir, scenario, years, age_groups, ir):
         
     else:
         # Import IMAGE population data nc4 file and calculate population per impact region
-        pop = ImportIMAGEPopulationData(wdir, ssp, years)
+        pop = ImportIMAGEPopulationData(wdir, ssp, years, ir)
     
     return pop
 
@@ -646,24 +646,33 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
     for age_group, age_name in zip(age_groups, age_pop_names):
         
         # Read 'present-day' population data
-        pop_present_day = pd.read_csv(f"{wdir}/data/population/pop_historical/POP_historical_{age_group}.csv")
+        POP_HISTORICAL = (
+            pd.read_csv(f"{wdir}/data/population/pop_historical/POP_historical_{age_group}.csv")
+            .set_index("hierid")
+        )
+    
+        POP_SSP = (
+            xr.open_dataset(wdir+f"data/carleton_sm/econ_vars/{ssp.upper()}.nc4")[age_name]
+            .sel(model="low") # Select any GDP model
+            .to_dataframe() # Convert to dataframe
+            .drop(columns=['ssp', 'model'])
+            .unstack('year') # Reshape to have years as columns
+            .pipe(lambda df: df.set_axis(df.columns.get_level_values(-1), axis=1))
+            [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards from SSPs
+            .merge(POP_HISTORICAL, left_index=True, right_index=True)
+            .pipe(lambda df: df.set_axis(df.columns.astype(str), axis=1))
+            .reindex(ir.values) # Align to impact regions order
+            .reset_index()
+            .rename(columns={"hierid":"index"})
+        )
         
-        # Read population files projections per age group
-        pop_projection = SSPxarrayToDataframe(wdir, ssp, age_name, ir)
-        
-        # Merge 'present-day' population with relevant years of scenario projection
-        cols = ["region"] + [y for y in years if y >= 2023] 
-        pop = pop_present_day.merge(pop_projection[cols], right_on="region", left_on="hierid", how="outer")
-        
-        # Change column name type and store in dictionary
-        pop.columns = pop.columns.astype(str)
-        POPULATION_GROUPS[age_group] = pop
+        POPULATION_GROUPS[age_group] = POP_SSP
     
     return POPULATION_GROUPS
 
 
 
-def ImportIMAGEPopulationData(wdir, ssp, years):
+def ImportIMAGEPopulationData(wdir, ssp, years, ir):
     
     """
     Read population data from IMAGE nc4 files for a given SSP scenario and age group.
@@ -682,68 +691,16 @@ def ImportIMAGEPopulationData(wdir, ssp, years):
     """
     
     POP_SSP_YOUNG = pd.read_csv(f"{wdir}/data/population/pop_ssp/pop_{ssp.lower()}_young.csv")
-    POP_SSP_YOUNG = POP_SSP_YOUNG[["hierid", "ISO3"] + [c for c in POP_SSP_YOUNG.columns if c.isdigit()]]
+    POP_SSP_YOUNG = POP_SSP_YOUNG[["hierid", "ISO3"] + [c for c in POP_SSP_YOUNG.columns if int(c) in years]]
     POP_SSP_OLDER = pd.read_csv(f"{wdir}/data/population/pop_ssp/POP_{ssp.lower()}_older.csv")
-    POP_SSP_OLDER = POP_SSP_OLDER[["hierid", "ISO3"] + [c for c in POP_SSP_OLDER.columns if c.isdigit()]]
+    POP_SSP_OLDER = POP_SSP_OLDER[["hierid", "ISO3"] + [c for c in POP_SSP_OLDER.columns if int(c) in years]]
     POP_SSP_OLDEST = pd.read_csv(f"{wdir}/data/population/pop_ssp/POP_{ssp.lower()}_oldest.csv")
-    POP_SSP_OLDEST = POP_SSP_OLDEST[["hierid", "ISO3"] + [c for c in POP_SSP_OLDEST.columns if c.isdigit()]]
+    POP_SSP_OLDEST = POP_SSP_OLDEST[["hierid", "ISO3"] + [c for c in POP_SSP_OLDEST.columns if int(c) in years]]
     
     return {"young":POP_SSP_YOUNG,
             "older":POP_SSP_OLDER,
             "oldest":POP_SSP_OLDEST}
 
-    
-
-def SSPxarrayToDataframe(wdir, ssp, pop_group, ir):
-    
-    '''
-    Convert Carleton et al. (2022) GDP or population NetCDF files into dataframe format.
-
-    This function extracts regional projections for a given SSP scenario 
-    and variable (GDP or population) from the Carleton et al. (2022) NetCDF datasets.
-    The resulting dataset is flattened into a pandas DataFrame.
-
-    Parameters
-    ----------
-    wdir : str
-        Main working directory
-    ssp : str
-        SSP scenario identifier (e.g., 'SSP1', 'SSP3').
-    pop_group : str or None
-        Population variable to extract from the NetCDF file.
-        If data_type == 'GDP', this parameter should typically be 'gdppc'.
-    ir : DataFrame
-        DataFrame with the correct order impact regions' order. Use to align new DataFrames
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        DatFrame containing the extracted variable across years and regions. 
-        Columns include:
-        - 'region'
-        - One column per year (e.g., 2010, 2015, …)
-        - 'hierid'
-    '''
-      
-    # Open xarray from Carleton data
-    ssp = xr.open_dataset(wdir+f"data/carleton_sm/econ_vars/{ssp.upper()}.nc4") 
-    
-    # Select high or low GDP model
-    ssp = ssp[pop_group].sel(model="low") 
-    
-    # Convert to dataframe
-    df = ssp.to_dataframe() 
-    
-    # Unstack
-    df = df.drop(['ssp', 'model'], axis=1).unstack('year') 
-    df.columns = df.columns.get_level_values(1)
-    
-    # Reset index and nerge
-    df = df.reset_index() 
-    df['hierid'] = df['region']
-    df = df.set_index("hierid").reindex(ir.values)
-    
-    return df
 
 
 
@@ -1699,7 +1656,7 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
     generate ERFs depending on the adaptation parameters.
     The daily temperature data will be converted to indices based on the range of T.
     Mortality per impact region will be calculated per age group and temperature type (all, heat and cold) 
-    in the MortalityFromTemperatureIndex function.
+    in the Mortality From Temperature Index function.
     
     Parameters:
     ----------
