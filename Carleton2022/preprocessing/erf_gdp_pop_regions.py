@@ -41,7 +41,7 @@ Generate file that contains impact region codes, names and their corresponding
 IMAGE and GBD region
 """
 
-utils.region_classification_file(wdir, regions_file)
+utils.RegionClassificationFile(wdir, regions_file)
 
     
 ### ----------------------------------------------------------------------
@@ -49,24 +49,24 @@ utils.region_classification_file(wdir, regions_file)
 Generate files that contains historical population per impact region
 """
 
-utils.generate_pop_historical(wdir, landscan_file, impact_regions)
+utils.PopulationHistorical(wdir, landscan_file, impact_regions)
 
 
 ### ----------------------------------------------------------------------
 """
 Generate population projection files from IMAGE nc files
 """
-utils.generate_pop_projections(wdir, pop_dir)
+utils.PopulationProjections(wdir, pop_dir)
 
 
 ### ----------------------------------------------------------------------
 """
-  Generate files with ERA5 daily temperature data at the impact region 
+Generate files with ERA5 daily temperature data at the impact region 
 level from 2000 to 2010, defined by Carleton et al as T_0 (present day)
 temeprature levels and the baseline of the analysis.
 """
 
-utils.import_present_day_temperature(wdir, era5_dir)
+utils.DailyTemperaturesERA5PresentDay(wdir, era5_dir)
 
 
 
