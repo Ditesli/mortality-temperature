@@ -35,21 +35,21 @@ pop_dir = "X:/user/liprandicn/DATA/POPULATION"
 
 
     
-# ### ----------------------------------------------------------------------
-# """ 
-# Generate file that contains impact region codes, names and their corresponding 
-# IMAGE and GBD region
-# """
+### ----------------------------------------------------------------------
+""" 
+Generate file that contains impact region codes, names and their corresponding 
+IMAGE and GBD region
+"""
 
-# utils.region_classification_file(wdir, regions_file)
+utils.region_classification_file(wdir, regions_file)
 
     
-# ### ----------------------------------------------------------------------
-# """ 
-# Generate files that contains historical population per impact region
-# """
+### ----------------------------------------------------------------------
+""" 
+Generate files that contains historical population per impact region
+"""
 
-# utils.generate_pop_historical(wdir, landscan_file, impact_regions)
+utils.generate_pop_historical(wdir, landscan_file, impact_regions)
 
 
 ### ----------------------------------------------------------------------
@@ -66,7 +66,7 @@ level from 2000 to 2010, defined by Carleton et al as T_0 (present day)
 temeprature levels and the baseline of the analysis.
 """
 
-# utils.import_present_day_temperature(wdir, era5_dir)
+utils.import_present_day_temperature(wdir, era5_dir)
 
 
 
