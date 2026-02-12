@@ -259,7 +259,7 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
         counterfactual=None
         ) 
     
-    print("[1.5] Loading present-day temperature data...")
+    print("[1.5] Loading 'present-day' temperature data...")
     
     # Import present day temperatures
     DAILY_TEMP_T0 = ImportPresentDayTemperatures(
@@ -664,7 +664,7 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
             .pipe(lambda df: df.set_axis(df.columns.astype(str), axis=1))
             .reindex(ir.values) # Align to impact regions order
             .reset_index()
-            .rename(columns={"hierid":"index"})
+            .rename(columns={"index":"hierid"})
         )
         
         POPULATION_GROUPS[age_group] = POP_SSP
@@ -691,17 +691,23 @@ def ImportIMAGEPopulationData(wdir, ssp, years, ir):
         Dictionary with population data per age group
     """
     
-    POP_SSP_YOUNG = pd.read_csv(f"{wdir}/data/population/pop_ssp/pop_{ssp.lower()}_young.csv")
-    POP_SSP_YOUNG = POP_SSP_YOUNG[["hierid", "ISO3"] + [c for c in POP_SSP_YOUNG.columns if int(c) in years]]
-    POP_SSP_OLDER = pd.read_csv(f"{wdir}/data/population/pop_ssp/POP_{ssp.lower()}_older.csv")
-    POP_SSP_OLDER = POP_SSP_OLDER[["hierid", "ISO3"] + [c for c in POP_SSP_OLDER.columns if int(c) in years]]
-    POP_SSP_OLDEST = pd.read_csv(f"{wdir}/data/population/pop_ssp/POP_{ssp.lower()}_oldest.csv")
-    POP_SSP_OLDEST = POP_SSP_OLDEST[["hierid", "ISO3"] + [c for c in POP_SSP_OLDEST.columns if int(c) in years]]
+    POP_SSP = {}
     
-    return {"young":POP_SSP_YOUNG,
-            "older":POP_SSP_OLDER,
-            "oldest":POP_SSP_OLDEST}
-
+    for age_group in ["young", "older", "oldest"]:
+        POP_SSP_GROUP = (
+            pd.read_csv(f"{wdir}/data/population/pop_ssp/pop_{ssp.lower()}_{age_group}.csv")
+            .pipe(lambda df: df.filter(
+                ["hierid", "ISO3"] +
+                [c for c in df.columns if c.isdigit() and int(c) in years]
+            ))
+            .set_index("hierid")
+            .reindex(ir.values) # Align to impact regions orders
+            .reset_index()
+        )
+    
+        POP_SSP[age_group] = POP_SSP_GROUP
+    
+    return POP_SSP
 
 
 
@@ -1942,9 +1948,6 @@ def AddMortalityAllAges(results, pop, region_class, years, age_groups):
         .rename(columns=int)  # Convert column names to integers 
     )
     
-    # Calculate global population by summing all regions
-    pop_all_world = pop_all.sum(axis=0)
-    
     # Calculate total mortality and relative mortality for all-ages groups 
     for mode in ["All", "Heat", "Cold"]:
         
@@ -1959,14 +1962,14 @@ def AddMortalityAllAges(results, pop, region_class, years, age_groups):
         results.loc[("all", mode, "Deaths per 100,000", IMAGE26)] = (
             results.loc[("all", mode, "Total deaths", IMAGE26)]
             .mul(1e5)
-         .div(pop_all.where(pop_all.reindex(IMAGE26) != 0))
+            .div(pop_all.where(pop_all.reindex(IMAGE26) != 0))
         ).values
         
         # Calculate global relative mortality for all-age group
         results.loc[("all", mode, "Deaths per 100,000", "World")] = (
             results.loc[("all", mode, "Total deaths", "World")]
             .mul(1e5)
-            .div(pop_all_world.sum())
+            .div(pop_all.sum(axis=0)) # Divide by global population of all ages
         )
 
     return results
@@ -1997,7 +2000,7 @@ def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adap
         RESULTS.loc[RESULTS["units"] != "Deaths per 100,000", "var"] = "Mortality"
 
         # Rename all temperatures name
-        RESULTS.loc[RESULTS["t_type"] == "all", "t_type"] = "All temperatures"
+        RESULTS.loc[RESULTS["t_type"] == "All", "t_type"] = "All temperatures"
 
         # Rename 'age_group'
         RESULTS.loc[RESULTS["age_group"] == "all", "age_group"] = "All ages"
@@ -2013,8 +2016,6 @@ def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adap
             + RESULTS["t_type"].str.capitalize()
             + "|"
             + RESULTS["age_group"].str.capitalize()
-            + "|"
-            + RESULTS["units"]
         )
             
         RESULTS = RESULTS[["IMAGE26", "Variable"] + list(RESULTS.columns[4:-2])]
