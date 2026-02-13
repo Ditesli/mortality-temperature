@@ -69,4 +69,12 @@ temeprature levels and the baseline of the analysis.
 utils.DailyTemperaturesERA5PresentDay(wdir, era5_dir)
 
 
+### ----------------------------------------------------------------------
+"""
+Generate files with ERA5 climatology (defined here as the 30-year running mean) 
+at the impact region level. This is used to generate Exposure Response Functions
+(ERFs) with adaptation.
+"""
+
+utils.ClimatologiesERA5(wdir, era5_dir, range(2000,2026))
 

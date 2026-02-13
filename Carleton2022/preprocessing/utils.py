@@ -613,11 +613,50 @@ def DailyTemperaturesERA5PresentDay(wdir, era5_dir):
     
     years = range(2000,2011)
     
-    spatial_relation, ir = mf.grid_relationship(wdir, "ERA5", era5_dir, years)
+    spatial_relation, ir = mf.GridRelationship(wdir, "ERA5", era5_dir, years)
     
     for year in years:
-        T_0 = mf.era5_temp_to_ir(era5_dir, year, ir, spatial_relation)
+        T_0 = mf.ERA5Temperature2IR(era5_dir, year, ir, spatial_relation)
         T_0.to_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
         
         
 
+def ClimatologiesERA5(wdir, era5_dir, years):
+    
+    # Get spatial relationship between ERA5 grid and impact regions
+    spatial_relation, ir = mf.GridRelationship(wdir, None,"ERA5", era5_dir, None, years)
+    
+    # Define period for climatology calculation (30-year running mean)
+    PERIOD = 30
+
+    # Calculate annual mean temperature for each year used in the analysis using ERA5 daily data
+    ANNUAL_TEMPERATURES = {}
+    
+    for y in range(years[0]-PERIOD, years[-1]):
+        print("Calculating annual mean temperature for year:", y)
+
+        with xr.open_dataset(f"{era5_dir}era5_t2m_mean_day_{y}.nc") as ds:
+            ANNUAL_TEMPERATURES[y] = ds["t2m"].mean(dim="valid_time")  - 273.15
+        
+    # Calculate climatology as the 30-year running mean of annual temperatures in the analysis period
+    CLIMATOLOGIES_DIC = { }
+    
+    for year in years:
+        print("Calculating climatology for year:", year)
+
+        YEARS30 = [year-PERIOD, year-1]
+
+        RUNNING_SUM = sum(ANNUAL_TEMPERATURES[y] for y in YEARS30)
+        CLIMATOLOGY = RUNNING_SUM / len(YEARS30)
+        
+        CLIMATOLOGY = CLIMATOLOGY.values.ravel()
+        CLIMATOLOGIES_DIC[year] = CLIMATOLOGY[spatial_relation.index]
+        
+    # Apply spatial relationship to get climatology values at the impact region level 
+    CLIMATOLOGIES_DF = pd.DataFrame(CLIMATOLOGIES_DIC, index=spatial_relation["index_right"])
+    # Average them if multiple grid cells correspond to the same region
+    CLIMATOLOGIES_DF = (CLIMATOLOGIES_DF.groupby("index_right").mean().round(1))
+    CLIMATOLOGIES_DF.insert(0, "hierid", ir)
+    
+    CLIMATOLOGIES_DF.to_csv(wdir+f"data\climate_data\era5\climatologies\ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
+                            index=False)
