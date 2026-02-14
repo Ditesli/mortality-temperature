@@ -35,9 +35,8 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
         Provide the range of years the model will run. The model can run every year or with 
         a longer frequency
     temp_dir: str
-        Climate data path. If ERA5 data was chosen, available data is located in my folder:
-        "X:/user/liprandicn/Data/ERA5/t2m_daily/". Otherwise, give the path to the climate data 
-        from monthly statistics.
+        Climate data path. If ERA5 data was chosenset path to daily data. Otherwise, 
+        give the path to the climate data from monthly statistics.
     scenario : str
         Possible scenarios:
         - SSP_carleton:
@@ -81,6 +80,10 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
     if ("carleton" in scenario.lower()) and (years[0]<2010):
         print("Error: Carleton's socioeconomic data only reaches 2010. Changing years range...")
         years = [y for y in years if y >= 2010]
+        
+    if (re.search(r"SSP[1-5]_ERA5", scenario)) and (years[0]<2010 or years[-1]>2025):
+        print("Error: ERA5 data only reaches 2010-2025. Changing years range...")
+        years = [y for y in years if y >= 2010 and y <= 2025]
     
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(
@@ -139,7 +142,8 @@ class LoadInputData:
     loggdppc_t0 : np.ndarray
     erfs_t0: any
     tmin_t0: any
-    gdppc_shares: any
+    image_shares: any
+    country_shares: any
     image_gdppc: any
     daily_temp_t0: pd.DataFrame
     base_years: list = range(2001,2011)
@@ -235,8 +239,9 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
         year=None, 
         spatial_relation=spatial_relation, 
         adaptation=False, 
-        gdppc_shares=None, 
+        image_shares=None, 
         image_gdppc=None,
+        country_shares=None,
         counterfactual=None
         )
     
@@ -252,8 +257,9 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
         T=T, 
         gammas=gammas, 
         adaptation=False, 
-        gdppc_shares=None, 
+        image_shares=None, 
         image_gdppc=None, 
+        country_shares=None,
         erfs_t0=None,
         tmin_t0=None,
         counterfactual=None
@@ -273,23 +279,26 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
     
     #  Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
     
-    if ("carleton" not in scenario.lower() and "era5" not in scenario.lower() and adaptation):
+    if ("carleton" not in scenario.lower() and adaptation):
             
-        print("[1.6] Loading GDP data from IMAGE...")
-        # Generate GDPpc shares of regions within a country
-        gdppc_shares = GenerateGDPpcShares(wdir=wdir, 
+        print("[1.6] Loading GDPpc shares at the imapct region level...")
+        # Generate GDPpc shares of regions within a country and IMAGE region
+        image_shares, country_shares = GenerateGDPpcShares(wdir=wdir, 
                                             ir=ir, 
                                             region_class=region_class)
+        image_gdppc = None
         
-        # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
-        image_gdppc = ReadOUTFiles(gdp_dir=gdp_dir,
-                                   project=project, 
-                                    scenario=scenario)
+        if not re.search(r"SSP[1-5]", scenario):
+            
+            print("[1.7] Loading GDP data from IMAGE...")
+            # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
+            image_gdppc = ReadOUTFiles(gdp_dir=gdp_dir,
+                                    project=project, 
+                                        scenario=scenario)
             
     # Set to None when using Carleton's socioeconomic data or when adaptation is off        
     else:  
-    
-        gdppc_shares = None
+        image_shares = None
         image_gdppc = None
         
         
@@ -306,7 +315,8 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
         loggdppc_t0 = LOGGDPPC_T0,
         erfs_t0 = ERFS_T0,
         tmin_t0 = TMIN_T0,
-        gdppc_shares = gdppc_shares,
+        image_shares = image_shares,
+        country_shares=country_shares,
         image_gdppc = image_gdppc,
         daily_temp_t0 = DAILY_TEMP_T0
     )
@@ -361,7 +371,7 @@ def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
     # Read climate data
     
     # ---------- If ERA5 data ----------
-    if re.search(r"SSP[1-5]_ERA5", scenario):
+    if re.search(r"ERA5", scenario):
         # Use function located in the utils_common folder to import ERA5 data in the right format
         grid,_ = tmp.DailyTemperatureERA5(
             era5_dir=temp_dir, 
@@ -712,7 +722,7 @@ def ImportIMAGEPopulationData(wdir, ssp, years, ir):
 
 
 def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_groups, T, gammas, adaptation, 
-                   gdppc_shares, image_gdppc, erfs_t0, tmin_t0, counterfactual):
+                   image_shares, image_gdppc, country_shares, erfs_t0, tmin_t0, counterfactual):
     
     """
     The code imports the gamma coefficients and the covariates (climtas and loggdppc) and feeds 
@@ -763,8 +773,9 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
         year=year, 
         spatial_relation=spatial_relation, 
         adaptation=adaptation, 
-        gdppc_shares=gdppc_shares, 
+        image_shares=image_shares, 
         image_gdppc=image_gdppc,
+        country_shares=country_shares,
         counterfactual=counterfactual
         )
 
@@ -791,7 +802,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
 
 
 def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adaptation, 
-                     gdppc_shares, image_gdppc, counterfactual):
+                     image_shares, image_gdppc, country_shares, counterfactual):
     
     """
     The main purpose of the function will be to give the covariates climtas and 
@@ -862,38 +873,85 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
     else:
         
         # CLIMTAS ---------------------------
-        if counterfactual==False:
-            # Load climatology (30-year running mean, climtas) of the selected year
-            climtas = ImportClimtas(temp_dir, year, spatial_relation, ir)
+        if counterfactual:
             
-        else: 
-            # Load climatology (30-year running mean, climtas) of the "present-day" period (2000-2010)
-            climtas = ImportPresentDayClimtas(temp_dir, spatial_relation, ir)
+            if re.search(r"ERA5", scenario):
+                # Load climatology (30-year running mean, climtas) of the selected year from ERA5 data
+                climtas = ImportClimtasERA5(wdir, year, ir, present_day=True)
         
-        # GDP -------------------------------
-        if 'carleton' in scenario.lower():
+            else: 
+                # Load climatology (30-year running mean, climtas) of the selected year
+                climtas = ImportClimtas(temp_dir, year, spatial_relation, ir)
+                
+        else:
+            
+            if re.search(r"ERA5", scenario):
+                # Load climatology (30-year running mean, climtas) of the selected year from ERA5 data
+                climtas = ImportClimtasERA5(wdir, year, ir, present_day=False)
+            else:
+                # Load climatology (30-year running mean, climtas) of the selected year
+                climtas = ImportClimtas(temp_dir, year, spatial_relation, ir)
+                
+        # log(GDPpc) ---------------------------    
+        
+        if re.search(r"ERA5", scenario):
+            # Load historical log(GDPpc) from World Bank
+            loggdppc = ImportHistoricalLogGDPpc(wdir, ir, year, country_shares)
+        
+        elif "carleton" in scenario.lower():  
             # Load log(GDPpc) from Carleton et al. (2022) for the selected year and scenario
-            loggdppc = ImportLogGDPpc(wdir, scenario, ir, year)
-            
-        elif gdppc_shares is None or image_gdppc is None:
-            # Do not load any GDP data as these settings are used when loading present day covariates
-            loggdppc = None
+            loggdppc = ImportCarletonLogGDPpc(wdir, scenario, ir, year)
             
         else: 
-            # Load log(GDPpc) at the impact region level using the GDPpc output from a TIMER run and 
-            # the GDPpc shares to disaggregate it to the impact region level for a selected year
-            loggdppc = ImportIMAGEloggdppc(year, image_gdppc, gdppc_shares)
-        
+            # Load log(GDPpc) at the impact region level using the GDPpc output from IMAGE
+            loggdppc = ImportIMAGEloggdppc(year, image_gdppc, image_shares)
+            
     return climtas, loggdppc
 
 
 
-def ImportLogGDPpc(wdir, scenario, ir, year):
+def ImportHistoricalLogGDPpc(wdir, ir, year, country_shares):
     
     """
-    Read GDP per capita files for a given SSP scenario.
-    - If "default" follows the ssp string, the code will read the default SSP projections from 
-    The files were created in the preprocessing step.
+    Read historical GDP per capita data (GDP per capita (constant 2015 US$)) from
+    the World Bank (retrieved from
+    https://data360.worldbank.org/en/indicator/WB_WDI_NY_GDP_PCAP_KD on 13/02/2026) 
+    and calculate the 13 year running mean of the log(GDPpc) for the selected year at 
+    the impact region level using the factors derived from the original paper that
+    downscale national GDPpc to the regional one.
+    """
+    
+    if year == 2025:
+        year = 2024 # The latest year with GDPpc data available is 2024, so we will use that for 2025 as well.
+    
+    # Read GDPpc
+    GDPPC = (
+        pd.read_csv(wdir + "data/income_data/historical_gdppc/WB_WDI_NY_GDP_PCAP_KD.csv")
+        [["REF_AREA", "TIME_PERIOD", "OBS_VALUE"]] # Relevan columns
+        .sort_values(["REF_AREA", "TIME_PERIOD"])
+        .assign( # Calculate 13 year rolling mean of log(GDPpc) per country
+            OBS_VALUE_13yr_mean=lambda x:
+                x.groupby("REF_AREA")["OBS_VALUE"]
+                .transform(lambda s: s.rolling(window=13).mean())
+        )
+        .loc[lambda x: x["TIME_PERIOD"] == year] # Keep only years from 2000 onwards
+        .merge(country_shares, left_on="REF_AREA", right_on="ISO3", how="right") # Merge with impact regions
+    )
+
+    GDPPC["gdppc"] = GDPPC["OBS_VALUE_13yr_mean"] * GDPPC["gdppc_ir_shares"]
+    GDPPC["loggdppc"] = np.log(GDPPC["gdppc"])
+    
+    return GDPPC.set_index("region").reindex(ir)["loggdppc"].values
+
+
+
+def ImportCarletonLogGDPpc(wdir, scenario, ir, year):
+    
+    """
+    Read GDP per capita files for a given SSP scenario from Carleton et al. (2022) and calculate 
+    the 13 year running mean of the log(GDPpc) for the selected year at the impact region level 
+    using the factors derived from the original paper that downscale national GDPpc to the regional 
+    sone.
     
     Parameters:
     ----------
@@ -938,14 +996,11 @@ def ImportLogGDPpc(wdir, scenario, ir, year):
 
 
 
-def ImportIMAGEloggdppc(year, image_gdppc, gdppc_shares):
+def ImportIMAGEloggdppc(year, image_gdppc, image_shares):
     
     """
     Calculate log(GDPpc) at the impact region level using the GDPpc output
     from a TIMER run.
-
-    Returns:
-        _type_: _description_
     """
     
     # Extract relevant year data (13 year rolling mean)
@@ -961,7 +1016,7 @@ def ImportIMAGEloggdppc(year, image_gdppc, gdppc_shares):
     )
     
     # Merge IMAGE GDPpc with GDPpc shares
-    gdppc = gdppc_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
+    gdppc = image_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
     
     # Calculate share of log(GDPpc) based on regional GDPpc
     gdppc["gdppc"] = gdppc["Value"] * gdppc["gdppc_share"] 
@@ -993,14 +1048,7 @@ def GenerateGDPpcShares(wdir, ir, region_class):
     gdppc : DataFrame
         DataFrame with GDPpc shares per impact region.
     """
-    
-    # GDPPC_CETAL_DF = GDPPC_CETAL.to_dataframe().reset_index().merge(region_class, left_on='region', right_on="hierid")
-    # GDPPC_CETAL_DF["gdppc_ir_shares"]=GDPPC_CETAL_DF.groupby(["model", "year", "ssp", "ISO3"])["gdppc"].transform(lambda x: x/x.sum())
-    # GDPPC_CETAL_DF["gdppc_times_shares"] = GDPPC_CETAL_DF["gdppc"] * GDPPC_CETAL_DF["gdppc_ir_shares"]
-    # GDPPC_CETAL_DF["gdppc_country"]=GDPPC_CETAL_DF.groupby(["model", "year", "ssp", "ISO3"])["gdppc_times_shares"].transform(lambda x: x.sum())
-    # GDPPC_CETAL_DF["share_country_gdp"] = GDPPC_CETAL_DF["gdppc_times_shares"] / GDPPC_CETAL_DF["gdppc_country"]
-    # GDPPC_CETAL_DF["ir_factor"] = GDPPC_CETAL_DF["share_country_gdp"]/GDPPC_CETAL_DF["gdppc_ir_shares"]
-    
+
     # Open GDP data (can be any SSP), convert to dataframe, merge with region classification and filter
     GDPPC_CETAL_DF = (
         xr.open_dataset(f"{wdir}/data/carleton_sm/econ_vars/SSP2.nc4")
@@ -1011,23 +1059,28 @@ def GenerateGDPpcShares(wdir, ir, region_class):
         .drop(["model", "year", "ssp"], axis=1)
     )
     
-    # Calculate GDPpc shares per impact region within IMAGE region
-    GDPPC_CETAL_DF["gdppc_ir_shares"] = GDPPC_CETAL_DF.groupby(["IMAGE26"])["gdppc"].transform(lambda x: x/x.sum())
-    GDPPC_CETAL_DF["gdppc_times_shares"] = GDPPC_CETAL_DF["gdppc"] * GDPPC_CETAL_DF["gdppc_ir_shares"]
-    GDPPC_CETAL_DF["gdppc_country"]=GDPPC_CETAL_DF.groupby(["IMAGE26"])["gdppc_times_shares"].transform(lambda x: x.sum())
-    GDPPC_CETAL_DF["share_country_gdp"] = GDPPC_CETAL_DF["gdppc_times_shares"] / GDPPC_CETAL_DF["gdppc_country"]
-    GDPPC_CETAL_DF["gdppc_share"] = GDPPC_CETAL_DF["share_country_gdp"]/GDPPC_CETAL_DF["gdppc_ir_shares"]
-
-    # Reindex according to ir dataframe and select relevant columns
-    GDPPC_CETAL_DF = (
-        GDPPC_CETAL_DF
+    def compute_shares(df, group_var):
+        return (
+            df.assign(
+                gdppc_ir_shares=lambda d: d["gdppc"] / d.groupby(group_var)["gdppc"].transform("sum"),
+                gdppc_times_shares=lambda d: d["gdppc"] * d["gdppc_ir_shares"],
+                gdppc_country=lambda d: d.groupby(group_var)["gdppc_times_shares"].transform("sum"),
+                share_country_gdp=lambda d: d["gdppc_times_shares"] / d["gdppc_country"],
+                gdppc_share =  lambda d: d["share_country_gdp"] / d["gdppc_ir_shares"]
+            )
+            [["region", group_var, "gdppc_share"]]
             .set_index("region")
             .reindex(ir.values)
             .reset_index()
-            .loc[:, ["region", "IMAGE26", "gdppc_share"]]
-    )
+        )
     
-    return GDPPC_CETAL_DF
+    # Calculate IMAGE shares
+    IMAGE_SHARES = compute_shares(GDPPC_CETAL_DF, "IMAGE26")
+
+    # COUNTRY shares
+    COUNTRY_SHARES = compute_shares(GDPPC_CETAL_DF, "ISO3")
+        
+    return IMAGE_SHARES, COUNTRY_SHARES
 
 
 
@@ -1089,6 +1142,21 @@ def ReadOUTFiles(gdp_dir, project, scenario):
     xr_vars = xr.merge(listy)
  
     return xr_vars
+
+
+def ImportClimtasERA5(wdir, year, ir, present_day):
+    
+    CLIMTAS = pd.read_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_2000-2025.csv")
+    
+    if present_day == False:
+        CLIMTAS = CLIMTAS.set_index("hierid").reindex(ir)[str(year)].values
+    
+    else:
+        COLS = [str(y) for y in range(2001, 2011)]
+        CLIMTAS = CLIMTAS.set_index("hierid").reindex(ir)[COLS].mean(axis=1).values
+    
+    # Align to ir dataframe and select relevant year
+    return CLIMTAS
 
 
 
@@ -1716,8 +1784,9 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
             T=res.T, 
             gammas=res.gammas, 
             adaptation=adaptation,
-            gdppc_shares=res.gdppc_shares, 
+            image_shares=res.image_shares, 
             image_gdppc=res.image_gdppc, 
+            country_shares=res.country_shares,
             erfs_t0=res.erfs_t0,
             tmin_t0=res.tmin_t0,
             counterfactual=counterfactual
@@ -1767,21 +1836,22 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
     if re.search(r"SSP[1-5]_ERA5", scenario):
         
         T_0 = {}
-        
+
         for year in base_years:
             
             # Read pre-calculated daily temperature at impact region level
-            ERA5_T0 = pd.read_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
+            ERA5_T0 = pd.read_csv(wdir+
+                                    f"data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
             
             # Store in dictionary as numpy arrays
             T_0[year] = ERA5_T0.iloc[:,2:].to_numpy()
             
         YEARS_NO_LEAP = []
-        
+
         for year, arr in T_0.items():
             if arr.shape[1] == 366:
                 arr = np.delete(arr, 59, axis=1)
-            YEARS_NO_LEAP.append(year)
+            YEARS_NO_LEAP.append(arr)
         T0_MEAN = np.mean(YEARS_NO_LEAP, axis=0)
             
             
