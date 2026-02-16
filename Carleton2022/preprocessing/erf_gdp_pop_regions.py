@@ -16,19 +16,22 @@ The calculations done in this script are:
 ### ------------------------------------------------------------------------------
 
 # Path to working directory where all data is stored
-wdir = "X:/user/liprandicn/mt-comparison/carleton2022/"
+wdir = "X:/user/liprandicn/mt-comparison/carleton2022/data/"
 
 # Path to ERA5 daily temeprature data
-era5_dir = "X:/user/liprandicn/Data/ERA5/t2m_daily/"
+era5_dir = "X:/user/liprandicn/DATA/ERA5/t2m_daily/"
 
 # Path to IMAGE regions classification folder produced manually
 regions_file = "X:/user/liprandicn/mt-comparison/regions_comparisson.csv"
 
 # Open LandScan population raster 
-landscan_file = f"{wdir}"+"/LandScan_Global/landscan-global-2000-assets/landscan-global-2000.tif"
+landscan_file = "X:/user/liprandicn/DATA/POPULATION/LandScan_Global/"
 
 # Open impact regions shapefile
-impact_regions = f"{wdir}"+"/carleton_sm/ir_shp/impact-region.shp"
+impact_regions = f"{wdir}"+"carleton_sm/ir_shp/impact-region.shp"
+
+# Path to population projections from IMAGE nc files
+pop_dir = "X:/user/liprandicn/DATA/POPULATION"
 
 
     
@@ -38,7 +41,7 @@ Generate file that contains impact region codes, names and their corresponding
 IMAGE and GBD region
 """
 
-utils.region_classification_file(wdir, regions_file)
+utils.RegionClassificationFile(wdir, regions_file)
 
     
 ### ----------------------------------------------------------------------
@@ -46,17 +49,32 @@ utils.region_classification_file(wdir, regions_file)
 Generate files that contains historical population per impact region
 """
 
-utils.generate_historical_pop(wdir, landscan_file, impact_regions)
+utils.PopulationHistorical(wdir, landscan_file, impact_regions)
 
 
 ### ----------------------------------------------------------------------
 """
-  Generate files with ERA5 daily temperature data at the impact region 
+Generate population projection files from IMAGE nc files
+"""
+utils.PopulationProjections(wdir, pop_dir)
+
+
+### ----------------------------------------------------------------------
+"""
+Generate files with ERA5 daily temperature data at the impact region 
 level from 2000 to 2010, defined by Carleton et al as T_0 (present day)
 temeprature levels and the baseline of the analysis.
 """
 
-utils.import_present_day_temperature(wdir, era5_dir)
+utils.DailyTemperaturesERA5PresentDay(wdir, era5_dir)
 
 
+### ----------------------------------------------------------------------
+"""
+Generate files with ERA5 climatology (defined here as the 30-year running mean) 
+at the impact region level. This is used to generate Exposure Response Functions
+(ERFs) with adaptation.
+"""
+
+utils.ClimatologiesERA5(wdir, era5_dir, range(2000,2026))
 
