@@ -12,7 +12,7 @@ To run the function, the code needs:
 
   - <em> carleton_sm\1_estimation\2_csvv\Agespec_interaction_response.csvv </em>
   - <em> data\2_projection\3_impacts\main_specification\raw\single\rcp85\CCSM4\low\SSP3\mortality-allpreds.csv </em>
-     Only present day (year 2015) covariates were saved in the file to use less storage.
+     (Only present day (2015) covariates were saved to use less storage.)
   - <em> data\2_projection\2_econ_vars </em> (folder).
   - <em> data\2_projection\1_regions\ir_shp </em> (folder).
 
