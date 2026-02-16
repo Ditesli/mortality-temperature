@@ -5,7 +5,6 @@ import geopandas as gpd
 from pathlib import Path
 import rasterio
 from rasterio.features import rasterize
-import numpy as np
 import country_converter as coco
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -15,7 +14,7 @@ import mortality_functions as mf
 
 def RegionClassificationFile(
     wdir: str,
-    regions_file: str
+    regions_class: str
     ) -> None:
     
     """
@@ -42,25 +41,13 @@ def RegionClassificationFile(
     Returns
     -------
     None
-        The function writes the merged dataset to disk as a CSV file and does not return an object.
-
-    Output
-    ------
-    A CSV file named:
-        `region_classification.csv`
-    located in the working directory (`wdir`).
-
-    The resulting CSV typically contains columns such as:
-        - "hierid": Unique impact region identifier.
-        - "ISO3": ISO3 country code derived from the first 3 characters of `hierid`.
-        - other region classification columns from the IMAGE regions file.
-        
+        The function writes the merged dataset to disk as a CSV file.
     """
     
     print("Generating region classification file...")
     
     # Read IMAGE csv file
-    image_regions = pd.read_excel(regions_file, sheet_name="regions")
+    image_regions = pd.read_excel(regions_class+"region_classification.csv", sheet_name="regions")
 
     # Read impact regions shapefile and extract regions names
     impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
@@ -75,7 +62,6 @@ def RegionClassificationFile(
 def PopulationHistorical(
     wdir: str,
     landscan_path: str,
-    impact_regions: str
     ) -> None:
     
     """
@@ -106,7 +92,7 @@ def PopulationHistorical(
     print("Generating historical population per impact region and age group...")
     
     # Open impact regions shapefile
-    IMPACT_REGIONS = gpd.read_file(impact_regions)
+    IMPACT_REGIONS = gpd.read_file(wdir+"/carleton_sm/ir_shp/impact-region.shp").to_crs("EPSG:4326")
     
     # Get UN population shares per country and year
     POPULATION_SHARES = ProcessUNPopulation5years(wdir)
@@ -177,34 +163,34 @@ def Raster2ImpactRegionPopulation(
     """
 
     # Read raster data and affine
-    raster_data = landscan_pop.read(1)
-    raster_affine = landscan_pop.transform
+    RASTER_DATA = landscan_pop.read(1)
+    RASTER_DATA = landscan_pop.transform
 
     # Mask no data values
-    nodata_val = -2147483647
-    valid_mask = raster_data != nodata_val
+    NODATA_VAL = -2147483647
+    VALID_MASK = RASTER_DATA != NODATA_VAL
 
     # Create mask to assign pixels to impact regions
-    shapes_and_ids = ((geom, idx) for idx, geom in enumerate(impact_regions.geometry, start=1))
+    SHAPES_AND_IDS = ((geom, idx) for idx, geom in enumerate(impact_regions.geometry, start=1))
 
-    pixel_owner = rasterize(
-        shapes_and_ids,
-        out_shape=raster_data.shape,
-        transform=raster_affine,
+    PIXEL_OWNER = rasterize(
+        SHAPES_AND_IDS,
+        out_shape=RASTER_DATA.shape,
+        transform=RASTER_DATA,
         fill=0,          # 0 = without region
         all_touched=False,
         dtype="int32"
     )
 
     # Calculate population sums per region
-    masked_ids = pixel_owner[valid_mask]
-    masked_values = raster_data[valid_mask]
+    MASKED_IDS = PIXEL_OWNER[VALID_MASK]
+    MASKED_VALUES = RASTER_DATA[VALID_MASK]
 
-    max_id = pixel_owner.max()
-    sums = np.bincount(masked_ids, weights=masked_values, minlength=max_id + 1)[1:]
+    MAX_ID = PIXEL_OWNER.max()
+    SUMS = np.bincount(MASKED_IDS, weights=MASKED_VALUES, minlength=MAX_ID + 1)[1:]
 
     # Add population sums to impact_regions GeoDataFrame
-    impact_regions[year] = sums
+    impact_regions[year] = SUMS
     
     return impact_regions
 
@@ -282,6 +268,8 @@ def PopulationProjections(wdir, pop_dir):
     ----------
     wdir : str
         Working directory
+    pop_dir : str
+        Directory where the IMAGE population nc files are stored. 
         
     Returns:
     ----------
@@ -289,13 +277,6 @@ def PopulationProjections(wdir, pop_dir):
         The function saves CSV files with population projections per age group and SSP scenario at the 
         impact region level in the subdirectory `data/population/pop_ssp` of the working directory.
         If no folder exists, it will be created.
-        
-    Data sources:
-    ----------
-    1. Population data projections per age group from the SSP projections, available at:
-        https://dataexplorer.wittgensteincentre.org/wcde-v3/  (K.C. et al. (2024)).
-        The data was populaiton size (000"s) at country level for all the 5-year age groups
-        and SSP scenarios.
     """
     
     SSP = ["SSP1", "SSP2", "SSP3", "SSP5"]
@@ -521,9 +502,9 @@ def LoadAgeGroupPopulationData(pop_dir, ssp, years):
     )
     
     # Convert locations to ISO3
-    unique_locations = POPULATION_GROUPS_ANNUAL["Area"].unique()
-    conversion_dict = {loc: coco.convert(names=loc, to="ISO3") for loc in unique_locations}
-    POPULATION_GROUPS_ANNUAL["ISO3"] = POPULATION_GROUPS_ANNUAL["Area"].map(conversion_dict)
+    UNIQUE_LOCATIONS = POPULATION_GROUPS_ANNUAL["Area"].unique()
+    CONVERSION_DIC = {loc: coco.convert(names=loc, to="ISO3") for loc in UNIQUE_LOCATIONS}
+    POPULATION_GROUPS_ANNUAL["ISO3"] = POPULATION_GROUPS_ANNUAL["Area"].map(CONVERSION_DIC)
     
     return POPULATION_GROUPS_ANNUAL
 
@@ -570,11 +551,18 @@ def CompletePopulationDataLustrum(df):
 
 def DailyTemperaturesERA5PresentDay(wdir, era5_dir):
     
-    years = range(2000,2011)
+    # Present day years for which to calculate T_0 (2000-2010)
+    YEARS = range(2000,2011)
     
-    spatial_relation, ir = mf.GridRelationship(wdir, "ERA5", era5_dir, years)
+    # Get spatial relationship between ERA5 grid and impact regions
+    spatial_relation, ir = mf.GridRelationship(wdir, "ERA5", era5_dir, YEARS)
     
-    for year in years:
+    # Create directory if it doesn't exist
+    out_path = Path(wdir) / "data" / "climate_data"
+    out_path.mkdir(parents=True, exist_ok=True)
+    
+    # Calculate T_0 for each year and save as CSV
+    for year in YEARS:
         T_0 = mf.ERA5Temperature2IR(era5_dir, year, ir, spatial_relation)
         T_0.to_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
         
@@ -583,7 +571,7 @@ def DailyTemperaturesERA5PresentDay(wdir, era5_dir):
 def ClimatologiesERA5(wdir, era5_dir, years):
     
     # Get spatial relationship between ERA5 grid and impact regions
-    spatial_relation, ir = mf.GridRelationship(wdir, None,"ERA5", era5_dir, None, years)
+    SPATIAL_RELATION, IR = mf.GridRelationship(wdir, None,"ERA5", era5_dir, None, years)
     
     # Define period for climatology calculation (30-year running mean)
     PERIOD = 30
@@ -609,13 +597,13 @@ def ClimatologiesERA5(wdir, era5_dir, years):
         CLIMATOLOGY = RUNNING_SUM / len(YEARS30)
         
         CLIMATOLOGY = CLIMATOLOGY.values.ravel()
-        CLIMATOLOGIES_DIC[year] = CLIMATOLOGY[spatial_relation.index]
+        CLIMATOLOGIES_DIC[year] = CLIMATOLOGY[SPATIAL_RELATION.index]
         
     # Apply spatial relationship to get climatology values at the impact region level 
-    CLIMATOLOGIES_DF = pd.DataFrame(CLIMATOLOGIES_DIC, index=spatial_relation["index_right"])
+    CLIMATOLOGIES_DF = pd.DataFrame(CLIMATOLOGIES_DIC, index=SPATIAL_RELATION["index_right"])
     # Average them if multiple grid cells correspond to the same region
     CLIMATOLOGIES_DF = (CLIMATOLOGIES_DF.groupby("index_right").mean().round(1))
-    CLIMATOLOGIES_DF.insert(0, "hierid", ir)
+    CLIMATOLOGIES_DF.insert(0, "hierid", IR)
     
     CLIMATOLOGIES_DF.to_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
                             index=False)
