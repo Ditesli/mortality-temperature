@@ -16,7 +16,7 @@ The calculations done in this script are:
 ### ------------------------------------------------------------------------------
 
 # Path to working directory where all data is stored
-wdir = "X:/user/liprandicn/mt-comparison/carleton2022/"
+wdir = "X:/user/liprandicn/mt-comparison/carleton2022/data/"
 
 # Path to ERA5 daily temeprature data
 era5_dir = "X:/user/liprandicn/DATA/ERA5/t2m_daily/"
@@ -25,10 +25,10 @@ era5_dir = "X:/user/liprandicn/DATA/ERA5/t2m_daily/"
 regions_file = "X:/user/liprandicn/mt-comparison/regions_comparisson.csv"
 
 # Open LandScan population raster 
-landscan_file = f"{wdir}"+"/LandScan_Global/landscan-global-2000-assets/landscan-global-2000.tif"
+landscan_file = "X:/user/liprandicn/DATA/POPULATION/LandScan_Global/"
 
 # Open impact regions shapefile
-impact_regions = f"{wdir}"+"/carleton_sm/ir_shp/impact-region.shp"
+impact_regions = f"{wdir}"+"carleton_sm/ir_shp/impact-region.shp"
 
 # Path to population projections from IMAGE nc files
 pop_dir = "X:/user/liprandicn/DATA/POPULATION"
