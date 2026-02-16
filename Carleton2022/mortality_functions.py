@@ -77,13 +77,15 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
     else:
         path = temp_dir  
         
-    if ("carleton" in scenario.lower()) and (years[0]<2010):
-        print("Error: Carleton's socioeconomic data only reaches 2010. Changing years range...")
-        years = [y for y in years if y >= 2010]
+    CARLETON_START_YEAR = 2010
+    if ("carleton" in scenario.lower()) and (years[0]<CARLETON_START_YEAR):
+        print(f"Error: Carleton's socioeconomic data only reaches {CARLETON_START_YEAR}. Changing years range...")
+        years = [y for y in years if y >= CARLETON_START_YEAR]
         
-    if (re.search(r"SSP[1-5]_ERA5", scenario)) and (years[0]<2010 or years[-1]>2025):
-        print("Error: ERA5 data only reaches 2010-2025. Changing years range...")
-        years = [y for y in years if y >= 2010 and y <= 2025]
+    ERA5_START_YEAR = 2000; ERA5_END_YEAR = 2025
+    if (re.search(r"SSP[1-5]_ERA5", scenario)) and (years[0]<ERA5_START_YEAR or years[-1]>ERA5_END_YEAR):
+        print(f"Error: ERA5 data only reaches {ERA5_START_YEAR}-{ERA5_END_YEAR}. Changing years range...")
+        years = [y for y in years if y >= ERA5_START_YEAR and y <= ERA5_END_YEAR]
     
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(
@@ -669,12 +671,12 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
             .drop(columns=['ssp', 'model'])
             .unstack('year') # Reshape to have years as columns
             .pipe(lambda df: df.set_axis(df.columns.get_level_values(-1), axis=1))
-            [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards from SSPs
+            [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards 
             .merge(POP_HISTORICAL, left_index=True, right_index=True)
-            .pipe(lambda df: df.set_axis(df.columns.astype(str), axis=1))
+            .pipe(lambda df: df.set_axis(df.columns.astype(str), axis=1)) # Convert year columns to string to align with historical data
             .reindex(ir.values) # Align to impact regions order
             .reset_index()
-            .rename(columns={"index":"hierid"})
+            .rename(columns={"region":"hierid"})
         )
         
         POPULATION_GROUPS[age_group] = POP_SSP
@@ -938,7 +940,7 @@ def ImportHistoricalLogGDPpc(wdir, ir, year, country_shares):
         .merge(country_shares, left_on="REF_AREA", right_on="ISO3", how="right") # Merge with impact regions
     )
 
-    GDPPC["gdppc"] = GDPPC["OBS_VALUE_13yr_mean"] * GDPPC["gdppc_ir_shares"]
+    GDPPC["gdppc"] = GDPPC["OBS_VALUE_13yr_mean"] * GDPPC["gdppc_share"]
     GDPPC["loggdppc"] = np.log(GDPPC["gdppc"])
     
     return GDPPC.set_index("region").reindex(ir)["loggdppc"].values
@@ -1841,7 +1843,7 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
             
             # Read pre-calculated daily temperature at impact region level
             ERA5_T0 = pd.read_csv(wdir+
-                                    f"data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
+                                  f"data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
             
             # Store in dictionary as numpy arrays
             T_0[year] = ERA5_T0.iloc[:,2:].to_numpy()
@@ -2000,12 +2002,8 @@ def AddMortalityAllAges(results, pop, region_class, years, age_groups):
     
     region_class = region_class.set_index("hierid")
     
-    # Prepare population dataframes for aggregation
-    pop = {
-        age: df.set_index("hierid")
-        for age, df in pop.items()
-    }
-    
+    # Prepare population dataframes and aggregate them
+    pop = {age: df.set_index("hierid") for age, df in pop.items()}
     pop_all = pop["young"] + pop["older"] + pop["oldest"]
     
     pop_all = (
@@ -2096,10 +2094,14 @@ def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adap
         adapt = ""
     else:
         adapt = "_noadapt"
+    if project is not None:
+        project = f"_{project}"
+    else:
+        project = ""
         
     # Save results to CSV                
     RESULTS.to_csv(wdir +
-                   f"output/mortality_carleton_{project}_{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
+                   f"output/mortality_carleton{project}_{scenario}{adapt}_{years[0]}-{years[-1]}.csv", 
                    index=False) 
     
     print("Scenario ran successfully!")
