@@ -1,6 +1,4 @@
-The preprocessing part serves to generate only once data used in the main model. This saves computation time. 
-
-The preprocessing part can be skipped if the Carleton2022/data folder is copied entirely, as necessary input data is already located there.
+The preprocessing part serves to generate only once data used in the main model. This saves computation time. The preprocessing part can be skipped if the Carleton2022/data folder is copied entirely, as necessary input data is already located there.
 
 ## Region Classification File
 Generate the region classification file to include the impact region classification (24,378 regions) and their corresponding ISO3 code, IMAGE region and WHO region classification.
