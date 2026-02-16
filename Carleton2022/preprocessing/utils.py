@@ -658,5 +658,5 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     CLIMATOLOGIES_DF = (CLIMATOLOGIES_DF.groupby("index_right").mean().round(1))
     CLIMATOLOGIES_DF.insert(0, "hierid", ir)
     
-    CLIMATOLOGIES_DF.to_csv(wdir+f"data\climate_data\era5\climatologies\ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
+    CLIMATOLOGIES_DF.to_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
                             index=False)
