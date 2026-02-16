@@ -74,7 +74,7 @@ def RegionClassificationFile(
 
 def PopulationHistorical(
     wdir: str,
-    landscan_file: str,
+    landscan_path: str,
     impact_regions: str
     ) -> None:
     
@@ -105,32 +105,43 @@ def PopulationHistorical(
     
     print("Generating historical population per impact region and age group...")
     
-    # Open LandScan population raster and impact regions shapefile
-    landscan_pop = rasterio.open(landscan_file)
-    impact_regions = gpd.read_file(impact_regions)
+    # Open impact regions shapefile
+    IMPACT_REGIONS = gpd.read_file(impact_regions)
+    
+    # Get UN population shares per country and year
+    POPULATION_SHARES = ProcessUNPopulation5years(wdir)
     
     # Calculate population per impact region for each year from 2000 to 2022
     for year in range(2000,2023):
-        impact_regions = Raster2ImpactRegionPopulation(landscan_pop, impact_regions, year)
+        # Open LandScan population raster
+        LANDSCAN_POP = rasterio.open(landscan_path + f"landscan-global-{year}-assets/landscan-global-{year}.tif")
+        IMPACT_REGIONS = Raster2ImpactRegionPopulation(LANDSCAN_POP, IMPACT_REGIONS, year)
         print(f"Population calculated for year: {year}")
 
-    # Drop unnecessary columns
-    impact_regions = impact_regions.drop(columns=["gadmid", "color", "AREA", "PERIMETER", "geometry"])
-
-    # Reshape to long format
-    impact_long = impact_regions.melt(id_vars=["hierid", "ISO",], 
-                                    var_name="Time", 
-                                    value_name="Value")
-
-    # Get UN population shares per country and year
-    share_pop = ProcessUNPopulation5years(wdir)
-
-    # Merge population shares with impact region population data
-    impact_long = impact_long.merge(share_pop, on=["ISO", "Time"], how="left")
-
-    # Generate population share files per age group
+    # Drop unnecessary columns, reshape to long format and mereg with UN population shares
+    IMPACT_REGIONS_POP = (
+        IMPACT_REGIONS
+        .drop(columns=["gadmid", "color", "AREA", "PERIMETER", "geometry"])
+        .melt(id_vars=["hierid", "ISO",], var_name="Time", value_name="Value")
+        .merge(POPULATION_SHARES, on=["ISO", "Time"], how="left")
+    )
+    
     for age_group in ["young", "older", "oldest"]:
-        CreatePopulationAgeGroupFile(wdir, impact_long, impact_regions, age_group)
+        
+        # Calculate population share per age group
+        IMPACT_REGIONS_POP[f"pop_{age_group}"] = IMPACT_REGIONS_POP["Value"] * IMPACT_REGIONS_POP[f"share_{age_group}"]
+
+        # Pivot to wide format and save
+        (
+            IMPACT_REGIONS_POP
+            [["hierid", "Time", f"pop_{age_group}"]]
+            .pivot(index="hierid", columns="Time", values=f"pop_{age_group}")
+            .reset_index()
+            .set_index("hierid")
+            .to_csv(wdir+"/population/pop_historical/pop_historical_"+age_group+".csv")
+        )
+        
+        print(f"Population share file generated for age group: {age_group}")
         
 
 
@@ -236,81 +247,29 @@ def ProcessUNPopulation5years(
     """
     
     # Read UN population data file
-    un_population = pd.read_csv(wdir+"data/historical_pop/unpopulation_dataportal.csv")
-
-    # Keep relevant columns and aggregate age groups
-    un_population = un_population[["Iso3", "Time", "Age", "Value"]]
-    un_population.loc[un_population["Age"].isin(["5-14", "15-64"]), "Age"] = "5-64"
+    UN_POPULATION = (
+        pd.read_csv(wdir+"population/unpopulation_dataportal.csv")
+        [["Iso3", "Time", "Age", "Value"]] # Keep relevant columns
+    )
+    UN_POPULATION.loc[UN_POPULATION["Age"].isin(["5-14", "15-64"]), "Age"] = "5-64"
 
     # Calculate total population per country and year
-    share_pop = un_population.groupby(["Iso3","Time"]).sum().drop(columns="Age")
+    POPULATION_TOTAL = UN_POPULATION.groupby(["Iso3","Time"]).sum().drop(columns="Age")
 
     # Aggregate population by age groups
-    un_population = un_population.groupby(["Iso3", "Time", "Age"]).sum()
+    UN_POPULATION = UN_POPULATION.groupby(["Iso3", "Time", "Age"]).sum()
 
     # Calculate share of young, older and oldest population
-    share_pop["share_young"] = un_population.xs("0-4",level=2)["Value"]/ share_pop["Value"]
-    share_pop["share_older"] = un_population.xs("5-64",level=2)["Value"] / share_pop["Value"]
-    share_pop["share_oldest"] =un_population.xs("65+",level=2)["Value"]  / share_pop["Value"]
+    POPULATION_TOTAL["share_young"] = UN_POPULATION.xs("0-4",level=2)["Value"]/ POPULATION_TOTAL["Value"]
+    POPULATION_TOTAL["share_older"] = UN_POPULATION.xs("5-64",level=2)["Value"] / POPULATION_TOTAL["Value"]
+    POPULATION_TOTAL["share_oldest"] = UN_POPULATION.xs("65+",level=2)["Value"]  / POPULATION_TOTAL["Value"]
 
-    share_pop = share_pop.reset_index()
+    POPULATION_TOTAL = POPULATION_TOTAL.reset_index()
 
-    share_pop = share_pop.rename(columns={"Iso3":"ISO", "Value":"total"})
+    POPULATION_TOTAL = POPULATION_TOTAL.rename(columns={"Iso3":"ISO", "Value":"total"})
     
-    return share_pop
+    return POPULATION_TOTAL
 
-
-
-def CreatePopulationAgeGroupFile(
-    wdir: str,
-    impact_long: pd.DataFrame,
-    impact_regions: pd.DataFrame,
-    age_group: str
-    ) -> None:
-    
-    """
-    Generate a CSV file with historical population per impact region for a specific age group.
-
-    This function calculates the population of a given age group for each impact region
-    by multiplying the total population (`Value`) by the age-specific population share
-    (`share_<age_group>`). The resulting data is pivoted to a wide format (regions as rows,
-    years as columns) and saved as a CSV file.
-
-    Parameters
-    ----------
-    wdir : str
-        Working directory where the output CSV file will be saved.
-    impact_long : pandas.DataFrame
-        Long-format DataFrame containing population and age group shares.
-    impact_regions : pandas.DataFrame
-        DataFrame containing impact region information. Must include "hierid" for alignment.
-    age_group : str
-        Age group for which the population share is calculated (e.g., "young", "older", "oldest").
-
-    Returns
-    -------
-    None
-        The function saves a CSV file named `"POP_historical_<age_group>.csv"` 
-        in the subdirectory `"gdp_pop_csv/"` of `wdir`.
-
-    """
-    
-    # Calculate population share per age group
-    impact_long = impact_long["Value"] * impact_long[f"share_{age_group}"]
-    
-    # Pivot to wide format and save
-    impact_agegroup = (
-        impact_long
-        .pivot(index="hierid", columns="Time", values=age_group)
-        .reset_index()
-        .set_index("hierid")
-        .reindex(impact_regions.set_index("hierid").index)
-        )
-
-    impact_agegroup.to_csv(wdir+"data/historical_pop/POP_historical_"+age_group+".csv")
-    
-    print(f"Population share file generated for age group: {age_group}")
-        
 
 
 def PopulationProjections(wdir, pop_dir):
