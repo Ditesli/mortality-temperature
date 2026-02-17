@@ -74,12 +74,6 @@ def CalculateMortality(wdir: str,
     print(f"Starting mortality model calculations for scenario {scenario} and years {years}...")
     
     
-    # Set path to climate data depending on the scenario type (IMAGE or other scenarios)
-    if temp_dir == gdp_dir:
-        path = temp_dir + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
-    else:
-        path = temp_dir  
-    
     # Check that the years range is compatible with the data used in the model. 
     CARLETON_START_YEAR = 2010
     if ("carleton" in scenario.lower()) and (years[0]<CARLETON_START_YEAR):
@@ -90,17 +84,22 @@ def CalculateMortality(wdir: str,
     if (re.search(r"SSP[1-5]_ERA5", scenario)) and (years[0]<ERA5_START_YEAR or years[-1]>ERA5_END_YEAR):
         print(f"Error: ERA5 data only reaches {ERA5_START_YEAR}-{ERA5_END_YEAR}. Changing years range...")
         years = [y for y in years if y >= ERA5_START_YEAR and y <= ERA5_END_YEAR]
-    
+        
+        
+    paths = ModelPaths(
+        temp_path=temp_dir,
+        income_path=gdp_dir,
+        wdir=wdir
+    )
+        
     
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(
-        wdir=wdir,  
+        paths=paths,  
         regions=regions, 
         project=project,
         scenario=scenario, 
         years=years,
-        temp_dir=path, 
-        gdp_dir=gdp_dir,
         adaptation=adaptation
         )  
         
@@ -111,10 +110,9 @@ def CalculateMortality(wdir: str,
         
         #Calculate mortality per region and year 
         CalculateMortalityEffects(
-            wdir=wdir, 
+            paths=paths, 
             year=year, 
             scenario=scenario, 
-            temp_dir=path, 
             adaptation=adaptation, 
             regions=regions, 
             res=res
@@ -132,6 +130,28 @@ def CalculateMortality(wdir: str,
         pop=res.pop, 
         region_class=res.region_class,
         age_groups=res.age_groups)
+
+
+
+@dataclass
+class ModelPaths:
+    temp_path: str
+    income_path: any
+    wdir: str
+    
+    def climate_path(self, project: str, scenario: str) -> str:
+        """
+        Set path to climate data depending on the scenario type 
+        (IMAGE or other scenarios)
+        """
+        if self.temp_path == self.income_path:
+            return (
+                f"{self.temp_path}/"
+                f"{project}/3_IMAGE_land/scen/"
+                f"{scenario}/netcdf/"
+            )
+        else:
+            return self.temp_path
     
     
     
@@ -157,7 +177,7 @@ class LoadInputData:
 
     
     
-def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, adaptation):
+def LoadMainFiles(paths, regions, project, scenario, years, adaptation):
     
     """
     Read and load all main input files required for mortality calculations. The necessary data is 
@@ -169,14 +189,12 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
     ----------
     wdir : str
         Working directory
-    temp_dir : str
+    temp_path : str
         Path to climate data files. 
     regions : str
         Region classification 
     scenario : str
     years : list
-    temp_dir : str
-        Path to climate data files
     adaptation: dic
         This dictionary will serve to turn adaptation on or off. 
         
@@ -221,26 +239,25 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
     T = np.arange(-20, 40.1, 0.1).round(1)
     
     # Create relationship between temperature data and impact regions
-    spatial_relation, ir = GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years)
+    spatial_relation, ir = GridRelationship(paths, project, scenario, years)
     
     # Open file with region classification
-    region_class = SelectRegions(wdir, regions)
+    region_class = SelectRegions(paths.wdir, regions)
 
     # Create results dataframe
     RESULTS = FinalDataframe(regions, region_class, age_groups, years)
     
     # Import gamma coefficients
-    gammas = ImportGammaCoefficients(wdir)
+    gammas = ImportGammaCoefficients(paths.wdir)
     
     # Read population files
-    pop = ImportPopulationData(wdir, scenario, years, age_groups, ir)    
+    pop = ImportPopulationData(paths.wdir, scenario, years, age_groups, ir)    
     
     # Import present day covariates
     print("[1.4] Loading 'present day' covariates climtas and loggdppc...")
     
     CLIMTAS_T0, LOGGDPPC_T0 = ImportCovariates(
-        wdir=wdir, 
-        temp_dir=temp_dir, 
+        paths=paths, 
         scenario=scenario, 
         ir=ir, 
         year=None, 
@@ -254,8 +271,7 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
     
     # Generate a single time 'present day' ERFs (no adaptation)
     ERFS_T0, TMIN_T0 = GenerateERFAll(
-        wdir=wdir,
-        temp_dir=temp_dir, 
+        paths=paths, 
         scenario=scenario, 
         ir=ir, 
         year=None, 
@@ -276,8 +292,7 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
     
     # Import present day temperatures
     DAILY_TEMP_T0 = ImportPresentDayTemperatures(
-        wdir=wdir, 
-        temp_dir=temp_dir, 
+        paths=paths, 
         scenario=scenario, 
         base_years=range(2001,2011), 
         ir=ir, 
@@ -290,7 +305,7 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
             
         print("[1.6] Loading GDPpc shares at the imapct region level...")
         # Generate GDPpc shares of regions within a country and IMAGE region
-        image_shares, country_shares = GenerateGDPpcShares(wdir=wdir, 
+        image_shares, country_shares = GenerateGDPpcShares(wdir=paths.wdir, 
                                             ir=ir, 
                                             region_class=region_class)
         image_gdppc = None
@@ -299,14 +314,15 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
             
             print("[1.7] Loading GDP data from IMAGE...")
             # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
-            image_gdppc = ReadOUTFiles(gdp_dir=gdp_dir,
-                                    project=project, 
-                                        scenario=scenario)
+            image_gdppc = ReadOUTFiles(gdp_dir=paths.income_path,
+                                       project=project, 
+                                       scenario=scenario)
             
     # Set to None when using Carleton's socioeconomic data or when adaptation is off        
     else:  
         image_shares = None
         image_gdppc = None
+        country_shares = None
         
         
     return LoadInputData(
@@ -329,7 +345,7 @@ def LoadMainFiles(wdir, regions, project, scenario, years, temp_dir, gdp_dir, ad
     )
 
 
-def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
+def GridRelationship(paths, project, scenario, years):
     
     """
     Create a geopandas.DataFrame with spatial relationship between temperature 
@@ -345,7 +361,7 @@ def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
     scenario : str
         Determines the type of climate data to use (ERA5 if "ERA5" is specified OR monthly statistics
         if any other scenario is given)
-    temp_dir : str
+    temp_path : str
         Path to climate data files
     years : list
         List of years to process
@@ -381,7 +397,7 @@ def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
     if re.search(r"ERA5", scenario):
         # Use function located in the utils_common folder to import ERA5 data in the right format
         grid,_ = tmp.DailyTemperatureERA5(
-            era5_dir=temp_dir, 
+            era5_dir=paths.temp_path, 
             year=years[0], 
             temp_type="mean", 
             pop_ssp=None, 
@@ -392,12 +408,12 @@ def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
     else:
         
         # --------- IMAGE scenario climate data ----------
-        if temp_dir == gdp_dir:
-            path = temp_dir + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
+        if paths.temp_path == paths.income_path:
+            path = paths.temp_path + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
     
         # --------- Other MS scenario data ----------
         else:
-            path = temp_dir
+            path = paths.temp_path 
         
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
@@ -431,16 +447,13 @@ def GridRelationship(wdir, project, scenario, temp_dir, gdp_dir, years):
     })
     
     # Load .shp file with impact regions and set the same coordinate reference system (CRS)
-    ir = gpd.read_file(wdir+"/data/carleton_sm/ir_shp/impact-region.shp")
+    ir = gpd.read_file(paths.wdir + "/data/carleton_sm/ir_shp/impact-region.shp")
     points_gdf = points_gdf.set_crs(ir.crs, allow_override=True)
     
     # Make spatial join
     relationship = gpd.sjoin(points_gdf, ir, how="inner", predicate="intersects")
-    
-    # Keep only necessary columns
-    relationship = relationship[["geometry","index_right", "hierid"]]
 
-    return relationship, ir["hierid"]
+    return relationship[["geometry", "index_right", "hierid"]], ir["hierid"]
 
 
 
@@ -728,7 +741,7 @@ def ImportIMAGEPopulationData(wdir, ssp, years, ir):
 
 
 
-def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_groups, T, gammas, adaptation, 
+def GenerateERFAll(paths, scenario, ir, year, spatial_relation, age_groups, T, gammas, adaptation, 
                    image_shares, image_gdppc, country_shares, erfs_t0, tmin_t0, counterfactual):
     
     """
@@ -741,7 +754,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
     ----------
     wdir : str
         Main working directory
-    temp_dir : str
+    temp_path : str
         Path to where climate data is stored
     scenario : str
         Scenario
@@ -774,7 +787,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
     
     # Import covariates with or without adaptation
     climtas, loggdppc = ImportCovariates(
-        wdir=wdir, temp_dir=temp_dir, 
+        paths=paths,
         scenario=scenario, 
         ir=ir, 
         year=year, 
@@ -808,7 +821,7 @@ def GenerateERFAll(wdir, temp_dir, scenario, ir, year, spatial_relation, age_gro
 
 
 
-def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adaptation, 
+def ImportCovariates(paths, scenario, ir, year, spatial_relation, adaptation, 
                      image_shares, image_gdppc, country_shares, counterfactual):
     
     """
@@ -832,7 +845,7 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
     ----------
     wdir : str
         Main working directory
-    temp_dir : str
+    temp_path : str
         Path to where climate data is stored
     scenario : str
         SSP scenario used for the GDP projections
@@ -861,7 +874,7 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
     if adaptation==False:
         
         # Open covariates for "present day" (no adaptation)
-        covariates_t0 = pd.read_csv(wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
+        covariates_t0 = pd.read_csv(paths.wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
         
         # Rename regions column to reindex woth ir dataframe
         covariates_t0 = (
@@ -884,30 +897,30 @@ def ImportCovariates(wdir, temp_dir, scenario, ir, year, spatial_relation, adapt
             
             if re.search(r"ERA5", scenario):
                 # Load climatology (30-year running mean, climtas) of the selected year from ERA5 data
-                climtas = ImportClimtasERA5(wdir, year, ir, present_day=True)
+                climtas = ImportClimtasERA5(paths.wdir, year, ir, present_day=True)
         
             else: 
                 # Load climatology (30-year running mean, climtas) of the selected year
-                climtas = ImportClimtas(temp_dir, year, spatial_relation, ir)
+                climtas = ImportClimtas(paths.temp_path, year, spatial_relation, ir)
                 
         else:
             
             if re.search(r"ERA5", scenario):
                 # Load climatology (30-year running mean, climtas) of the selected year from ERA5 data
-                climtas = ImportClimtasERA5(wdir, year, ir, present_day=False)
+                climtas = ImportClimtasERA5(paths.wdir, year, ir, present_day=False)
             else:
                 # Load climatology (30-year running mean, climtas) of the selected year
-                climtas = ImportClimtas(temp_dir, year, spatial_relation, ir)
+                climtas = ImportClimtas(paths.temp_path, year, spatial_relation, ir)
                 
         # log(GDPpc) ---------------------------    
         
         if re.search(r"ERA5", scenario):
             # Load historical log(GDPpc) from World Bank
-            loggdppc = ImportHistoricalLogGDPpc(wdir, ir, year, country_shares)
+            loggdppc = ImportHistoricalLogGDPpc(paths.wdir, ir, year, country_shares)
         
         elif "carleton" in scenario.lower():  
             # Load log(GDPpc) from Carleton et al. (2022) for the selected year and scenario
-            loggdppc = ImportCarletonLogGDPpc(wdir, scenario, ir, year)
+            loggdppc = ImportCarletonLogGDPpc(paths.wdir, scenario, ir, year)
             
         else: 
             # Load log(GDPpc) at the impact region level using the GDPpc output from IMAGE
@@ -1167,7 +1180,7 @@ def ImportClimtasERA5(wdir, year, ir, present_day):
 
 
 
-def ImportClimtas(temp_dir, year, spatial_relation, ir):
+def ImportClimtas(temp_path, year, spatial_relation, ir):
     
     """
     Import climate data from the specified directory and return 'climtas', defined by Carleton as the
@@ -1179,7 +1192,7 @@ def ImportClimtas(temp_dir, year, spatial_relation, ir):
     
     Parameters:
     ----------
-    temp_dir : str
+    temp_path : str
         Path where climate data is stored.
     year : int
         Year used to get the climtas.
@@ -1197,7 +1210,7 @@ def ImportClimtas(temp_dir, year, spatial_relation, ir):
     """
     
     # Read monthly mean of daily mean temperature data
-    MONTHLY_TEMPERATURE = xr.open_dataset(temp_dir+f"GTMP_MEAN_30MIN.nc")
+    MONTHLY_TEMPERATURE = xr.open_dataset(temp_path+f"GTMP_MEAN_30MIN.nc")
     
     # Calculate annual mean temperature and climatology
     ANNUAL_TEMPERATURE = MONTHLY_TEMPERATURE["GTMP_MEAN_30MIN"].mean(dim="NM")
@@ -1223,7 +1236,7 @@ def ImportClimtas(temp_dir, year, spatial_relation, ir):
 
 
 
-def ImportPresentDayClimtas(temp_dir, spatial_relation, ir):
+def ImportPresentDayClimtas(temp_path, spatial_relation, ir):
     
     """
     Import climate data from the specified directory and return 'climtas', defined by Carleton as the
@@ -1235,7 +1248,7 @@ def ImportPresentDayClimtas(temp_dir, spatial_relation, ir):
     
     Parameters:
     ----------
-    temp_dir : str
+    temp_path : str
         Path where climate data is stored.
     year : int
         Year used to get the climtas.
@@ -1253,7 +1266,7 @@ def ImportPresentDayClimtas(temp_dir, spatial_relation, ir):
     """
     
     # Read monthly mean of daily mean temperature data
-    TEMP_MEAN = xr.open_dataset(temp_dir+f"GTMP_MEAN_30MIN.nc")
+    TEMP_MEAN = xr.open_dataset(temp_path+f"GTMP_MEAN_30MIN.nc")
     
     # Calculate annual mean temperature and climatology
     TEMP_MEAN_YEAR = TEMP_MEAN["GTMP_MEAN_30MIN"].mean(dim="NM")
@@ -1471,7 +1484,7 @@ def MonotonicityERF(T, erf, tmin_g):
     
     
         
-def DailyTemperature2IR(temp_dir, year, ir, spatial_relation, scenario):
+def DailyTemperature2IR(temp_path, year, ir, spatial_relation, scenario):
     
     """
     Convert daily temperature data of one year to impact region level.
@@ -1480,7 +1493,7 @@ def DailyTemperature2IR(temp_dir, year, ir, spatial_relation, scenario):
     
     Parameters:
     ----------
-    temp_dir : str
+    temp_path : str
         Path where climate data is stored
     year : int
         Year of interest
@@ -1502,13 +1515,13 @@ def DailyTemperature2IR(temp_dir, year, ir, spatial_relation, scenario):
     if "ERA5" in scenario:
         
         # Open daily temperature data from ERA5
-        DAILY_TEMPERATURE = ERA5Temperature2IR(temp_dir, year, ir, spatial_relation)
+        DAILY_TEMPERATURE = ERA5Temperature2IR(temp_path, year, ir, spatial_relation)
         
     else:
                 
         # Read daily temperature data generated from monthly statistics
         DAILY_TEMPERATURE,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=temp_dir, 
+            temp_dir=temp_path, 
             years=year, 
             temp_type="MEAN", 
             std_factor=1,
@@ -1536,7 +1549,7 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
     
     Parameters:
     ----------
-    temp_dir : str
+    temp_path : str
         Path where climate data is stored
     year : int
         Year of interest
@@ -1579,7 +1592,7 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
 
 
 
-def ERA5Temperature2IR(temp_dir, year, ir, spatial_relation):
+def ERA5Temperature2IR(temp_path, year, ir, spatial_relation):
     
     """
     Import daily temperature data of one year from ERA5 and convert it
@@ -1587,7 +1600,7 @@ def ERA5Temperature2IR(temp_dir, year, ir, spatial_relation):
     
     Parameters:
     ----------
-    temp_dir : str
+    temp_path : str
         Path where climate data is stored
     year : int
         Year of interest
@@ -1604,7 +1617,7 @@ def ERA5Temperature2IR(temp_dir, year, ir, spatial_relation):
     
     # Read ERA5 daily temperature data for a specific year
     DAILY_TEMPERATURE, _ = tmp.DailyTemperatureERA5(
-        era5_dir=temp_dir,
+        era5_dir=temp_path,
         year=year, 
         temp_type="mean", 
         pop_ssp=None, 
@@ -1647,7 +1660,7 @@ def ERA5Temperature2IR(temp_dir, year, ir, spatial_relation):
 
 
 
-def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, regions, res):
+def CalculateMortalityEffects(paths, year, scenario, adaptation, regions, res):
     
     """
     The code calculates equaiton 2a or 2c from the paper, depending whether adaptation is on or off.
@@ -1664,7 +1677,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
         Year to calculate mortality
     scenario : str
         Scenario
-    temp_dir : str
+    temp_path : str
         Path where climate data is stored
     adaptation : dic
         Dictionary with the adaptation parameters
@@ -1679,7 +1692,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     """
     
     # Read daily temperature data from specified source
-    DAILY_TEMP_T = DailyTemperature2IR(temp_dir=temp_dir, 
+    DAILY_TEMP_T = DailyTemperature2IR(temp_path=paths.temp_path, 
                                        year=year, 
                                        ir=res.ir, 
                                        spatial_relation=res.spatial_relation, 
@@ -1689,8 +1702,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
     
     # Calculate mortality per region and year (first term of equations 2' or 2a' from the paper)
     MOR_ALL_MIN, MOR_HEAT_MIN, MOR_COLD_MIN =  CalculateMarginalMortality(
-        wdir=wdir, 
-        temp_dir=temp_dir, 
+        paths=paths, 
         year=year, 
         scenario=scenario, 
         daily_temp=DAILY_TEMP_T, 
@@ -1703,8 +1715,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
 
     # Calculate mortality per region and year (second term of equations 2' or 2a' from the paper)
     MOR_ALL_SUB, MOR_HEAT_SUB, MOR_COLD_SUB = CalculateMarginalMortality(
-        wdir=wdir, 
-        temp_dir=temp_dir, 
+        paths=paths, 
         year=year,
         scenario=scenario, 
         daily_temp=res.daily_temp_t0, 
@@ -1730,7 +1741,7 @@ def CalculateMortalityEffects(wdir, year, scenario, temp_dir, adaptation, region
             
             
 
-def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adaptation, res, counterfactual):
+def CalculateMarginalMortality(paths, year, scenario, daily_temp, adaptation, res, counterfactual):
     
     """
     Calculate mortality effects from non optimal temperatures (first term of equation 2 from paper).
@@ -1781,8 +1792,7 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
     # Generate ERFs used when there is income growth and adaptation
     if adaptation==True:    
         ERFS_T, _ = GenerateERFAll(
-            wdir=wdir,
-            temp_dir=temp_dir,
+            paths=paths,
             scenario=scenario,
             ir=res.ir,
             year=year,
@@ -1820,7 +1830,7 @@ def CalculateMarginalMortality(wdir, temp_dir, year, scenario, daily_temp, adapt
 
 
 
-def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spatial_relation):
+def ImportPresentDayTemperatures(paths, scenario, base_years, ir, spatial_relation):
     
     """
     The function will import the daily temperatures from 2000 to 2010 calculated in the
@@ -1847,7 +1857,7 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
         for year in base_years:
             
             # Read pre-calculated daily temperature at impact region level
-            ERA5_T0 = pd.read_csv(wdir+
+            ERA5_T0 = pd.read_csv(paths.wdir+
                                   f"data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
             
             # Store in dictionary as numpy arrays
@@ -1867,7 +1877,7 @@ def ImportPresentDayTemperatures(wdir, temp_dir, scenario, base_years, ir, spati
     else: 
         
         DAILY_TEMPERATURE,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=temp_dir, 
+            temp_dir=paths.temp_path, 
             years=base_years,
             temp_type="MEAN",
             std_factor=1, 
