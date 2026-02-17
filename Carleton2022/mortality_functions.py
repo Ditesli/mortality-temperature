@@ -15,53 +15,53 @@ import yaml
 ### ------------------------------------------------------------------------------
 
 
-def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, regions, adaptation, IAM_format):
+def CalculateMortality(wdir: str, 
+                       years: list, 
+                       temp_dir: str, 
+                       gdp_dir: str, 
+                       project: str, 
+                       scenario: str, 
+                       regions: str, 
+                       adaptation: bool, 
+                       IAM_format: bool):
     
     """
     Main function to calculate mortality projections for the given parameters.
     1. The function will first read important input data from the wdir/data/ folder 
     through the LoadMainFiles function.
-    2. Calculate mortality per year form the years range, loafing first the
-    daily temperature data and later using the function MortalityEffectsMinuend.
-    3. Calculate the counterfactual factor through the funciton
-    mortality_effects_substraend. This will o isolate the role of climate change from 
-    changes in temperature-induced mortality that arise due to income growth.
-    4. Substract the factors calculated in steps 2 and 3 and save the results
+    2. Calculate mortality per year form the years range, calculating first marginal mortality 
+    and substracting the counterfactual mortality used to isolate the role of climate change 
+    from the benefits of income growth.
+    3. Postprocess results by calculating total and relative mortality of all age groups and
+    regions; and save results to the output folder.
     
     Parameters:
     ----------
     wdir : str
         Path to main working directory. This folder must contain two folders:
-        data (with all the data necessary for the model) and output (where results are stored)
+        data (used for calculations) and output (where results are stored)
     years : list
-        Provide the range of years the model will run. The model can run every year or with 
-        a longer frequency
+        Provide the range of years and step the model will run.
     temp_dir: str
-        Climate data path. If ERA5 data was chosenset path to daily data. Otherwise, 
-        give the path to the climate data from monthly statistics.
+        Climate data path with either ERA5 file or montlhy statistics files. 
+    gdp_dir: str
+        Path to GDP data files. It can be the same as temp_dir if the scenario is an IMAGE scenario.
+    project : str
+        Name of the project, used to locate the data in the right folder. It can be any of the projects
+        included in wdir/data/IMAGE_land/scen/ AND/OR to use in the output file name.
     scenario : str
-        Possible scenarios:
-        - SSP_carleton:
-        Scenarios that use the socioeconomic data (population and GDP) from Carleton et al. 
-        They can only be run from 2010 until 2100 as the GDP data provided by the authors only reaches that time.
-        e.g. SSP2_carleton
-        - ERA5 scenario:
-        This scenario uses the default socioeconomic data from Carleton et al. (2022) but uses
-        ERA5 temperature data from 2000 until 2025.
-        e.g. SSP2_ERA5
+        - SSP#_carleton:
+        Scenarios that use the economic data (GDP) from Carleton et al. 
+        - SSP#_ERA5:
+        This scenario uses historical socioeconomic data (GDP from World Bank and pop data from LandScan) 
+        and ERA5 temperature data records. Scenario runs from 2000 to 2025.
         - IMAGE scenarios:
-        These scenarios use population and GDP data from the IMAGE model. They can be run
-        from 2000 until 2100.
+        These scenarios use population and GDP data from the IMAGE model. Run from 2000 until 2100.
     regions : str
-        Region classification to use (e.g., "IMAGE26", "countries"). It can run with any region 
-        classification from the file: wdir/data/regions
-    adaptation: dic
-        This dictionary will serve to turn adaptation on or off. It has the following structure:
-        {"tmean": A, "loggdppc": B}. 
-        o	If adaptation is on, A needs to be “temp_dir” (path to MS data); B can be “default” 
-            (will use GDP projections from SSPs) or a path can be given to feed other GDP 
-            projections (they need to be at the national level to perform the downscaling).
-        o	If adaptation is off, set to None
+        Region classification to use (e.g., "IMAGE26", "countries", "impact regions").
+    adaptation: bool
+        If True, the model will take into account adaptation to generate future ERFs. If False, the 
+        model will use the "present day" ERFs from Carleton et al. (2022) for all years and scenarios.
     IAM_format : bool, optional
         If True, output will be formatted as IAMs' output (default is False)
         
@@ -74,11 +74,13 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
     print(f"Starting mortality model calculations for scenario {scenario} and years {years}...")
     
     
+    # Set path to climate data depending on the scenario type (IMAGE or other scenarios)
     if temp_dir == gdp_dir:
         path = temp_dir + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
     else:
         path = temp_dir  
-        
+    
+    # Check that the years range is compatible with the data used in the model. 
     CARLETON_START_YEAR = 2010
     if ("carleton" in scenario.lower()) and (years[0]<CARLETON_START_YEAR):
         print(f"Error: Carleton's socioeconomic data only reaches {CARLETON_START_YEAR}. Changing years range...")
@@ -88,6 +90,7 @@ def CalculateMortality(wdir, years, temp_dir, gdp_dir, project, scenario, region
     if (re.search(r"SSP[1-5]_ERA5", scenario)) and (years[0]<ERA5_START_YEAR or years[-1]>ERA5_END_YEAR):
         print(f"Error: ERA5 data only reaches {ERA5_START_YEAR}-{ERA5_END_YEAR}. Changing years range...")
         years = [y for y in years if y >= ERA5_START_YEAR and y <= ERA5_END_YEAR]
+    
     
     # Load necessary files and define variables needed for calculations
     res = LoadMainFiles(
