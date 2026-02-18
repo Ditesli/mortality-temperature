@@ -170,7 +170,6 @@ class MortalityModel:
             res=self.res,
             years=self.years,
             scenario=self.scenario,
-            IAM_format=self.IAM_format,
             adaptation=self.adaptation
         )
 
@@ -1183,21 +1182,17 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
     # Temporarily store daily temperatures in a dictionary
     TEMPERATURE_DIC = {}
     for i, day in enumerate(DATE_LIST):
-        DAILY_TEMPERATURE = temp[...,i].ravel()
-        TEMPERATURE_DIC[day] = DAILY_TEMPERATURE[spatial_relation.index]
+        TEMPERATURE_DIC[day] = temp[...,i].ravel()[spatial_relation.index]
 
     # Calculate mean temperature per impact region and round
-    DAILY_TEMPERATURES_DF = pd.DataFrame(TEMPERATURE_DIC, index=spatial_relation["index_right"])
-    
-    # Calculate mean temperature per impact region, fill in nan with 20 and round to 1 decimal
     DAILY_TEMPERATURES_DF = (
-        DAILY_TEMPERATURES_DF
+        pd.DataFrame(TEMPERATURE_DIC, index=spatial_relation["index_right"])
         .groupby("index_right")
-        .mean()
-        .fillna(20)
-        .round(1)
+        .mean() # Calculate mean temperature per impact region
+        .fillna(20) # Fill in nan with 20 degrees C (conservative choice)
+        .round(1) # Round to 1 decimal place
     )
-    
+   
     return DAILY_TEMPERATURES_DF
 
 
@@ -1205,24 +1200,9 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
 def ERA5Temperature2IR(temp_path, year, spatial_relation):
     
     """
-    Import daily temperature data of one year from ERA5 and convert it
-    to the impact region level.
-    
-    Parameters:
-    ----------
-    temp_path : str
-        Path where climate data is stored
-    year : int
-        Year of interest
-    ir : GeoDataFrame
-        GeoDataFrame with impact regions
-    spatial_relation : GeoDataFrame
-        Spatial relationship between temperature grid cells and impact regions
-        
-    Returns:
-    ----------
-    df_rounded : DataFrame
-        DataFrame with daily mean temperature per impact region for the given year
+    Import gridded daily temperature data of one year from ERA5 and convert it
+    to the impact region level. Return a dataFrame with daily mean temperature 
+    per impact region for the given year.
     """
     
     # Read ERA5 daily temperature data for a specific year
@@ -1235,15 +1215,15 @@ def ERA5Temperature2IR(temp_path, year, spatial_relation):
     
     DAILY_TEMPERATURE = DAILY_TEMPERATURE.t2m
     
-    # Select all available dates
-    DATES = DAILY_TEMPERATURE["valid_time"].values
-    
     # Create a list of dates for the specified year
     DATE_LIST =(
-        DATES[np.isin(DAILY_TEMPERATURE["valid_time"]
-                              .values
-                              .astype("datetime64[Y]"),
-                              np.datetime64(f"{year}", "Y"))]
+        DAILY_TEMPERATURE
+        ["valid_time"]
+        .values
+        [np.isin(DAILY_TEMPERATURE["valid_time"]
+                 .values
+                 .astype("datetime64[Y]"),
+                 np.datetime64(f"{year}", "Y"))]
         .astype("datetime64[D]")
         .astype(str)
     )
@@ -1255,10 +1235,8 @@ def ERA5Temperature2IR(temp_path, year, spatial_relation):
         TEMPERATURE_DIC[day] = DAILY_TEMPERATURE_DAY[spatial_relation.index]
             
     # Calculate mean temperature per impact region and round
-    DAILY_TEMPERATURE_DF = pd.DataFrame(TEMPERATURE_DIC, index=spatial_relation["index_right"])
-    
     DAILY_TEMPERATURE_DF = (
-        DAILY_TEMPERATURE_DF
+        pd.DataFrame(TEMPERATURE_DIC, index=spatial_relation["index_right"])
         .groupby("index_right")
         .mean()
         .round(1)
@@ -1271,32 +1249,13 @@ def ERA5Temperature2IR(temp_path, year, spatial_relation):
 def CalculateMortalityEffects(paths, year, scenario, adaptation, regions, res, baseline):
     
     """
-    The code calculates equaiton 2a or 2c from the paper, depending whether adaptation is on or off.
-    1. It first calculates the first part of the equation (called minuend here) and then the second part 
-    (the counterfactual mortality called subtrahend here).
-    2. The substraction is done per impact region, age group, and type of temperature (all, heat, cold).
-    3. Finally, it will agregate the results spatially to the selected region classification (IMAGE26, ISO3...)
-    
-    Parameters:
-    ----------
-    wdir : str
-        Main working directory
-    year : int
-        Year to calculate mortality
-    scenario : str
-        Scenario
-    temp_path : str
-        Path where climate data is stored
-    adaptation : dic
-        Dictionary with the adaptation parameters
-    regions : str
-        Name of the region classification
-    res : class
-        Class where the input files are called
-    Returns:
-    ----------
-    None
-    The function will append the results in the DataFrame called results
+    The code calculates equation 2a or 2c from the paper, depending whether adaptation is on or off.
+    1. It imports/generates the daily temperature data of the selected year at the ir level
+    2. Calculates the first part of the equation (called Marginal Mortality here) 
+    3. Claculates the second part (the Counterfactual Mortality).
+    4. The substraction is done per impact region, age group, and type of temperature (all, heat, cold).
+    3. Aggregate the results spatially to the selected region classification (IMAGE26, ISO3...) and 
+       append the results in the DataFrame called results.
     """
     
     # Read daily temperature data from specified source
@@ -1354,36 +1313,10 @@ def CalculateMortalityEffects(paths, year, scenario, adaptation, regions, res, b
 def CalculateMarginalMortality(paths, year, scenario, daily_temp, adaptation, res, baseline, counterfactual):
     
     """
-    Calculate mortality effects from non optimal temperatures (first term of equation 2 from paper).
-    Depending whether adaptation is on, the code will either import the ERFs with no adaptation or
-    generate ERFs depending on the adaptation parameters.
-    The daily temperature data will be converted to indices based on the range of T.
+    Calculate mortality effects from non optimal temperatures. Depending whether adaptation is on, 
+    the code will either import the ERFs with no adaptation or generate ERFs with new income and climtas.
     Mortality per impact region will be calculated per age group and temperature type (all, heat and cold) 
     in the Mortality From Temperature Index function.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Main working directory
-    year : int
-        Year to calculate mortality
-    scenario : str
-        Scenario
-    temp_dir : str
-        Path where climate data is stored
-    adaptation : dic
-        Dictionary with the adaptation parameters
-    daily_temp : np.ndarray
-        Array with the daily temperatures per impact region for a given region
-    regions : str
-        Name of the region classification
-    res : class
-        Class where the input files are called
-        
-    Returns:
-    ----------
-    None
-    The function will appedn the results in the DataFrame called results minuend
     """
     
     # Clip daily temperatures to the range of the ERFs
@@ -1435,38 +1368,24 @@ def CalculateMarginalMortality(paths, year, scenario, daily_temp, adaptation, re
 def ImportPresentDayTemperatures(paths, scenario, base_years, ir, spatial_relation):
     
     """
-    The function will import the daily temperatures from 2000 to 2010 calculated in the
-    preprocessing step usign either ERA5 data or climate data from prescribed scenario.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Path to main working directory
-    
-    Results:
-    ----------
-    T_0 : dic
-        Dictionary of numpy arrays with the daily temperature per impact region and year.
+    The function will import the daily temperatures from 2000 to 2010, either precalculated
+    ERA5 data or climate data from prescribed scenario. The output is a dictionary of numpy 
+    arrays with the daily temperature per impact region and year.
     """
     
     # ------------------ ERA5 ------------------
-    # Load pre-calculated present day temperatures from ERA5
-    # TODO: finish this part
     if re.search(r"SSP[1-5]_ERA5", scenario):
         
         T_0 = {}
-
         for year in base_years:
             
-            # Read pre-calculated daily temperature at impact region level
             ERA5_T0 = pd.read_csv(paths.wdir+
                                   f"data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
-            
             # Store in dictionary as numpy arrays
             T_0[year] = ERA5_T0.iloc[:,2:].to_numpy()
-            
+          
+        # Calculate mean ignoring 29th feb  
         YEARS_NO_LEAP = []
-
         for year, arr in T_0.items():
             if arr.shape[1] == 366:
                 arr = np.delete(arr, 59, axis=1)
@@ -1475,7 +1394,6 @@ def ImportPresentDayTemperatures(paths, scenario, base_years, ir, spatial_relati
             
             
     # -------------- Scenario data --------------
-    # Load daily temperature data from prescribed scenario
     else: 
         
         DAILY_TEMPERATURE,_ = tmp.DailyFromMonthlyTemperature(
@@ -1488,7 +1406,7 @@ def ImportPresentDayTemperatures(paths, scenario, base_years, ir, spatial_relati
 
         T0_MEAN = MSTemperature2IR(
             temp=DAILY_TEMPERATURE, 
-            year=2000, 
+            year=2000, # Dummy year
             ir=ir, 
             spatial_relation=spatial_relation)
         
@@ -1502,20 +1420,15 @@ def ImportPresentDayTemperatures(paths, scenario, base_years, ir, spatial_relati
 def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group):
     
     """
-    The code calculates annual relative mortality fusing the ERFs and the daily temperature
-    data in a stylized way: 
-    1. It takes the temperature indices calculated one function outside and are used as input to
-    locate the corresponding mortality value from the ERF array. 
-    2. It sums the daily mortality values to the annual level
-    3. Separates the daily temperatures into temperatures above the tmin (Heat temperatures) and 
-    below the tmin (cold temperature) and repeats steps 2 and 3 for these temperature types.
+    The code gets the temperature indices for heat (temepratures above tmin) and 
+    cold (temperatures below tmin) to locate the corresponding mortality value from 
+    the ERF array and sums the daily mortality values to the annual level. All 
+    non-optimal temperatures mortality is the sum of heat and cold mortality.
 
     Parameters:
     ----------
     daily_temp : np.ndarray
         Daily temperature data per impact region for a given year
-    temp_idx : np.ndarray
-        The corresponding index of the daily temperature data based on T. 
         e.g. a daily temperature of -40 will have index 0, daily temperature of 10 will have index 500
     rows : np.ndarray
         Rows array for indexing
@@ -1527,15 +1440,6 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group)
         Minimum temperature from T: -40.0
     group : str
         Age group
-        
-    Returns:
-    ---------
-    result_all : np.ndarray
-        Annual relative mortality from all Non-Optimal temperatures (Heat and cold)
-    result_heat : np.ndarray
-        Annual relative mortality from heat non-optimal temperatures
-    results_cold : np.ndarray
-        Annual relative mortality from cold non-optimal temperatures
     """
 
     # Extract tmin values for the given age group
@@ -1567,28 +1471,9 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group)
 def Mortality2Regions(year, group, mor, regions, mode, res):
     
     """
-    Aggregate spatially the annual relative mortality from the impact region level
-    to the region classification chosen and locate the results of mortality from heat, cold and
-    all-type mortality in the final results dataframe.
-    
-    Parameters:
-    ----------
-    year : int
-        year to process the mortality data
-    group : str
-        Age group
-    mor : np.ndarray
-        Array with annual mortality at the impact region level
-    regions : str
-        Region classification name
-    mode : str
-        Determine type of temperature (Heat, Cold or All)
-    res : class
-        
-    Returns:
-    ----------
-    None
-    Results are stored in the results DataFrame
+    Aggregate spatially the annual relative mortality from the impact region 
+    level to the region classification chosen and locate the results of mortality 
+    from heat, cold and all-type mortality in the final results dataframe.
     """
     
     # Create a copy of region classification dataframe
@@ -1616,6 +1501,14 @@ def Mortality2Regions(year, group, mor, regions, mode, res):
 
 
 def AddMortalityAllAges(results, pop, region_class, years, age_groups):
+    
+    """
+    Calculate total mortality and relative mortality for all-ages group 
+    by summing the results of the three age groups and dividing by the total 
+    population of the three age groups respectively. The funciton will also 
+    calculate the global relative mortality for the all-age group by dividing 
+    the global total mortality by the global population of all ages.
+    """
     
     region_class = region_class.set_index("hierid")
     
@@ -1661,7 +1554,7 @@ def AddMortalityAllAges(results, pop, region_class, years, age_groups):
 
 
 
-def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adaptation, pop, region_class, age_groups):
+def PostprocessResults(wdir, res, years, scenario, adaptation):
     
     """
     Postprocess final results and save to CSV file in output folder.
@@ -1674,38 +1567,38 @@ def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adap
     print("[3] Postprocessing and saving results...")
     
     # Calculate total mortality and relative mortality for all-ages group
-    RESULTS = AddMortalityAllAges(results, pop, region_class, years, age_groups)
+    RESULTS = AddMortalityAllAges(res.results, res.pop, res.region_class, years, res.age_groups)
     
-    # Reset index and format results for IAMs if specified
-    if IAM_format==True:
-        RESULTS = RESULTS.reset_index()
+    # # Reset index and format results for IAMs if specified
+    # if IAM_format==True:
+    #     RESULTS = RESULTS.reset_index()
         
-        # Asign mortality name according to units
-        RESULTS.loc[RESULTS["units"] == "Relative Mortality", "var"] = "Relative Mortality"
-        RESULTS.loc[RESULTS["units"] != "Relative Mortality", "var"] = "Mortality"
+    #     # Asign mortality name according to units
+    #     RESULTS.loc[RESULTS["units"] == "Relative Mortality", "var"] = "Relative Mortality"
+    #     RESULTS.loc[RESULTS["units"] != "Relative Mortality", "var"] = "Mortality"
 
-        # Rename all temperatures name
-        RESULTS.loc[RESULTS["t_type"] == "All", "t_type"] = "All temperatures"
+    #     # Rename all temperatures name
+    #     RESULTS.loc[RESULTS["t_type"] == "All", "t_type"] = "All temperatures"
 
-        # Rename 'age_group'
-        RESULTS.loc[RESULTS["age_group"] == "All population", "age_group"] = "All ages"
-        RESULTS.loc[RESULTS["age_group"] == "young", "age_group"] = "0-4 years"
-        RESULTS.loc[RESULTS["age_group"] == "older", "age_group"] = "5-64 years"
-        RESULTS.loc[RESULTS["age_group"] == "oldest", "age_group"] = "+65 years"
+    #     # Rename 'age_group'
+    #     RESULTS.loc[RESULTS["age_group"] == "All population", "age_group"] = "All ages"
+    #     RESULTS.loc[RESULTS["age_group"] == "young", "age_group"] = "0-4 years"
+    #     RESULTS.loc[RESULTS["age_group"] == "older", "age_group"] = "5-64 years"
+    #     RESULTS.loc[RESULTS["age_group"] == "oldest", "age_group"] = "+65 years"
 
-        # Create column 'Variable'
-        RESULTS["Variable"] = (
-            "Health|"
-            + RESULTS["var"]
-            + "|Non-optimal Temperatures|"
-            + RESULTS["t_type"].str.capitalize()
-            + "|"
-            + RESULTS["age_group"].str.capitalize()
-        )
+    #     # Create column 'Variable'
+    #     RESULTS["Variable"] = (
+    #         "Health|"
+    #         + RESULTS["var"]
+    #         + "|Non-optimal Temperatures|"
+    #         + RESULTS["t_type"].str.capitalize()
+    #         + "|"
+    #         + RESULTS["age_group"].str.capitalize()
+    #     )
             
-        RESULTS = RESULTS[["IMAGE26", "Variable"] + list(RESULTS.columns[4:-2])]
+    #     RESULTS = RESULTS[["IMAGE26", "Variable"] + list(RESULTS.columns[4:-2])]
             
-        RESULTS = RESULTS.rename(columns={"IMAGE26": "region"})
+    RESULTS = RESULTS.rename(columns={"IMAGE26": "region"})
     
     if adaptation == True:
         adapt = ""
