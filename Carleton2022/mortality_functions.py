@@ -214,7 +214,6 @@ class LoadInputData:
     @classmethod
     def from_files(cls, paths, regions, project, scenario, years):
         
-        
         """
         Read and load all input files required for mortality calculations. The 
         necessary data is located in the wdir/data folder.  
@@ -229,11 +228,11 @@ class LoadInputData:
         print(f"[1.2] Loading region classification: {regions}...")
         region_class = pd.read_csv(f"{paths.wdir}/data/regions/region_classification.csv")
         if regions == "impact_regions":
-            region_class = region_class[["hierid", "ISO3"]]
+            REGION_CLASS = region_class[["hierid", "ISO3"]]
         if regions == "countries":
-            region_class = region_class[["hierid", "ISO3", "gbd_level3"]]
+            REGION_CLASS = region_class[["hierid", "ISO3", "gbd_level3"]]
         else:
-            region_class = region_class[["hierid", "ISO3", regions]]
+            REGION_CLASS = region_class[["hierid", "ISO3", regions]]
         
         SPATIAL_RELAITON, IR = GridRelationship(paths, project, scenario, years)
         
@@ -248,7 +247,7 @@ class LoadInputData:
             T = T,
             spatial_relation=SPATIAL_RELAITON,
             ir=IR,
-            region_class=region_class,
+            region_class=REGION_CLASS,
             results=RESULTS,
             gammas = GAMMA_COEFFS,
             pop = POPULATION
@@ -479,7 +478,7 @@ def FinalDataframe(regions, region_class, age_groups, years):
     REGIONS = REGIONS[~pd.isna(REGIONS)]
     REGIONS = np.append(REGIONS, "World")
     
-    AGE_GROUPS = np.append(age_groups, "All population")
+    AGE_GROUPS = np.append(age_groups, "all population")
     TEMPERATURE_TYPES = ["Heat", "Cold", "All"]
     MORTALITY_TYPES = ["Total Mortality", "Relative Mortality"]
     
@@ -490,7 +489,6 @@ def FinalDataframe(regions, region_class, age_groups, years):
                                          names=["age_group", "t_type", "units", regions]), 
             columns=years
         )
-        .sort_index(inplace=True)
     )
     
     return RESULTS 
@@ -1490,9 +1488,9 @@ def Mortality2Regions(year, group, mor, regions, mode, res):
     REGIONS_DF["rel_mor"] = REGIONS_DF["mor"] * 1e5 / REGIONS_DF["pop"]
     
     # Locate results in dataframe
-    REGIONS_INDEX = res.results.loc[(group, mode, "Total Mortality"), year].index[:-1]
-    res.results.loc[(group, mode, "Total Mortality", REGIONS_INDEX), year] = (REGIONS_DF["mor"].reindex(REGIONS_INDEX)).values
-    res.results.loc[(group, mode, "Relative Mortality", REGIONS_INDEX), year] = (REGIONS_DF["rel_mor"].reindex(REGIONS_INDEX)).values
+    REGIONS_IDX = res.results.loc[(group, mode, "Total Mortality"), year].index[:-1]
+    res.results.loc[(group, mode, "Total Mortality", REGIONS_IDX), year] = (REGIONS_DF["mor"].reindex(REGIONS_IDX)).values
+    res.results.loc[(group, mode, "Relative Mortality", REGIONS_IDX), year] = (REGIONS_DF["rel_mor"].reindex(REGIONS_IDX)).values
     
     # Locate global results in results dataframe
     res.results.loc[(group, mode, "Total Mortality", "World"), year] = REGIONS_DF["mor"].sum()
@@ -1530,22 +1528,22 @@ def AddMortalityAllAges(results, pop, region_class, years, age_groups):
     for mode in ["All", "Heat", "Cold"]:
         
         # Calculate total mortality for all age groups
-        results.loc[("All population", mode, "Total Mortality")] = (
+        results.loc[("all population", mode, "Total Mortality")] = (
             sum(results.loc[(age, mode, "Total Mortality")] for age in age_groups)
         ).values
         
         # Calculate relative mortality for all-age group        
-        IMAGE26 = results.loc[("All population", mode, "Relative Mortality")].index[:-1]
+        IMAGE26 = results.loc[("all population", mode, "Relative Mortality")].index[:-1]
         
-        results.loc[("All population", mode, "Relative Mortality", IMAGE26)] = (
-            results.loc[("All population", mode, "Total Mortality", IMAGE26)]
+        results.loc[("all population", mode, "Relative Mortality", IMAGE26)] = (
+            results.loc[("all population", mode, "Total Mortality", IMAGE26)]
             .mul(1e5)
             .div(pop_all.where(pop_all.reindex(IMAGE26) != 0))
         ).values
         
         # Calculate global relative mortality for all-age group
-        results.loc[("All population", mode, "Relative Mortality", "World")] = (
-            results.loc[("All population", mode, "Total Mortality", "World")]
+        results.loc[("all population", mode, "Relative Mortality", "World")] = (
+            results.loc[("all population", mode, "Total Mortality", "World")]
             .mul(1e5)
             .div(pop_all.sum(axis=0)) # Divide by global population of all ages
         )
@@ -1554,7 +1552,7 @@ def AddMortalityAllAges(results, pop, region_class, years, age_groups):
 
 
 
-def PostprocessResults(wdir, res, years, scenario, adaptation):
+def PostprocessResults(wdir, res, years, project, scenario, adaptation):
     
     """
     Postprocess final results and save to CSV file in output folder.
@@ -1581,7 +1579,7 @@ def PostprocessResults(wdir, res, years, scenario, adaptation):
     #     RESULTS.loc[RESULTS["t_type"] == "All", "t_type"] = "All temperatures"
 
     #     # Rename 'age_group'
-    #     RESULTS.loc[RESULTS["age_group"] == "All population", "age_group"] = "All ages"
+    #     RESULTS.loc[RESULTS["age_group"] == "all population", "age_group"] = "All ages"
     #     RESULTS.loc[RESULTS["age_group"] == "young", "age_group"] = "0-4 years"
     #     RESULTS.loc[RESULTS["age_group"] == "older", "age_group"] = "5-64 years"
     #     RESULTS.loc[RESULTS["age_group"] == "oldest", "age_group"] = "+65 years"
