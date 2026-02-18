@@ -1287,12 +1287,8 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     MIN_TEMP = sets.T[0]
     MAX_TEMP = sets.T[-1]
     DAILY_TEMP = np.clip(daily_temp, MIN_TEMP, MAX_TEMP)
-
-    # Convert ALL daily temperatures to temperature indices with the min_temp as index 0
-    TEMP_INDEX =  np.round(((DAILY_TEMP - MIN_TEMP) * 10)).astype(int)
-    
     # Create rows array for indexing
-    ROWS = np.arange(TEMP_INDEX.shape[0])[:, None]
+    ROWS = np.arange(DAILY_TEMP.shape[0])[:, None]
     
     # ------------------- Generate ERFs ------------------
     
