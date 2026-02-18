@@ -217,21 +217,8 @@ class LoadInputData:
         
         
         """
-        Read and load all input files required for mortality calculations. The necessary data is 
-        located in the wdir/data folder. 
-        
-        Parameters:
-        ----------
-        cls : class
-            Class method to create an instance of LoadInputData.
-        paths : ModelPaths
-            Object containing paths to climate and GDP data.
-        regions : str
-            Region classification to use (e.g., "IMAGE26", "countries", "impact regions").
-        project : str
-        scenario : str
-        years : list
-            List of years to process. 
+        Read and load all input files required for mortality calculations. The 
+        necessary data is located in the wdir/data folder.  
         """
         
         print("[1] Loading input files and defining parameters...")
@@ -239,12 +226,19 @@ class LoadInputData:
         AGE_GROUPS = ["young", "older", "oldest"]
         
         T = np.arange(-20, 40.1, 0.1).round(1)
+    
+        print(f"[1.2] Loading region classification: {regions}...")
+        region_class = pd.read_csv(f"{paths.wdir}/data/regions/region_classification.csv")
+        if regions == "impact_regions":
+            region_class = region_class[["hierid", "ISO3"]]
+        if regions == "countries":
+            region_class = region_class[["hierid", "ISO3", "gbd_level3"]]
+        else:
+            region_class = region_class[["hierid", "ISO3", regions]]
         
-        SPATIAL_RELAITON, IR= GridRelationship(paths, project, scenario, years)
+        SPATIAL_RELAITON, IR = GridRelationship(paths, project, scenario, years)
         
-        REGION_CLASSIFICATION = SelectRegions(paths.wdir, regions)
-        
-        RESULTS = FinalDataframe(regions, REGION_CLASSIFICATION, AGE_GROUPS, years)
+        RESULTS = FinalDataframe(regions, region_class, AGE_GROUPS, years)
         
         GAMMA_COEFFS = ImportGammaCoefficients(paths.wdir)
         
@@ -255,7 +249,7 @@ class LoadInputData:
             T = T,
             spatial_relation=SPATIAL_RELAITON,
             ir=IR,
-            region_class=REGION_CLASSIFICATION,
+            region_class=region_class,
             results=RESULTS,
             gammas = GAMMA_COEFFS,
             pop = POPULATION
@@ -343,26 +337,26 @@ class BaselineERFsInputs:
                 
             print("[1.6] Loading GDPpc shares at the imapct region level...")
             # Generate GDPpc shares of regions within a country and IMAGE region
-            image_shares, country_shares = GenerateGDPpcShares(
+            IMAGE_SHARES, COUNTRY_SHARES = GenerateGDPpcShares(
                 wdir=paths.wdir, 
                 ir=res.ir, 
                 region_class=res.region_class)
-            image_gdppc = None
+            IMAGE_GDPPC = None
             
             if not re.search(r"SSP[1-5]", scenario) and "carleton" not in scenario.lower():
                 
                 print("[1.7] Loading GDP data from IMAGE...")
                 # Open TIMER gdp file and calculate regional GDP from IMAGE-regional shares
-                image_gdppc = ReadOUTFiles(
+                IMAGE_GDPPC = ReadOUTFiles(
                     gdp_dir=paths.income_path,
                     project=project, 
                     scenario=scenario)
                 
         # Set to None when adaptation is off        
         else:  
-            image_shares = None
-            image_gdppc = None
-            country_shares = None
+            IMAGE_SHARES = None
+            IMAGE_GDPPC = None
+            COUNTRY_SHARES = None
             
             
         return BaselineERFsInputs(
@@ -370,9 +364,9 @@ class BaselineERFsInputs:
             loggdppc_t0 = LOGGDPPC_T0,
             erfs_t0 = ERFS_T0,
             tmin_t0 = TMIN_T0,
-            image_shares = image_shares,
-            country_shares=country_shares,
-            image_gdppc = image_gdppc,
+            image_shares = IMAGE_SHARES,
+            country_shares=COUNTRY_SHARES,
+            image_gdppc = IMAGE_GDPPC,
             daily_temp_t0 = DAILY_TEMP_T0
         )
 
@@ -381,30 +375,12 @@ class BaselineERFsInputs:
 def GridRelationship(paths, project, scenario, years):
     
     """
-    Create a geopandas.DataFrame with spatial relationship between temperature 
-    data points from the nc files and impact regions. Therefore, for each grid cell,
-    will assign each grid cell to the impact region it intersects with. If a grid cell 
-    intersects multiple regions, it will be assigned to the region with the largest 
-    overlapping area. The function can work with any resolution of temeprature data.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Working directory
-    scenario : str
-        Determines the type of climate data to use (ERA5 if "ERA5" is specified OR monthly statistics
-        if any other scenario is given)
-    temp_path : str
-        Path to climate data files
-    years : list
-        List of years to process
-        
-    Returns:
-    ----------
-    relationship : GeoDataFrame
-        GeoDataFrame with spatial relationship between temperature grid cells and impact regions.
-    ir : DataFrame
-        DataFrame with impact regions. This file serves to align the regions of any new data.
+    Create a DataFrame with the spatial relationship between temperature data points 
+    and impact regions. It will assign each grid cell to the impact region it intersects with.
+    If a grid cell it will be assigned multiple times. The function can work with any resolution 
+    of temeprature data. 
+    Create a pandas series of the impact regions to align the order of the regions in the rest 
+    of the dataframes with the same order as the spatial relationship dataframe. 
     """
     
     print("[1.1] Creating spatial relationship between temperature grid and impact regions...")
@@ -424,12 +400,12 @@ def GridRelationship(paths, project, scenario, years):
             (lon, lat + lat_size)
         ])
 
-    # Read climate data
+    # --------------------- Read climate data ----------------------
     
     # ---------- If ERA5 data ----------
     if re.search(r"ERA5", scenario):
         # Use function located in the utils_common folder to import ERA5 data in the right format
-        grid,_ = tmp.DailyTemperatureERA5(
+        GRID,_ = tmp.DailyTemperatureERA5(
             era5_dir=paths.temp_path, 
             year=years[0], 
             temp_type="mean", 
@@ -442,164 +418,83 @@ def GridRelationship(paths, project, scenario, years):
         
         # --------- IMAGE scenario climate data ----------
         if paths.temp_path == paths.income_path:
-            path = paths.temp_path + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
-    
+            PATH = paths.temp_path + "/" + project + "/3_IMAGE_land/scen/" + scenario + "/netcdf/"
         # --------- Other MS scenario data ----------
         else:
-            path = paths.temp_path 
+            PATH = paths.temp_path 
         
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
-        grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=path, 
+        GRID,_ = tmp.DailyFromMonthlyTemperature(
+            temp_dir=PATH, 
             years=years[0], 
             temp_type="MEAN", 
             std_factor=1, 
             to_xarray=True
             )
+        
     
     # Extract coordinates
-    coord_names = grid.coords.keys()
-    lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, grid)
-    lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, grid)
+    def FindCoordinateName(possible_names, coord_names, temperature):
     
-    # Calculate grid spacing
-    lon_size = np.abs(np.mean(np.diff(lon_vals)))
-    lat_size = np.abs(np.mean(np.diff(lat_vals)))    
+        for name in possible_names:
+            if name in coord_names:
+                return temperature[name].values
+        raise KeyError(f"No coordinate was found among: {possible_names}")
     
+    COORD_NAMES = GRID.coords.keys()
+    LON_VALS = FindCoordinateName(["lon", "longitude", "x"], COORD_NAMES, GRID)
+    LAT_VALS = FindCoordinateName(["lat", "latitude", "y"], COORD_NAMES, GRID)
+
     # Create meshgrid 
-    lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)  
+    LON2D, LAT2D = np.meshgrid(LON_VALS, LAT_VALS)  
     
     # Create GeoDataFrame with points and their corresponding square polygons
-    points_gdf = gpd.GeoDataFrame({
-        "longitude": lon2d.ravel(),
-        "latitude": lat2d.ravel(),
+    POINTS_GDF = gpd.GeoDataFrame({
+        "longitude": LON2D.ravel(),
+        "latitude": LAT2D.ravel(),
         "geometry": [
-            CreateSquare(lon, lat, lon_size, lat_size)
-            for lon, lat in zip(lon2d.ravel(), lat2d.ravel())
+            CreateSquare(lon, lat, np.abs(np.mean(np.diff(LON_VALS))),  np.abs(np.mean(np.diff(LAT_VALS))))
+            for lon, lat in zip(LON2D.ravel(), LAT2D.ravel())
         ]
     })
     
     # Load .shp file with impact regions and set the same coordinate reference system (CRS)
-    ir = gpd.read_file(paths.wdir + "/data/carleton_sm/ir_shp/impact-region.shp")
-    points_gdf = points_gdf.set_crs(ir.crs, allow_override=True)
+    IR = gpd.read_file(paths.wdir + "/data/carleton_sm/ir_shp/impact-region.shp")
+    POINTS_GDF = POINTS_GDF.set_crs(IR.crs, allow_override=True)
     
     # Make spatial join
-    relationship = gpd.sjoin(points_gdf, ir, how="inner", predicate="intersects")
+    RELATIONSHIP = gpd.sjoin(POINTS_GDF, IR, how="inner", predicate="intersects")
 
-    return relationship[["geometry", "index_right", "hierid"]], ir["hierid"]
-
-
-
-def FindCoordinateName(possible_names, coord_names, temperature):
-    
-    """
-    Find the correct coordinate name in the dataset. This avoids having to
-    set manually names such as "lon" or "longitude".
-    
-    Parameters:
-    ----------
-    possible_names : list
-        List of possible coordinate names
-    coord_names : list
-        List of coordinate names in the dataset
-    temperature : xarray DataArray
-        Temperature data
-        
-    Returns:
-    ----------
-    np.ndarray
-        Coordinate values
-    """
-    
-    for name in possible_names:
-        if name in coord_names:
-            return temperature[name].values
-    raise KeyError(f"No coordinate was found among: {possible_names}")
-
-
-
-def SelectRegions(wdir, regions):
-    
-    """
-    Select region classification file based on user input. The function will load a file
-    created previously that contains the 24,378 impact regions' names and their corresponding
-    IMAGE region, country, WHO region... The funciton will only import the impact regions column 
-    and the selected calssification.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Main working directory
-    regions : str
-        Region classification name (eg. IMAGE26, countries...)
-    
-    Returns:
-    ----------
-    region_class:
-        Pandas DataFrame with the "hierid" column (impact regions) and the selected region
-        classification column.
-    """
-    
-    print(f"[1.2] Loading region classification: {regions}...")
-    
-    # Load region classification file
-    region_class = pd.read_csv(f"{wdir}/data/regions/region_classification.csv")
-    
-    if regions == "impact_regions":
-        region_class = region_class[["hierid", "ISO3"]]
-    if regions == "countries":
-        region_class = region_class[["hierid", "ISO3", "gbd_level3"]]
-    else:
-        region_class = region_class[["hierid", "ISO3", regions]]
-    
-    return region_class
+    return RELATIONSHIP[["geometry", "index_right", "hierid"]], IR["hierid"]
 
 
 
 def FinalDataframe(regions, region_class, age_groups, years):
     
     """
-    Create results dataframe with multiindex for age groups, temperature types, and regions.
-    
-    Parameters:
-    ----------
-    regions : str
-        Region classification to use (e.g., "IMAGE26", "countries")
-    region_class : DataFrame
-        DataFrame with region classification
-    age_groups : list
-        List of age groups
-    years : list
-        List of years to process
-        
-    Returns:
-    ----------
-    results : DataFrame
-        DataFrame to store results
+    Create results dataframe with multiindex for age groups, temperature types,
+    mortality types (total mortality and relative mortality) and regions.
     """
     
-    # Extract dataframe with unique regions
-    unique_regions = region_class[f"{regions}"].unique()
-    unique_regions = unique_regions[~pd.isna(unique_regions)]
-    # Append "World" to the list of regions
-    unique_regions = np.append(unique_regions, "World")
+    REGIONS = region_class[f"{regions}"].unique()
+    REGIONS = REGIONS[~pd.isna(REGIONS)]
+    REGIONS = np.append(REGIONS, "World")
     
-    # Append all population to the list of regions
-    age_groups = np.append(age_groups, "all")
-    
-    t_types = ["Heat", "Cold", "All"]
-    results_units = ["Total deaths", "Deaths per 100,000"]
+    AGE_GROUPS = np.append(age_groups, "All population")
+    TEMPERATURE_TYPES = ["Heat", "Cold", "All"]
+    MORTALITY_TYPES = ["Total Mortality", "Relative Mortality"]
     
     # Create results multiindex dataframe
-    results = pd.DataFrame(
-        index=pd.MultiIndex.from_product([age_groups, t_types, results_units, unique_regions],
+    RESULTS = (
+        pd.DataFrame(
+            index=pd.MultiIndex.from_product([AGE_GROUPS, TEMPERATURE_TYPES, MORTALITY_TYPES, REGIONS],
                                          names=["age_group", "t_type", "units", regions]), 
-        columns=years
+            columns=years
         )
+        .sort_index(inplace=True)
+    )
     
-    results.sort_index(inplace=True)
-    
-    return results 
+    return RESULTS 
 
 
 
@@ -610,11 +505,6 @@ def ImportGammaCoefficients(wdir):
     them to the right format to be multiplied later on by the covariates
     (climtas y loggdppc).
     
-    Parameters:
-    ----------
-    wdir : str
-         Main working directory
-
     Returns:
     ----------
     gamma_g : numpy.ndarray
@@ -627,7 +517,6 @@ def ImportGammaCoefficients(wdir):
         2 --> multiply by the covariate loggdppc
     """
     
-    # Read csvv file with the gamma coefficients
     with open(wdir+"data/carleton_sm/Agespec_interaction_response.csvv") as f:
         
         # Extract relevant lines
@@ -635,21 +524,16 @@ def ImportGammaCoefficients(wdir):
 
             if i == 21:
                 # Extract 1, climtas, loggdppc
-                covar_names = [x for x in line.strip().split(", ")]
-                # Convert to indices
-                covar_map = {"1":0, "climtas":1, "loggdppc":2}
-                # Create numpy array
-                cov_idx = np.array([covar_map[str(x)] for x in covar_names])
+                COVAR_NAMES = [x for x in line.strip().split(", ")]
+                # Convert to indices and convert to array
+                COVAR_MAP = {"1":0, "climtas":1, "loggdppc":2}
+                COVAR_IDX = np.array([COVAR_MAP[str(x)] for x in COVAR_NAMES])
                 
             if i == 23:
                 # Extract gamma coefficients
-                gammas = np.array([float(x) for x in line.strip().split(", ")])
-    
-    # Reshape arrays to have the coefficients per age group
-    gamma_g = gammas.reshape(3,12)
-    cov_g = cov_idx.reshape(3,12)
+                GAMMAS = np.array([float(x) for x in line.strip().split(", ")])
                 
-    return gamma_g, cov_g
+    return GAMMAS.reshape(3,12), COVAR_IDX.reshape(3,12)
 
 
 
@@ -658,23 +542,23 @@ def ImportPopulationData(wdir, scenario, years, age_groups, ir):
     print(f"[1.3] Loading Population data for {scenario} scenario at the impact regions level...")
     
     # Extract SSP from scenario string
-    match = re.search(r"(?i)\bssp\d+", scenario)
+    MATCH = re.search(r"(?i)\bssp\d+", scenario)
     # Extract corresponding SSP scenario
-    ssp = match.group().upper()
+    SSP = MATCH.group().upper()
     
     # Include ALWAYS population data from 2000 to 2010 (used in the subtrahend part)
-    years = sorted(set(years).union(range(2000, 2011)))
+    YEARS = sorted(set(years).union(range(2000, 2011)))
         
     # Import population data based on scenario type
     if 'carleton' in scenario.lower() or re.search(r"SSP[1-5]_ERA5", scenario):
         # Import population data from the paper
-        pop = ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir)
+        POPULATION = ImportDefaultPopulationData(wdir, SSP, YEARS, age_groups, ir)
         
     else:
         # Import IMAGE population data nc4 file and calculate population per impact region
-        pop = ImportIMAGEPopulationData(wdir, ssp, years, ir)
+        POPULATION = ImportIMAGEPopulationData(wdir, SSP, YEARS, age_groups, ir)
     
-    return pop
+    return POPULATION
 
 
 
@@ -685,23 +569,10 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
     and convert it to the right format (dataframe) to be used later on in the model in the 
     spatial aggregation of mortality. 
     
-    Parameters:
-    ----------
-    wdir : str
-        Working directory
-    SSP : str
-        Socioeconomic scenario (e.g., "SSP1", "SSP2")
-    years : list
-        List of years to process
-    age_groups : list
-        List of the three age groups
-    ir : DataFrame
-        DataFrame with the correct order impact regions' order. Use to align new DataFrames
-        
     Returns:
     ----------
     POPULATION_GROUPS : dict
-        Dictionary with population data per age group
+        Dictionary with population dataframes per age group
     """
     
     POPULATION_GROUPS = {}
@@ -723,8 +594,8 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
             .unstack('year') # Reshape to have years as columns
             .pipe(lambda df: df.set_axis(df.columns.get_level_values(-1), axis=1))
             [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards 
-            .merge(POP_HISTORICAL, left_index=True, right_index=True)
-            .pipe(lambda df: df.set_axis(df.columns.astype(str), axis=1)) # Convert year columns to string to align with historical data
+            .merge(POP_HISTORICAL, left_index=True, right_index=True) # Merge with historical population 
+            .pipe(lambda df: df.set_axis(df.columns.astype(str), axis=1)) # Convert year columns to string 
             .reindex(ir.values) # Align to impact regions order
             .reset_index()
             .rename(columns={"region":"hierid"})
@@ -736,17 +607,11 @@ def ImportDefaultPopulationData(wdir, ssp, years, age_groups, ir):
 
 
 
-def ImportIMAGEPopulationData(wdir, ssp, years, ir):
+def ImportIMAGEPopulationData(wdir, ssp, years, age_groups, ir):
     
     """
-    Read population data from IMAGE nc4 files for a given SSP scenario and age group.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Working directory
-    SSP : str
-        Socioeconomic scenario (e.g., "SSP1", "SSP2")
+    Read precalculated IMAGE population data at the impact region level for a
+    given SSP.
 
     Returns:
     ----------
@@ -756,11 +621,11 @@ def ImportIMAGEPopulationData(wdir, ssp, years, ir):
     
     POP_SSP = {}
     
-    for age_group in ["young", "older", "oldest"]:
+    for age_group in age_groups:
         POP_SSP_GROUP = (
             pd.read_csv(f"{wdir}/data/population/pop_ssp/pop_{ssp.lower()}_{age_group}.csv")
             .pipe(lambda df: df.filter(
-                ["hierid", "ISO3"] +
+                ["hierid"] +
                 [c for c in df.columns if c.isdigit() and int(c) in years]
             ))
             .set_index("hierid")
@@ -777,34 +642,9 @@ def ImportIMAGEPopulationData(wdir, ssp, years, ir):
 def GenerateERFAll(paths, res, scenario, year, adaptation, baseline, counterfactual):
     
     """
-    The code imports the gamma coefficients and the covariates (climtas and loggdppc) and feeds 
-    this data into the function Generate ERF Group that will generate the Exposure Response Functions 
-    (ERFs) and minimum temperature values per impact region and group. It will locate them in two
-    dictionaries.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Main working directory
-    temp_path : str
-        Path to where climate data is stored
-    scenario : str
-        Scenario
-    ir : DataFrame
-        DataFrame with impact regions. This file serves to align the regions of any new data.
-    year : int
-        Year used to import the climate (climtas, 30 year mean) and the income (13 year mean)
-    spatial_relation : GeoDataFrame
-        Geodataframe with the relationship between gridcells and impact regions. Used to align climate
-        data to the impact region level.
-    age_groups : list
-        List of the three age groups.
-    T : range
-        Range of daily temperatures used to construct tthe Exposure Response Fucntions (ERFs).
-    adaptation : dic
-        Dictionary to determine whether adaptaiton is taken into account to generate the ERFs. Parameters
-        of the dictionary serve to determine the type of adaptaiton used (with or without damages
-        included in the income part).
+    The code imports the gamma coefficients and the covariates (climtas and loggdppc) to 
+    generate the Exposure Response Functions (ERFs) and Minimum Mortality Temperature (MMT)
+    values per impact region and group. 
 
     Returns:
     ----------
@@ -814,11 +654,8 @@ def GenerateERFAll(paths, res, scenario, year, adaptation, baseline, counterfact
         Dictionary with the three 1-d arrays corresponding to the minimum temperature.
     """
     
-    # Read coefficientes of covariates from SM
-    gamma_g, cov_g = res.gammas[0], res.gammas[1]
-    
     # Import covariates with or without adaptation
-    climtas, loggdppc = ImportCovariates(
+    CLIMTAS, LOGGDPPC = ImportCovariates(
         paths=paths,
         res = res,
         scenario=scenario, 
@@ -828,133 +665,120 @@ def GenerateERFAll(paths, res, scenario, year, adaptation, baseline, counterfact
         counterfactual=counterfactual
         )
 
-    # Create covariates matrix
-    covariates = np.column_stack([np.ones(len(climtas)), climtas, loggdppc])
-
-    mor_np = {}; tmin = {}        
+    # Covariates matrix
+    COVARIATES = np.column_stack([np.ones(len(CLIMTAS)), CLIMTAS, LOGGDPPC])   
 
     # Generate arrays with erf and tmin per age group
+    MOR_NP = {}; TMIN = {} 
     for i, group in enumerate(res.age_groups):
         
         if baseline is None:
-            erfs_t0_group = None
-            tmin_t0_group = None
-            
+            ERFS_T0 = None
+            TMIN_T0 = None
         else:
-            erfs_t0_group = baseline.erfs_t0[group]
-            tmin_t0_group = baseline.tmin_t0[group]           
+            ERFS_T0 = baseline.erfs_t0[group]
+            TMIN_T0 = baseline.tmin_t0[group]   
+            
+        # List of locations of gamma and covariates
+        G = res.gammas[0][i]; C = res.gammas[1][i]
+
+        # Multiply each covariate by its corresponding gamma
+        BASE = COVARIATES[:, C] * G
         
-        mor_np[group], tmin[group] = GenerateERFGroup(i, covariates, gamma_g, cov_g, res.T, erfs_t0_group, tmin_t0_group)
+        # Compute the sum of the covariates to get polynomial coefficients
+        TAS = BASE[:, 0:3].sum(axis=1)  
+        TAS2 = BASE[:, 3:6].sum(axis=1)  
+        TAS3 = BASE[:, 6:9].sum(axis=1) 
+        TAS4 = BASE[:, 9:12].sum(axis=1)
+
+        # Generate raw Exposure Response Function
+        ERF_RAW = (
+            TAS[:,None] * res.T**1 +
+            TAS2[:,None] * res.T**2 +
+            TAS3[:,None] * res.T**3 +
+            TAS4[:,None] * res.T**4
+        )
         
-    return mor_np, tmin
+        # Impose zero mortality at tmin by vertically shifting erf
+        ERF_SHIFTED, TMIN_G = ShiftERFToTmin(ERF_RAW, res.T, TAS, TAS2, TAS3, TAS4, TMIN_T0)
+        
+        #  # Ensure ERFs do not exceed no-adaptation ERFs 
+        if ERFS_T0 is not None:
+            ERF_SHIFTED = np.minimum(ERF_SHIFTED, ERFS_T0)
+        
+        # Impose weak monotonicity to the left and the right of the erf
+        MOR_NP[group] = MonotonicityERF(res.T, ERF_SHIFTED, TMIN_G)
+        TMIN[group] = TMIN_G
+        
+    return MOR_NP, TMIN
 
 
 
 def ImportCovariates(paths, res, scenario, year, adaptation, baseline, counterfactual):
     
     """
-    The main purpose of the function will be to give the covariates climtas and 
-    loggdppc of the corresponding year as numpy arrays.
-    
-    The choice of this covariates will depend on whether adaptation is activated 
-    or not and which GDP is fed into the function:
-        - If adaptation is off (None), the function will import the covariates defined
-        in the paper of Carleton et al as the "present day" covariates. The data is
-        extracted directly from Carleton Supplementary Material
-        - If adaptation is on the model can:
-            - Climtas:
-                The model will always import the data from the MS (monthly statistics)
-            - GDP:
-                A. Import the "default" GDP covariate from the paper (following the SSP
-                projections from 2022)
-                B. Import other GDP (2024 GDP projections, GDP with damages...)
-                
-    Parameters:
-    ----------
-    wdir : str
-        Main working directory
-    temp_path : str
-        Path to where climate data is stored
-    scenario : str
-        SSP scenario used for the GDP projections
-    ir : DataFrame
-        DataFrame with impact regions. This file serves to align the regions of any new data.
-    year : int
-        Year used to import the climate (climtas, 30 year mean) and the income (13 year mean).
-    spatial_relation : GeoDataFrame
-        GDF witht the relation between the grid cells of the climate data and the impact regions.
-        Every grid cell has an impact region assigned
-    adaptation : dic
-        Dictionary to determine whether adaptaiton is taken into account to generate the ERFs. Parameters
-        of the dictionary serve to determine the type of adaptaiton used (with or without damages
-        included in the income part).
+    Import the covariates climtas and loggdppc of the corresponding year as numpy arrays.
+    If adaptation is False, the function will import the covariates defined in the paper 
+    as the "present day" covariates. If adaptation is True the model can import them
+    from different sources depending on the scenario.
 
     Returns:
     ----------
     climtas : np.ndarray
-        1D array with the 30 year climate mean per impact region, the order of the regions is given by ir.
+        1D array with the 30-year climate per impact region, the regions order is given by ir.
     loggdppc : np.ndarray 
-        1D array with the log of the 13 year gdppc mean per impact region, the order of the regions is given by ir.
+        1D array with the log of the 13-year log(GDPpc) per impact region.
     """
     
-    # No adaptation -----------------------------------------
-    # Use the "present day" covariates as the default covariates for the ERF generation.
+    # NO ADAPTATION -----------------------------------------
     if adaptation==False:
-        
-        # Open covariates for "present day" (no adaptation)
-        covariates_t0 = pd.read_csv(paths.wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
-        
-        # Rename regions column to reindex woth ir dataframe
-        covariates_t0 = (
-            covariates_t0
+
+        # Open covariates for "present day" (no adaptation) and reindex wrt ir dataframe
+        COVARIATES_T0 = (
+             pd.read_csv(paths.wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
             .rename(columns={"region":"hierid"})
             .set_index("hierid")
             .reindex(res.ir.values)
         )
         
         # Extract only climtas and loggdppc as arrays
-        climtas = covariates_t0["climtas"].values
-        loggdppc = covariates_t0["loggdppc"].values
+        CLIMTAS = COVARIATES_T0["climtas"].values
+        LOGGDPPC = COVARIATES_T0["loggdppc"].values
     
-    # Adaptation ---------------------------------------------
-    # Open covariates depending on the year and the scenario.
+    # ADAPTATION ---------------------------------------------
     else:
         
         # CLIMTAS ---------------------------
-        if counterfactual:
-            
-            if re.search(r"ERA5", scenario):
-                # Load climatology (30-year running mean, climtas) of the selected year from ERA5 data
-                climtas = ImportClimtasERA5(paths.wdir, year, res.ir, present_day=True)
         
-            else: 
-                # Load climatology (30-year running mean, climtas) of the selected year
-                climtas = ImportClimtas(paths.temp_path, year, res.spatial_relation, res.ir)
-                
-        else:
-            
+        # Load "present-day" climatology
+        if counterfactual:
             if re.search(r"ERA5", scenario):
-                # Load climatology (30-year running mean, climtas) of the selected year from ERA5 data
-                climtas = ImportClimtasERA5(paths.wdir, year, res.ir, present_day=False)
+                CLIMTAS = ImportClimtasERA5(paths.wdir, year, res.ir, present_day=True)
+            else: 
+                CLIMTAS = ImportClimtas(paths.temp_path, None, res.spatial_relation, present_day=True)
+        
+        # Load climatology of selected year 
+        else:
+            if re.search(r"ERA5", scenario):
+                CLIMTAS = ImportClimtasERA5(paths.wdir, year, res.ir, present_day=False)
             else:
-                # Load climatology (30-year running mean, climtas) of the selected year
-                climtas = ImportClimtas(paths.temp_path, year, res.spatial_relation, res.ir)
+                CLIMTAS = ImportClimtas(paths.temp_path, year, res.spatial_relation, present_day=False)
                 
         # log(GDPpc) ---------------------------    
         
         if re.search(r"ERA5", scenario) or ("carleton" in scenario.lower() and year < 2010):
             # Load historical log(GDPpc) from World Bank
-            loggdppc = ImportHistoricalLogGDPpc(paths.wdir, res.ir, year, baseline.country_shares)
+            LOGGDPPC = ImportHistoricalLogGDPpc(paths.wdir, res.ir, year, baseline.country_shares)
         
-        elif "carleton" in scenario.lower():  
+        elif "carleton" in scenario.lower() and year >= 2010:  
             # Load log(GDPpc) from Carleton et al. (2022) for the selected year and scenario
-            loggdppc = ImportCarletonLogGDPpc(paths.wdir, scenario, res.ir, year, baseline.country_shares)
+            LOGGDPPC = ImportCarletonLogGDPpc(paths.wdir, scenario, res.ir, year)
             
         else: 
             # Load log(GDPpc) at the impact region level using the GDPpc output from IMAGE
-            loggdppc = ImportIMAGEloggdppc(year, baseline.image_gdppc, baseline.image_shares)
+            LOGGDPPC = ImportIMAGEloggdppc(year, baseline.image_gdppc, baseline.image_shares)
             
-    return climtas, loggdppc
+    return CLIMTAS, LOGGDPPC
 
 
 
@@ -991,29 +815,17 @@ def ImportHistoricalLogGDPpc(wdir, ir, year, country_shares):
 
 
 
-def ImportCarletonLogGDPpc(wdir, scenario, ir, year, country_shares):
+def ImportCarletonLogGDPpc(wdir, scenario, ir, year):
     
     """
-    Read GDP per capita files for a given SSP scenario from Carleton et al. (2022) and calculate 
-    the 13 year running mean of the log(GDPpc) for the selected year at the impact region level 
-    using the factors derived from the original paper that downscale national GDPpc to the regional 
-    sone.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Working directory
-    ssp : str
-        Socioeconomic scenario (e.g., "SSP1", "SSP2")
-    ir : DataFrame
-        DataFrame with impact regions. This file serves to align the regions of any new data.
-    year : int 
-        Year used to get the loggdppc.
+    Read GDP per capita files for a given SSP scenario from Carleton et al. (2022) 
+    and calculate the 13-year running mean of the log(GDPpc) for the selected year 
+    at the impact region level.
         
     Returns:
     ----------
     gdppc : np.ndarray
-        DataFrame with GDP per capita data
+        GDP per capita data ordered by ir
     """
     
     SCENARIO = re.search(r"(?i)\bssp\d+", scenario).group()
@@ -1045,12 +857,12 @@ def ImportCarletonLogGDPpc(wdir, scenario, ir, year, country_shares):
 def ImportIMAGEloggdppc(year, image_gdppc, image_shares):
     
     """
-    Calculate log(GDPpc) at the impact region level using the GDPpc output
-    from a TIMER run.
+    Calculate log(GDPpc) at the impact region level using the GDPpc output from a 
+    TIMER run and the shares that downscale IMAGE GDPpc at the impact region level.
     """
     
     # Extract relevant year data (13 year rolling mean)
-    image_gdppc = (
+    IMAGE_GDPPC = (
         image_gdppc
         .sel(Time=slice(year-13,year))
         .mean(dim="Time")
@@ -1062,46 +874,32 @@ def ImportIMAGEloggdppc(year, image_gdppc, image_shares):
     )
     
     # Merge IMAGE GDPpc with GDPpc shares
-    gdppc = image_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
+    GDPPC = image_shares.merge(IMAGE_GDPPC, left_on="IMAGE26", right_on="region", how="left")
     
     # Calculate share of log(GDPpc) based on regional GDPpc
-    gdppc["gdppc"] = gdppc["Value"] * gdppc["gdppc_share"] 
-    gdppc["loggdppc"] = np.log(gdppc["gdppc"])
+    GDPPC["gdppc"] = GDPPC["Value"] * GDPPC["gdppc_share"] 
+    GDPPC["loggdppc"] = np.log(GDPPC["gdppc"])
     
-    return gdppc["loggdppc"].values
+    return GDPPC["loggdppc"].values
 
  
 
 def GenerateGDPpcShares(wdir, ir, region_class):
     
     """
-    Generate the corresponding GDPpc shares per impact region within an IMAGE region.
-    The function will read the GDPpc data from Carleton et al. (2022) and calculate the share
-    of each impact region within an IMAGE region. The final output will be a dataframe with the GDPpc
+    Generate the corresponding GDPpc shares per impact region within an IMAGE region and 
+    country. The function will read the GDPpc data from Carleton et al. (2022) and calculate 
+    the factor that downscales the GDPpc. The final output will be a dataframe with the GDPpc
     shares per impact region.
-    
-    Parameters:
-    ----------
-    wdir : str
-        Main working directory
-    ir : DataFrame
-        DataFrame with impact regions. This file serves to align the regions of any new data.
-    region_class : DataFrame
-        DataFrame with region classification
-    
-    Returns:
-    ----------
-    gdppc : DataFrame
-        DataFrame with GDPpc shares per impact region.
     """
 
-    # Open GDP data (can be any SSP), convert to dataframe, merge with region classification and filter
+    # Open GDP data (can be any SSP)
     GDPPC_CETAL_DF = (
         xr.open_dataset(f"{wdir}/data/carleton_sm/econ_vars/SSP2.nc4")
-        .to_dataframe()
+        .to_dataframe() # Convert to dataframe
         .reset_index()
         .merge(region_class, left_on="region", right_on="hierid")
-        .query("model == 'high' and year == 2010")
+        .query("model == 'high' and year == 2010") # Filter
         .drop(["model", "year", "ssp"], axis=1)
     )
     
@@ -1120,10 +918,8 @@ def GenerateGDPpcShares(wdir, ir, region_class):
             .reset_index()
         )
     
-    # Calculate IMAGE shares
+    # Calculate IMAGE and country shares
     IMAGE_SHARES = compute_shares(GDPPC_CETAL_DF, "IMAGE26")
-
-    # COUNTRY shares
     COUNTRY_SHARES = compute_shares(GDPPC_CETAL_DF, "ISO3")
         
     return IMAGE_SHARES, COUNTRY_SHARES
@@ -1133,21 +929,7 @@ def GenerateGDPpcShares(wdir, ir, region_class):
 def ReadOUTFiles(gdp_dir, project, scenario):
     
     """
-    Read GDPpc data from TIMER output files. The code will read the files for the selected scenario and project.
-    
-    Parameters:
-    ----------
-    gdp_dir : str
-        Directory where the GDP data is stored.
-    project : str
-        Project name.
-    scenario : str
-        Scenario name.
-        
-    Returns:
-    ----------
-    xr_vars : xarray.Dataset
-        Dataset containing the GDPpc data per IMAGEregion and year.
+    Read GDPpc data from TIMER output files from the selected scenario and project.
     """
     
     # Define dimensions and timeline for the xarray dataset
@@ -1161,30 +943,27 @@ def ReadOUTFiles(gdp_dir, project, scenario):
     Timeline = prism.Timeline(start=_DIM_TIME['start'],
                             end=_DIM_TIME['end'],
                             stepsize=_DIM_TIME['stepsize'])
-    # prism_regions = prism.Dimension('region', _DIM_IMAGE_REGIONS + ["Other"] + ["World"])
     prism_regions_world = prism.Dimension('region', _DIM_IMAGE_REGIONS + ["World"])
     
     listy = []
 
-    # Read GDPpc data from TIMER output files. The code will read the files for the selected scenario and project.
+    # Read GDPpc data path from specific scenario.
     path_clim = gdp_dir + "/" + project + "/2_TIMER/outputlib/TIMER_3_4/" + project + "/"+ scenario + "/indicators/Economy/"
     
     # TODO: Change variable name as it is GDPpc with or without impacts depending on scenario
     VAR = "GDPpc_incl_impacts"
     
-    # Create xarray dataset with the data from the OUT files. The code will read the files for the selected scenario and project.
+    # Create xarray dataset with the data from the OUT files. 
     datafile = prism.TimeVariable(
             timeline=Timeline,
             dims=[prism_regions_world],
             file=path_clim+VAR+".OUT",
         )
     
-    # The code will read the files for the selected scenario and project and create an xarray dataset with the data from the OUT files.
     listy.append(xr.merge([datafile[i]
                            .rename('Value')
                            .expand_dims({"Time": [i]}) for i in np.arange(_DIM_TIME['start'], 2101)])
                  .expand_dims({"Scenario": [scenario], "Variable": [VAR]}))
-    
     xr_vars = xr.merge(listy)
  
     return xr_vars
@@ -1200,277 +979,118 @@ def ImportClimtasERA5(wdir, year, ir, present_day):
     else:
         COLS = [str(y) for y in range(2001, 2011)]
         CLIMTAS = CLIMTAS.set_index("hierid").reindex(ir)[COLS].mean(axis=1).values
-    
-    # Align to ir dataframe and select relevant year
+
     return CLIMTAS
 
 
 
-def ImportClimtas(temp_path, year, spatial_relation, ir):
+def ImportClimtas(temp_path, year, spatial_relation, present_day):
     
     """
-    Import climate data from the specified directory and return 'climtas', defined by Carleton as the
-    30-year running mean temperature per impact region.
-    1. The code will first calculate the annual mean from the mothly data to alter calculate the mean of 
-    the past 30 years from the selected year. 
-    2. The code will calculate the mean temperature per impact region using "spatial_relation" and will 
-    return the data as a numpy array
-    
-    Parameters:
-    ----------
-    temp_path : str
-        Path where climate data is stored.
-    year : int
-        Year used to get the climtas.
-    spatial_relation : GeoDataFrame
-        GDF witht the relation between the grid cells of the climate data and the impact regions.
-        Every grid cell has an impact region assigned.
-    ir : DataFrame
-        DataFrame with impact regions. This file serves to align the regions of any new data.
-        
-    Returns:         
-    ----------
-    climtas : np.ndarray
-        1D array with the 30 year running mean of the anual temperature per impact region level.
-        The order of each element of the array follows the order of the impact regions given by ir.
+    Import climate data from montlhy statistics files. The code calculates the 30-year running
+    mean from the mothly data at the grid cell level. The code will later calculate the mean 
+    climatology per impact region using "spatial_relation" and will return the data as a numpy array
+    ordered by "ir".
     """
+    
+    if present_day==True:
+        YEAR = slice("2001-01-01", "2011-01-01") # The "present-day" climatology 
+    else:
+        YEAR = slice(f"{year}-01-01", f"{year}-12-31")
     
     # Read monthly mean of daily mean temperature data
-    MONTHLY_TEMPERATURE = xr.open_dataset(temp_path+f"GTMP_MEAN_30MIN.nc")
-    
-    # Calculate annual mean temperature and climatology
-    ANNUAL_TEMPERATURE = MONTHLY_TEMPERATURE["GTMP_MEAN_30MIN"].mean(dim="NM")
-    
-    # Calculate 30-year rolling mean temperature
-    CLIMATOLOGY_TEMPERATURE = ANNUAL_TEMPERATURE.rolling(time=30, min_periods=1).mean().sel(time=f"{year}")
-    
-    # Assign pixels to every impact region
-    TEMP_DICT = {}
-    CLIMATOLOGY_T_VALUES = CLIMATOLOGY_TEMPERATURE.values.ravel()
-    TEMP_DICT[year] = CLIMATOLOGY_T_VALUES[spatial_relation.index]
+    CLIMTAS_IR = (
+        xr.open_dataset(temp_path+f"GTMP_MEAN_30MIN.nc")
+        ["GTMP_MEAN_30MIN"]
+        .mean(dim="NM") # Annual temperature
+        .rolling(time=30, min_periods=1) 
+        .mean() # Climatology
+        .sel(time=YEAR)
+        .mean(dim="time") # "present-day" climatology
+        .values
+        .ravel()
+        [spatial_relation.index] # Assign pixels to every impact region using spatial relation
+    )
 
     # Calculate mean temperature per impact region and round
-    CLIMTAS = pd.DataFrame(TEMP_DICT, index=spatial_relation["index_right"])
-    CLIMTAS = CLIMTAS.groupby("index_right").mean()
-    
-    # Fill in nan with 20
-    CLIMTAS = CLIMTAS.fillna(20)
-    CLIMTAS.insert(0, "hierid", ir)
-    CLIMTAS = CLIMTAS.rename(columns={year: "tmean", "hierid":"region"})
-    
-    return CLIMTAS["tmean"].values
-
-
-
-def ImportPresentDayClimtas(temp_path, spatial_relation, ir):
-    
-    """
-    Import climate data from the specified directory and return 'climtas', defined by Carleton as the
-    30-year running mean temperature per impact region.
-    1. The code will first calculate the annual mean from the mothly data to alter calculate the mean of 
-    the past 30 years from the selected year. 
-    2. The code will calculate the mean temperature per impact region using "spatial_relation" and will 
-    return the data as a numpy array
-    
-    Parameters:
-    ----------
-    temp_path : str
-        Path where climate data is stored.
-    year : int
-        Year used to get the climtas.
-    spatial_relation : GeoDataFrame
-        GDF witht the relation between the grid cells of the climate data and the impact regions.
-        Every grid cell has an impact region assigned.
-    ir : DataFrame
-        DataFrame with impact regions. This file serves to align the regions of any new data.
-        
-    Returns:         
-    ----------
-    climtas : np.ndarray
-        1D array with the 30 year running mean of the anual temperature per impact region level.
-        The order of each element of the array follows the order of the impact regions given by ir.
-    """
-    
-    # Read monthly mean of daily mean temperature data
-    TEMP_MEAN = xr.open_dataset(temp_path+f"GTMP_MEAN_30MIN.nc")
-    
-    # Calculate annual mean temperature and climatology
-    TEMP_MEAN_YEAR = TEMP_MEAN["GTMP_MEAN_30MIN"].mean(dim="NM")
-    
-    # Calculate 30-year rolling mean temperature
-    TEMP_MEAN_30YEAR = TEMP_MEAN_YEAR.rolling(time=30, min_periods=1).mean()
-    
-    START_YEAR = 2001
-    END_YEAR = 2010
-    
-    TEMP_MEAN_30YEAR_PRESENT = (
-        TEMP_MEAN_30YEAR
-        .sel(time=slice(f"{START_YEAR}-01-01", f"{END_YEAR}-01-01"))
-        .mean(dim="time")
+    CLIMTAS = (
+        pd.DataFrame(CLIMTAS_IR, index=spatial_relation["index_right"])
+        .groupby("index_right")
+        .mean()
+        .fillna(20)
+        [0].values
     )
-    
-    # Assign pixels to every impact region
-    TEMP_MEAN_VALS = TEMP_MEAN_30YEAR_PRESENT.values.ravel()
-    TEMP_MEAN_INDEXED = TEMP_MEAN_VALS[spatial_relation.index]
 
-    # Calculate mean temperature per impact region and round
-    TEMP_MEAN_DF = pd.DataFrame(TEMP_MEAN_INDEXED, index=spatial_relation["index_right"])
-    TEMP_MEAN_PER_IR = TEMP_MEAN_DF.groupby("index_right").mean()
-    
-    # Fill in nan with 20 ensuring all regions have a value although mortality null
-    TEMP_MEAN_PER_IR = TEMP_MEAN_PER_IR.fillna(20)
-    TEMP_MEAN_PER_IR.insert(0, "hierid", ir)
-    
-    return TEMP_MEAN_PER_IR[0].values
-    
-    
-    
-def GenerateERFGroup(model_idx, X, gamma_g, cov_g, T, erfs_t0, tmin):
-    
-    """
-    The code will receive the gamma coefficients, the covariates position and the covariates (X)
-    and generate the Exposure Response Function per impact region for a given age group. It will also 
-    apply the conditions imposed by Carleton 2022: match the tmin to null mortality and weak
-    monotonicity.
-    
-    Parameters:
-    ----------
-    model_idx : int
-        Index of the age group (0 --> young; 1 --> older; 2 --> oldest) used to extract the gamma 
-        coefficients and the covariate values.
-    X : np.ndarray
-        2D array (matrix) of covariates. The array has dimension 24378x3, with the rows the impact regions, 
-        the first column corresponds to the linear term (column of ones), the second column correspond to 
-        the climatas values and the third column corresponds to the loggdppc.
-    gamma_g : np.ndarray
-        3D array with the gamma coefficients that multiply the covariates (climtas, loggdppc) and the 
-        independent term (x1). The coefficients are shaped to have a layer per age group and the 12 gamma
-        coefficients ordered in matrices of 4x3 (where the rows will multiply every degree of the
-        polynomial and the columns will be multiplied by the covariates according to cov_g).
-    cov_g : np.ndarray
-        3D array with a number (from 0 to 2) that tells each gamma coefficient which covariate should
-        multiply (0 --> independent term and multiply by 1, 1 --> multiply by climtas, 
-        2 --> multiply by logggdppc)
-    T : range
-        Range of daily temperatures that the Exposure Response Functions will use as the dependent term.
-        The resolution is 0.1 degreee Celsius and the current range goes from -40 to 60 degrees
-    
-    Returns:
-    ----------
-    erf_final : np.ndarray
-        2D array with the rows representing the ERF of an impact region and the columns, the value the ERF
-        would have were the ERF in the corresponding daily temperature.
-        As the daily temperature goes from -40 to 60, the first column correspond to the values the ERFs 
-        would have at -40.0 degrees, the second one corresponds to the values at -39.9 degrees, and so on...
-    tmin : np.ndarray
-        1D array with the rows being the daily temperature at which the ERF of an impact region are minimized.
-    """
-    
-    # List of locations of gamma and covariates
-    g = gamma_g[model_idx]
-    c = cov_g[model_idx]
-
-    # Multiply each covariate by its corresponding gamma
-    base = X[:, c] * g
-    
-    # Compute the sum of the covariates to get polynomial coefficients
-    tas = base[:, 0:3].sum(axis=1)  
-    tas2 = base[:, 3:6].sum(axis=1)  
-    tas3 = base[:, 6:9].sum(axis=1) 
-    tas4 = base[:, 9:12].sum(axis=1)
-    
-    # Rise temperature to the power of 1,2,3,4
-    Tpowers = np.vstack([T**1, T**2, T**3, T**4])  
-
-    # Generate raw Exposure Response Function
-    erf = (
-        tas[:,None] * Tpowers[0] +
-        tas2[:,None] * Tpowers[1] +
-        tas3[:,None] * Tpowers[2] +
-        tas4[:,None] * Tpowers[3]
-    )
-    
-    # Impose zero mortality at tmin by vertically shifting erf
-    erf_shifted, tmin_g = ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4, tmin)
-    
-    #  # Ensure ERFs do not exceed no-adaptation ERFs 
-    if erfs_t0 is not None:
-        erf_shifted = np.minimum(erf_shifted, erfs_t0)
-    
-    # Impose weak monotonicity to the left and the right of the erf
-    erf_final = MonotonicityERF(T, erf_shifted, tmin_g)
-
-    return erf_final, tmin_g
+    return CLIMTAS
 
 
 
 def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4, tmin): 
     
     """   
-    The code will apply the first constraint imposed by Carleton et al (see more in Appendix pp. A62).
-    Following the paper, the minimum of the ERF at Present Day temperatures is located between 20 and 
-    30 degrees. Later the function is shifted vertucally to ensure the minimum matches null mortality. 
-    This procedure is done for all the ERF per age groups.
-    The tmin remains fixed at future times.
+    The code will apply the first constraint imposed by the paper (see more in Appendix pp. A62).
+    The minimum of the ERF at Present Day temperatures is located between 20 and 30 degrees. 
+    Later the function is shifted vertucally to ensure the minimum matches null mortality. 
+    This procedure is done for all the ERF per age groups. The tmin remains fixed at future times.
      
     Parameters:
     ----------    
     raw : np.ndarray
-        Raw ERFs array result of the foruth degree polynomial (see Appendix pp. A35)
+        Raw ERFs array result of the fourth degree polynomial (see Appendix pp. A35)
     T : range
         Range of daily temperatures
     tas : np.ndarray
-        coefficients of first degree of the polynomial (result of 1 + gamma_1,1*climtas + gamma1,2*loggdppc)
+        first degree coefficients of the polynomial (result of 1 + gamma_1,1*climtas + gamma1,2*loggdppc)
     tas2 : np.ndarray
-        coefficients of second degree of the polynomial (result of 1 + gamma_2,1*climtas + gamma2,2*loggdppc)
+         second degree coefficients of the polynomial (result of 1 + gamma_2,1*climtas + gamma2,2*loggdppc)
     tas3 : np.ndarray
-        coefficients of third degree of the polynomial (result of 1 + gamma_3,1*climtas + gamma3,2*loggdppc)
+         third degree coefficients of the polynomial (result of 1 + gamma_3,1*climtas + gamma3,2*loggdppc)
     tas4 : np.ndarray
-        coefficients of fourth degree of the polynomial (result of 1 + gamma_3,1*climtas + gamma3,2*loggdppc)
+         fourth degree coefficients of the polynomial (result of 1 + gamma_4,1*climtas + gamma4,2*loggdppc)
         
     Returns:
     ----------
     erf : np.ndarray
         2D array with ERFs shifted vertically
     tmin_g : np.ndarray
-        1D array with the rows being the daily temperature at which the ERF of an impact region are minimized.
+        1D array with the daily temperature at which the ERF of an impact region are minimized at present values.
     """
     
     if tmin is None:
         # Locate idx of T (temperature array) between 20 and 30 degrees C
-        idx_min_start = np.where(np.isclose(T, 10.0, atol=0.05))[0][0]
-        idx_min_end   = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
-        segment = raw[:, idx_min_start:idx_min_end]
+        IDX_START = np.where(np.isclose(T, 10.0, atol=0.05))[0][0]
+        IDX_END   = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
+        SEGMENT = raw[:, IDX_START:IDX_END]
         
         # Find local minimum of erf between 20 and 30 degrees
-        idx_local_min = np.argmin(segment, axis=1)
-        tmin = T[idx_min_start + idx_local_min]
+        IDX_LOCAL_MIN = np.argmin(SEGMENT, axis=1)
+        tmin = T[IDX_START + IDX_LOCAL_MIN]
         
     # Calcualte mortality value at fixed tmin
-    erf_at_tmin = tas*tmin + tas2*tmin**2 + tas3*tmin**3 + tas4*tmin**4
+    ERF_AT_TMIN = tas*tmin + tas2*tmin**2 + tas3*tmin**3 + tas4*tmin**4
     
     # Shift vertical functions so tmin matches 0 deaths
-    erf = raw - erf_at_tmin[:,None]
+    ERF_SHIFTED = raw - ERF_AT_TMIN[:,None]
         
-    return erf, tmin
+    return ERF_SHIFTED, tmin
 
 
 
 def MonotonicityERF(T, erf, tmin_g):
     
     """
-    The code applies the second constraint from Carleton et al (see Appendix pp. A65), weak 
-    monotonicity. The code ensures that towards colder and hotter temperatures than the tmin, 
-    the ERFs must be at least as harmful as temperatures closer to the minimum mortality temperature.
+    The code applies the second constraint from the paper (see Appendix pp. A65), weak 
+    monotonicity. It ensures that towards colder and hotter temperatures than the tmin, 
+    the ERFs must be at least as harmful as temperatures closer to the MMT.
     
     Parameters:
     ----------
     T : range
         Range of daily temperatures
     erf : np.ndarray
-        ERFs array result of the foruth degree polynomial (see Appendix pp. A35) and the vertical shift
+        ERFs shifted (see Appendix pp. A35) 
     tmin_g :  np.ndarray
-        1D array with the rows being the daily temperature at which the ERF of an impact region are minimized.
+        1D array with the daily temperature at which the ERFs are minimized.
         
     Returns:
     ----------
@@ -1479,61 +1099,43 @@ def MonotonicityERF(T, erf, tmin_g):
     """
     
     # Find index of tmin in T
-    idx_tmin = np.searchsorted(T, tmin_g)
-    _, nT = erf.shape
+    IDX_TMIN = np.searchsorted(T, tmin_g)
+    _, NT = erf.shape
 
     # Create index matrix to vectorize
-    idx_matrix = np.arange(nT)[None, :]
+    IDX_MATRIX = np.arange(NT)[None, :]
     
     # Mask for temperatures above and below tmin
-    mask_left = idx_matrix < idx_tmin[:, None]
-    mask_right = idx_matrix > idx_tmin[:, None]
+    MASK_LEFT = IDX_MATRIX < IDX_TMIN[:, None]
+    MASK_RIGHT = IDX_MATRIX > IDX_TMIN[:, None]
     
     # Impose weak monotonicity to the left
-    left_part = np.where(mask_left, erf, -np.inf)
-    left_monotone = np.maximum.accumulate(left_part[:, ::-1], axis=1)[:, ::-1]
+    LEFT_PART = np.where(MASK_LEFT, erf, -np.inf)
+    LEFT_MONOTONE = np.maximum.accumulate(LEFT_PART[:, ::-1], axis=1)[:, ::-1]
     
     # Impose weak monotonicity to the right
-    right_part = np.where(mask_right, erf, -np.inf)
-    right_monotone = np.maximum.accumulate(right_part, axis=1)
+    RIGHT_PART = np.where(MASK_RIGHT, erf, -np.inf)
+    RIGHT_MONOTONE = np.maximum.accumulate(RIGHT_PART, axis=1)
     
     # Generate final Exposure Response Function
-    erf_final = np.where(
-        mask_left, left_monotone,
-        np.where(mask_right, right_monotone, erf)
+    ERF_FINAL = np.where(
+        MASK_LEFT, LEFT_MONOTONE,
+        np.where(MASK_RIGHT, RIGHT_MONOTONE, erf)
         )
     
     # Ensure no negative values
-    erf_final = np.maximum(erf_final, 0)
+    ERF_FINAL = np.maximum(ERF_FINAL, 0)
     
-    return erf_final     
+    return ERF_FINAL     
     
     
         
 def DailyTemperature2IR(temp_path, year, ir, spatial_relation, scenario):
     
     """
-    Convert daily temperature data of one year to impact region level.
-    All grid cells intersecting an impact region are considered.
-    Return a dataframe with mean daily temperature per impact region for the given year.
-    
-    Parameters:
-    ----------
-    temp_path : str
-        Path where climate data is stored
-    year : int
-        Year of interest
-    ir : GeoDataFrame
-        GeoDataFrame with impact regions
-    spatial_relation : GeoDataFrame
-        Spatial relationship between temperature grid cells and impact regions
-    scenario : str
-        Determines the type of temperature to import (ERA5 or monthlfscenrioy statistics)
-        
-    Returns:
-    ----------
-    df_rounded : DataFrame
-        DataFrame with daily mean temperature per impact region for the given year
+    Convert daily temperature data of one year to temeprature values at the impact region 
+    level. All grid cells intersecting an impact region are considered. Return
+    a dataframe with mean daily temperature per impact region for the given year.
     """
     
     print(f"[2.1] Loading daily temperature data for year {year}...")
@@ -1541,7 +1143,7 @@ def DailyTemperature2IR(temp_path, year, ir, spatial_relation, scenario):
     if "ERA5" in scenario:
         
         # Open daily temperature data from ERA5
-        DAILY_TEMPERATURE = ERA5Temperature2IR(temp_path, year, ir, spatial_relation)
+        DAILY_TEMPERATURE = ERA5Temperature2IR(temp_path, year, spatial_relation)
         
     else:
                 
@@ -1561,7 +1163,7 @@ def DailyTemperature2IR(temp_path, year, ir, spatial_relation, scenario):
             spatial_relation=spatial_relation)
     
     # Convert dataframe to numpy array    
-    DAILY_TEMPERATURE = DAILY_TEMPERATURE.iloc[:,1:].to_numpy()
+    DAILY_TEMPERATURE = DAILY_TEMPERATURE.to_numpy()
     
     return DAILY_TEMPERATURE
 
@@ -1570,32 +1172,17 @@ def DailyTemperature2IR(temp_path, year, ir, spatial_relation, scenario):
 def MSTemperature2IR(temp, year, ir, spatial_relation):
     
     """
-    Import daily temperature data of one year from montlhy statistics and convert it
-    to the impact region level.
-    
-    Parameters:
-    ----------
-    temp_path : str
-        Path where climate data is stored
-    year : int
-        Year of interest
-    ir : GeoDataFrame
-        GeoDataFrame with impact regions
-    spatial_relation : GeoDataFrame
-        Spatial relationship between temperature grid cells and impact regions
-        
-    Returns:
-    ----------
-    df_rounded : DataFrame
-        DataFrame with daily mean temperature per impact region for the given year
+    Import gridded daily temperature data of one year from montlhy statistics and convert 
+    it to the impact region level. Return a dataFrame with daily mean temperature per impact 
+    region for the given year.
     """
     
     # Create a list of dates for the specified year
-    date_list = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
+    DATE_LIST = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
     
     # Temporarily store daily temperatures in a dictionary
     TEMPERATURE_DIC = {}
-    for i, day in enumerate(date_list):
+    for i, day in enumerate(DATE_LIST):
         DAILY_TEMPERATURE = temp[...,i].ravel()
         TEMPERATURE_DIC[day] = DAILY_TEMPERATURE[spatial_relation.index]
 
@@ -1611,14 +1198,11 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
         .round(1)
     )
     
-    # Insert hierid column with impact region names
-    DAILY_TEMPERATURES_DF.insert(0, "hierid", ir)
-    
     return DAILY_TEMPERATURES_DF
 
 
 
-def ERA5Temperature2IR(temp_path, year, ir, spatial_relation):
+def ERA5Temperature2IR(temp_path, year, spatial_relation):
     
     """
     Import daily temperature data of one year from ERA5 and convert it
@@ -1679,8 +1263,6 @@ def ERA5Temperature2IR(temp_path, year, ir, spatial_relation):
         .mean()
         .round(1)
     )
-
-    DAILY_TEMPERATURE_DF.insert(0, "hierid", ir)
     
     return DAILY_TEMPERATURE_DF
 
@@ -2023,13 +1605,13 @@ def Mortality2Regions(year, group, mor, regions, mode, res):
     REGIONS_DF["rel_mor"] = REGIONS_DF["mor"] * 1e5 / REGIONS_DF["pop"]
     
     # Locate results in dataframe
-    REGIONS_INDEX = res.results.loc[(group, mode, "Total deaths"), year].index[:-1]
-    res.results.loc[(group, mode, "Total deaths", REGIONS_INDEX), year] = (REGIONS_DF["mor"].reindex(REGIONS_INDEX)).values
-    res.results.loc[(group, mode, "Deaths per 100,000", REGIONS_INDEX), year] = (REGIONS_DF["rel_mor"].reindex(REGIONS_INDEX)).values
+    REGIONS_INDEX = res.results.loc[(group, mode, "Total Mortality"), year].index[:-1]
+    res.results.loc[(group, mode, "Total Mortality", REGIONS_INDEX), year] = (REGIONS_DF["mor"].reindex(REGIONS_INDEX)).values
+    res.results.loc[(group, mode, "Relative Mortality", REGIONS_INDEX), year] = (REGIONS_DF["rel_mor"].reindex(REGIONS_INDEX)).values
     
     # Locate global results in results dataframe
-    res.results.loc[(group, mode, "Total deaths", "World"), year] = REGIONS_DF["mor"].sum()
-    res.results.loc[(group, mode, "Deaths per 100,000", "World"), year] = (REGIONS_DF["mor"].sum() * 1e5 / REGIONS_DF["pop"].sum())
+    res.results.loc[(group, mode, "Total Mortality", "World"), year] = REGIONS_DF["mor"].sum()
+    res.results.loc[(group, mode, "Relative Mortality", "World"), year] = (REGIONS_DF["mor"].sum() * 1e5 / REGIONS_DF["pop"].sum())
 
 
 
@@ -2055,22 +1637,22 @@ def AddMortalityAllAges(results, pop, region_class, years, age_groups):
     for mode in ["All", "Heat", "Cold"]:
         
         # Calculate total mortality for all age groups
-        results.loc[("all", mode, "Total deaths")] = (
-            sum(results.loc[(age, mode, "Total deaths")] for age in age_groups)
+        results.loc[("All population", mode, "Total Mortality")] = (
+            sum(results.loc[(age, mode, "Total Mortality")] for age in age_groups)
         ).values
         
         # Calculate relative mortality for all-age group        
-        IMAGE26 = results.loc[("all", mode, "Deaths per 100,000")].index[:-1]
+        IMAGE26 = results.loc[("All population", mode, "Relative Mortality")].index[:-1]
         
-        results.loc[("all", mode, "Deaths per 100,000", IMAGE26)] = (
-            results.loc[("all", mode, "Total deaths", IMAGE26)]
+        results.loc[("All population", mode, "Relative Mortality", IMAGE26)] = (
+            results.loc[("All population", mode, "Total Mortality", IMAGE26)]
             .mul(1e5)
             .div(pop_all.where(pop_all.reindex(IMAGE26) != 0))
         ).values
         
         # Calculate global relative mortality for all-age group
-        results.loc[("all", mode, "Deaths per 100,000", "World")] = (
-            results.loc[("all", mode, "Total deaths", "World")]
+        results.loc[("All population", mode, "Relative Mortality", "World")] = (
+            results.loc[("All population", mode, "Total Mortality", "World")]
             .mul(1e5)
             .div(pop_all.sum(axis=0)) # Divide by global population of all ages
         )
@@ -2099,14 +1681,14 @@ def PostprocessResults(wdir, years, results, project, scenario, IAM_format, adap
         RESULTS = RESULTS.reset_index()
         
         # Asign mortality name according to units
-        RESULTS.loc[RESULTS["units"] == "Deaths per 100,000", "var"] = "Relative Mortality"
-        RESULTS.loc[RESULTS["units"] != "Deaths per 100,000", "var"] = "Mortality"
+        RESULTS.loc[RESULTS["units"] == "Relative Mortality", "var"] = "Relative Mortality"
+        RESULTS.loc[RESULTS["units"] != "Relative Mortality", "var"] = "Mortality"
 
         # Rename all temperatures name
         RESULTS.loc[RESULTS["t_type"] == "All", "t_type"] = "All temperatures"
 
         # Rename 'age_group'
-        RESULTS.loc[RESULTS["age_group"] == "all", "age_group"] = "All ages"
+        RESULTS.loc[RESULTS["age_group"] == "All population", "age_group"] = "All ages"
         RESULTS.loc[RESULTS["age_group"] == "young", "age_group"] = "0-4 years"
         RESULTS.loc[RESULTS["age_group"] == "older", "age_group"] = "5-64 years"
         RESULTS.loc[RESULTS["age_group"] == "oldest", "age_group"] = "+65 years"
