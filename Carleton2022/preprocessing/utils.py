@@ -571,7 +571,16 @@ def DailyTemperaturesERA5PresentDay(wdir, era5_dir):
 def ClimatologiesERA5(wdir, era5_dir, years):
     
     # Get spatial relationship between ERA5 grid and impact regions
-    SPATIAL_RELATION, IR = mf.GridRelationship(wdir, None,"ERA5", era5_dir, None, years)
+    class Settings:
+        def __init__(self, wdir, scenario, era5_dir, years):
+            self.wdir = wdir
+            self.scenario = scenario
+            self.temp_path = era5_dir
+            self.years = years
+            
+    sets = Settings(wdir=wdir, scenario="ERA5", era5_dir=era5_dir, years=years)
+
+    SPATIAL_RELATION, IR = mf.GridRelationship(sets)
     
     # Define period for climatology calculation (30-year running mean)
     PERIOD = 30
@@ -591,7 +600,7 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     for year in years:
         print("Calculating climatology for year:", year)
 
-        YEARS30 = [year-PERIOD, year-1]
+        YEARS30 = range(year-PERIOD, year)
 
         RUNNING_SUM = sum(ANNUAL_TEMPERATURES[y] for y in YEARS30)
         CLIMATOLOGY = RUNNING_SUM / len(YEARS30)
