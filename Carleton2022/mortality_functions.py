@@ -303,7 +303,7 @@ class BaselineERFsInputs:
         
         if sets.adaptation:
                 
-            print("[1.6] Loading GDPpc shares at the imapct region level...")
+            print("[1.6] Loading GDPpc shares at the impact region level...")
             # Generate GDPpc shares of regions within a country and IMAGE region
             IMAGE_SHARES, COUNTRY_SHARES = GenerateGDPpcShares(wdir=sets.wdir, fls=fls)
             IMAGE_GDPPC = None
@@ -1257,7 +1257,7 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
         counterfactual=True
         )
 
-    print("[2.4] Aggregating results to", sets.regions, "regions and storing in results dataframe...")
+    print("[2.4] Aggregating results to", sets.regions, "regions...")
     
     # Calculate mortality difference per impact region 
     for group in sets.age_groups: 
@@ -1575,6 +1575,6 @@ def PostprocessResults(sets, fls):
         
     # Save results to CSV                
     RESULTS.to_csv(sets.wdir +
-                   f"output/mortality_carleton{PROJ}_{sets.scenario}{ADAPT}_{sets.years[0]}-{sets.years[-1]}.csv") 
+                   f"output/mortality_{PROJ}_{sets.scenario}{ADAPT}_{sets.years[0]}-{sets.years[-1]}.csv") 
     
     print("Scenario ran successfully!")
