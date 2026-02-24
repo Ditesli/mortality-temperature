@@ -1528,10 +1528,10 @@ def PostprocessResults(sets, fls):
     # Calculate total mortality and relative mortality for all-ages group
     results = AddMortalityAllAges(fls, sets)
     
-    if sets.reporting_tool == True:
+    # if sets.reporting_tool == True:
         
-        # Store results in the format of the reporting tool (IMAGE26, Variable, year columns)
-        pass
+    #     # Store results in the format of the reporting tool (IMAGE26, Variable, year columns)
+    #     pass
     
     # # Reset index and format results for IAMs if specified
     # if IAM_format==True:
@@ -1569,7 +1569,7 @@ def PostprocessResults(sets, fls):
     else:
         adaptation = "_noadapt"
     if sets.project is not None:
-        project = f"_{sets.project}"
+        project = f"{sets.project}"
     else:
         project = ""
         
