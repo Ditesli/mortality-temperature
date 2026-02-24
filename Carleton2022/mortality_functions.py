@@ -545,7 +545,7 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
             pd.read_csv(f"{sets.wdir}/data/population/pop_historical/POP_historical_{age_group}.csv")
             .set_index("hierid")
         )
-    
+
         pop_ssp = (
             xr.open_dataset(sets.wdir+f"data/carleton_sm/econ_vars/{ssp.upper()}.nc4")[age_name]
             .sel(model="low") # Select any GDP model
@@ -555,8 +555,9 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
             .pipe(lambda df: df.set_axis(df.columns.get_level_values(-1), axis=1))
             [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards 
             .merge(pop_historical, left_index=True, right_index=True) # Merge with historical population 
-            .pipe(lambda df: df.set_axis(df.columns.astype(str), axis=1)) # Convert year columns to string 
             .reindex(ir.values) # Align to impact regions order
+            .pipe(lambda df: df.reindex(sorted(df.columns[1:], key=int), axis=1))
+
             .reset_index()
             .rename(columns={"region":"hierid"})
         )
@@ -1439,8 +1440,8 @@ def Mortality2Regions(year, group, mor, regions, mode, fls):
     regions_df = fls.region_class[["hierid", regions]]
     
     # Add mortality and population to df
-    regions_df["mor"] = (mor * fls.pop[group][f"{year}"] / 1e5)
-    regions_df["pop"] = fls.pop[group][f"{year}"]
+    regions_df["mor"] = (mor * fls.pop[group][year] / 1e5)
+    regions_df["pop"] = fls.pop[group][year]
     
     # Group total mortality per selected region definition
     regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
