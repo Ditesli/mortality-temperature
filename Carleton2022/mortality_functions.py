@@ -385,7 +385,7 @@ def GridRelationship(sets):
         
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=path, 
+            temp_dir=sets.temp_path, 
             years=sets.years[0], 
             temp_type="MEAN", 
             std_factor=1, 
@@ -556,7 +556,6 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
             .merge(pop_historical, left_index=True, right_index=True) # Merge with historical population 
             .reindex(ir.values) # Align to impact regions order
             .pipe(lambda df: df.reindex(sorted(df.columns, key=int), axis=1))
-            .pipe(lambda df: df.set_axis(df.columns.astype(int), axis=1))
             .reset_index()
             .rename(columns={"region":"hierid"})
         )
@@ -590,7 +589,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
             ))
             .set_index("hierid")
             .reindex(ir.values) # Align to impact regions orders
-            .reset_index()
+            .pipe(lambda df: df.set_axis(df.columns.astype(int), axis=1))
         )
     
         pop_ssp[age_group] = pop_ssp_group
@@ -909,7 +908,7 @@ def ReadOUTFiles(sets):
 
     # Read GDPpc data path from specific scenario.
     path_clim = (
-        sets.gdp_dir + "/" 
+        sets.income_path + "/" 
         + sets.project + "/2_TIMER/outputlib/TIMER_3_4/" 
         + sets.project + "/"
         + sets.scenario + "/indicators/Economy/"
@@ -1442,8 +1441,8 @@ def Mortality2Regions(year, group, mor, regions, mode, fls):
     regions_df = fls.region_class[["hierid", regions]]
     
     # Add mortality and population to df
-    regions_df["mor"] = (mor * fls.pop[group][year] / 1e5)
-    regions_df["pop"] = fls.pop[group][year]
+    regions_df["mor"] = (mor * fls.pop[group][year].values / 1e5)
+    regions_df["pop"] = fls.pop[group][year].values
     
     # Group total mortality per selected region definition
     regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
@@ -1474,18 +1473,15 @@ def AddMortalityAllAges(fls, sets):
     
     region_class = fls.region_class.set_index("hierid")
     
-    # Prepare population dataframes and aggregate them
-    population = {age: df.set_index("hierid") for age, df in fls.pop.items()}
-    population_all = population["young"] + population["older"] + population["oldest"]
+    # Aggregate population age groups
+    population_all = fls.pop["young"] + fls.pop["older"] + fls.pop["oldest"]
     
     population_all = (
         population_all
-        .loc[:,[col for col in population_all.columns if any(y in col for y in sets.years)]]
         .merge(region_class, right_index=True, left_index=True)
         .groupby("IMAGE26")
         .sum()   # Sum population per IMAGE26 region
         .loc[:, lambda df: df.columns.isin([y for y in sets.years])]
-        .rename(columns=int)  # Convert column names to integers 
     )
     
     # Calculate total mortality and relative mortality for all-ages groups 
