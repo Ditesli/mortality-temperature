@@ -556,8 +556,8 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
             [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards 
             .merge(pop_historical, left_index=True, right_index=True) # Merge with historical population 
             .reindex(ir.values) # Align to impact regions order
-            .pipe(lambda df: df.reindex(sorted(df.columns[1:], key=int), axis=1))
-
+            .pipe(lambda df: df.reindex(sorted(df.columns, key=int), axis=1))
+            .pipe(lambda df: df.set_axis(df.columns.astype(int), axis=1))
             .reset_index()
             .rename(columns={"region":"hierid"})
         )
@@ -1478,11 +1478,11 @@ def AddMortalityAllAges(fls, sets):
     
     population_all = (
         population_all
-        .loc[:,[col for col in population_all.columns if any(str(y) in col for y in sets.years)]]
+        .loc[:,[col for col in population_all.columns if any(y in col for y in sets.years)]]
         .merge(region_class, right_index=True, left_index=True)
         .groupby("IMAGE26")
         .sum()   # Sum population per IMAGE26 region
-        .loc[:, lambda df: df.columns.isin([str(y) for y in sets.years])]
+        .loc[:, lambda df: df.columns.isin([y for y in sets.years])]
         .rename(columns=int)  # Convert column names to integers 
     )
     
