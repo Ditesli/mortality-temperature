@@ -708,32 +708,30 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
         
         # climtas ---------------------------
         
-        # Load "present-day" climatology
-        if counterfactual:
-            if re.search(r"ERA5", sets.scenario):
-                climtas = ImportClimtasERA5(sets.wdir, year, fls.ir, present_day=True)
-            else: 
-                climtas = ImportClimtas(sets.temp_path, None, fls.spatial_relation, present_day=True)
-        
-        # Load climatology of selected year 
+        # Load ERA5 climatology
+        if re.search(r"ERA5", sets.scenario):
+            climtas = ImportClimtasERA5(sets.wdir, year, fls.ir)
+            
+        # Load climatology of selected year and scenario
         else:
-            if re.search(r"ERA5", sets.scenario):
-                climtas = ImportClimtasERA5(sets.wdir, year, fls.ir, present_day=False)
+            # Load "present-day" climatology
+            if counterfactual:
+                climtas = ImportClimtas(sets.temp_path, None, fls.spatial_relation, present_day=True)
             else:
                 climtas = ImportClimtas(sets.temp_path, year, fls.spatial_relation, present_day=False)
                 
         # log(GDPpc) ---------------------------    
         
+        # Load historical log(GDPpc) from World Bank
         if re.search(r"ERA5", sets.scenario) or ("carleton" in sets.scenario.lower() and year < 2010):
-            # Load historical log(GDPpc) from World Bank
             loggdppc = ImportHistoricalLogGDPpc(sets.wdir, fls.ir, year, baseline.country_shares)
         
+        # Load log(GDPpc) from Carleton et al. (2022) for the selected year and scenario
         elif "carleton" in sets.scenario.lower() and year >= 2010:  
-            # Load log(GDPpc) from Carleton et al. (2022) for the selected year and scenario
             loggdppc = ImportCarletonLogGDPpc(sets.wdir, sets.scenario, fls.ir, year)
-            
+        
+        # Load log(GDPpc) at the impact region level using the GDPpc output from IMAGE    
         else: 
-            # Load log(GDPpc) at the impact region level using the GDPpc output from IMAGE
             loggdppc = ImportIMAGEloggdppc(year, baseline)
             
     return climtas, loggdppc
@@ -934,16 +932,11 @@ def ReadOUTFiles(sets):
 
 
 
-def ImportClimtasERA5(wdir, year, ir, present_day):
+def ImportClimtasERA5(wdir, year, ir):
     
+    # Read climatology data from ERA5 and reindex according to ir dataframe
     climtas = pd.read_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_2000-2025.csv")
-    
-    if present_day == False:
-        climtas = climtas.set_index("hierid").reindex(ir)[str(year)].values
-    
-    else:
-        cols = [str(y) for y in range(2001, 2011)]
-        climtas = climtas.set_index("hierid").reindex(ir)[cols].mean(axis=1).values
+    climtas = climtas.set_index("hierid").reindex(ir)[str(year)].values
 
     return climtas
 
@@ -1247,14 +1240,34 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
     print(f"[2.3] Calculating counterfactual mortality for year {year}...")
 
     # Calculate counterfactual mortality (second term of equations 2' or 2a' from the paper)
-    mor_all_sub, mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
-        sets=sets, 
-        year=year,
-        daily_temp=baseline.daily_temp_t0,  
-        fls=fls,
-        baseline=baseline,
-        counterfactual=True
-        )
+    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+        
+        BASE_YEARS = range(2001, 2011)
+        mor_all_dic, mor_heat_dic, mor_cold_dic = {}, {}, {}
+        
+        for pd_year in BASE_YEARS:
+            mor_all_dic[pd_year], mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
+                sets=sets, 
+                year=pd_year,
+                daily_temp=baseline.daily_temp_t0[pd_year],  
+                fls=fls,
+                baseline=baseline,
+                counterfactual=True
+                )    
+            
+        mor_all_sub = {group: np.mean([mor_all_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+        mor_heat_sub = {group: np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+        mor_cold_sub = {group: np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+    
+    else:
+        mor_all_sub, mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
+            sets=sets, 
+            year=year,
+            daily_temp=baseline.daily_temp_t0,  
+            fls=fls,
+            baseline=baseline,
+            counterfactual=True
+            )
 
     print("[2.4] Aggregating results to", sets.regions, "regions...")
     
@@ -1280,7 +1293,7 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     the code will either import the ERFs with no adaptation or generate ERFs with new income and climtas.
     Mortality per impact region will be calculated per age group and temperature type (all, heat and cold) 
     in the Mortality From Temperature Index function.
-    """
+    """ 
     
     # Clip daily temperatures to the range of the ERFs
     min_temp = sets.T[0]
@@ -1334,25 +1347,13 @@ def ImportPresentDayTemperatures(sets, base_years, ir, spatial_relation):
     # ------------------ ERA5 ------------------
     if re.search(r"SSP[1-5]_ERA5", sets.scenario):
         
-        t_0 = {}
+        t0_mean = {}
         for year in base_years:
             
             era5_t0 = pd.read_csv(sets.wdir+
                                   f"data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
             # Store in dictionary as numpy arrays
-            t_0[year] = era5_t0.iloc[:,2:].to_numpy()
-          
-        # Calculate mean ignoring 29th feb  
-        years_no_leap = []
-        for year, arr in t_0.items():
-            if arr.shape[1] == 366:
-                arr = np.delete(arr, 59, axis=1)
-        # years_no_leap = []
-        # for year, arr in t_0.items():
-        #     if arr.shape[1] == 366:
-        #         arr = np.delete(arr, 59, axis=1)
-        #     years_no_leap.append(arr)
-            
+            t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
             
     # -------------- Scenario data --------------
     else: 
