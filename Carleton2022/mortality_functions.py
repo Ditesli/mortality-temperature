@@ -552,12 +552,12 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
             .drop(columns=['ssp', 'model'])
             .unstack('year') # Reshape to have years as columns
             .pipe(lambda df: df.set_axis(df.columns.get_level_values(-1), axis=1))
+            .pipe(lambda df: df.rename_axis("hierid"))
             [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards 
             .merge(pop_historical, left_index=True, right_index=True) # Merge with historical population 
             .reindex(ir.values) # Align to impact regions order
+            .pipe(lambda df: df.set_axis(df.columns.astype(int), axis=1))
             .pipe(lambda df: df.reindex(sorted(df.columns, key=int), axis=1))
-            .reset_index()
-            .rename(columns={"region":"hierid"})
         )
         
         population_groups[age_group] = pop_ssp
