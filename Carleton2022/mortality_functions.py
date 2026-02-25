@@ -1511,6 +1511,8 @@ def AddMortalityAllAges(fls, sets):
     return fls.results
 
 
+def ExportOUTFiles(results, sets):
+    
     """
     Export results in .OUT format to be used as input for TIMER. The function will generate 
     one .OUT file per age group and temperature type (all, heat and cold) with the total mortality 
