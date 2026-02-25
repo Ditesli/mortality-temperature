@@ -58,8 +58,12 @@ class ModelSettings:
     age_groups: list = field(default_factory=lambda: ["young", "older", "oldest"])
     T: np.ndarray = field(default_factory=lambda: np.arange(-20, 40.1, 0.1).round(1))
     
+    def __post_init__(self):
+        self.years = self.validate_years()
+        self.temp_path = self.climate_path()
     
-    def climate_path(self, project: str, scenario: str) -> str:
+    
+    def climate_path(self) -> str:
         """
         Set path to climate data depending on the scenario type 
         (IMAGE or other scenarios)
@@ -67,8 +71,8 @@ class ModelSettings:
         if self.temp_path == self.income_path:
             return (
                 f"{self.temp_path}/"
-                f"{project}/3_IMAGE_land/scen/"
-                f"{scenario}/netcdf/"
+                f"{self.project}/3_IMAGE_land/scen/"
+                f"{self.scenario}/netcdf/"
             )
         else:
             return self.temp_path
@@ -77,12 +81,14 @@ class ModelSettings:
         ERA5_START_YEAR = 2000
         ERA5_END_YEAR = 2025
 
-        if re.search(r"SSP[1-5]_ERA5", self.sets.scenario):
-            self.years = [
+        if re.search(r"SSP[1-5]_ERA5", self.scenario):
+            return [
                 y for y in self.years
                 if ERA5_START_YEAR <= y <= ERA5_END_YEAR
             ]
-
+        else:
+            return self.years
+            
 
 
 @dataclass
@@ -308,7 +314,7 @@ class BaselineERFsInputs:
             image_shares, country_shares = GenerateGDPpcShares(wdir=sets.wdir, fls=fls)
             image_gdppc = None
             
-            if not re.search(r"SSP[1-5]", sets.scenario) and "carleton" not in sets.scenario.lower():
+            if not re.search(r"SSP[1-5]_ERA5", sets.scenario) and "carleton" not in sets.scenario.lower():
                 
                 print("[1.7] Loading GDP data from IMAGE...")
                 image_gdppc = ReadOUTFiles(sets)
@@ -376,13 +382,6 @@ def GridRelationship(sets):
     
     # --------- If Monthly Statistics (MS) data ----------  
     else:
-        
-        # --------- IMAGE scenario climate data ----------
-        if sets.temp_path == sets.income_path:
-            path = sets.temp_path + "/" + sets.project + "/3_IMAGE_land/scen/" + sets.scenario + "/netcdf/"
-        # --------- Other MS scenario data ----------
-        else:
-            path = sets.temp_path 
         
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
@@ -1349,8 +1348,11 @@ def ImportPresentDayTemperatures(sets, base_years, ir, spatial_relation):
         for year, arr in t_0.items():
             if arr.shape[1] == 366:
                 arr = np.delete(arr, 59, axis=1)
-            years_no_leap.append(arr)
-        t0_mean = np.mean(years_no_leap, axis=0)
+        # years_no_leap = []
+        # for year, arr in t_0.items():
+        #     if arr.shape[1] == 366:
+        #         arr = np.delete(arr, 59, axis=1)
+        #     years_no_leap.append(arr)
             
             
     # -------------- Scenario data --------------
@@ -1513,6 +1515,13 @@ def AddMortalityAllAges(fls, sets):
     return fls.results
 
 
+    values per region and year.
+    """
+    
+    for group in sets.age_groups:
+        for mode in ["All", "Heat", "Cold"]:
+            output = results.loc[(group, mode, "Total Mortality")].reset_index()
+            output.to_csv(sets.wdir + f"output/mortality_{group}_{mode}.OUT", index=False, header=False)
 
 def PostprocessResults(sets, fls):
     
@@ -1560,9 +1569,12 @@ def PostprocessResults(sets, fls):
     #         + "|"
     #         + results["age_group"].str.capitalize()
     #     )
-            
-    #     results = results[["IMAGE26", "Variable"] + list(results.columns[4:-2])]
-            
+    if sets.reporting_tool == True:
+        
+        # Export files in .OUT format
+        ExportOUTFiles(results, sets)
+
+
     results = results.rename(columns={"IMAGE26": "region"})
     
     if sets.adaptation == True:
