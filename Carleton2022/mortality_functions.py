@@ -1511,13 +1511,53 @@ def AddMortalityAllAges(fls, sets):
     return fls.results
 
 
+    """
+    Export results in .OUT format to be used as input for TIMER. The function will generate 
+    one .OUT file per age group and temperature type (all, heat and cold) with the total mortality 
     values per region and year.
     """
+    _DIM_TIME = dict(start=sets.years[0], end=sets.years[-1], stepsize=1)
+    _DIM_IMAGE_REGIONS = ["CAN", "USA", "MEX", "RCAM", "BRA",
+                        "RSAM", "NAF", "WAF", "EAF", "SAF",
+                        "WEU", "CEU", "TUR", "UKR", "STAN",
+                        "RUS", "ME", "INDIA", "KOR", "CHN",
+                        "SEAS", "INDO", "JAP", "OCE", "RSAS",
+                        "RSAF", "World"]
     
-    for group in sets.age_groups:
-        for mode in ["All", "Heat", "Cold"]:
-            output = results.loc[(group, mode, "Total Mortality")].reset_index()
-            output.to_csv(sets.wdir + f"output/mortality_{group}_{mode}.OUT", index=False, header=False)
+    # Reorder variables and regions
+    results = results.reorder_levels(order=[3,2,1,0]).sort_index()
+    results = results[results.index.get_level_values(0) != "GRL"]
+    results = results.reindex(pd.MultiIndex.from_product(
+        [
+            _DIM_IMAGE_REGIONS,
+            ["Total Mortality", "Relative Mortality"],
+            ["All", "Heat", "Cold"],
+            ["all population", "young", "older", "oldest"]
+        ],
+        names = results.index.names
+    ))
+    
+    # Set yo .OUT format
+    formatted_out = (
+        "real main.hlt.MOR_TEMP[27,24](t) = [\n"
+        + ",\n".join(
+            str(x)
+            for year in results.columns
+            for x in [year] + results[year].values.flatten().tolist()
+        )
+        + "\n];"
+    )
+    
+    # Save .OUT file in output folder
+    output_dir = sets.income_path + "/" + sets.project + "/7_Reporting_Tool/data_wip/" + sets.project + "/" + sets.scenario + "/H2RT" 
+    os.makedirs(output_dir, exist_ok=True)  # crea la carpeta si no existe
+    output_file = os.path.join(output_dir, "MOR_TEMP.OUT")
+
+    # Guardar el archivo
+    with open(output_file, "w") as f:
+        f.write(formatted_out)
+
+
 
 def PostprocessResults(sets, fls):
     
@@ -1534,37 +1574,6 @@ def PostprocessResults(sets, fls):
     # Calculate total mortality and relative mortality for all-ages group
     results = AddMortalityAllAges(fls, sets)
     
-    # if sets.reporting_tool == True:
-        
-    #     # Store results in the format of the reporting tool (IMAGE26, Variable, year columns)
-    #     pass
-    
-    # # Reset index and format results for IAMs if specified
-    # if IAM_format==True:
-    #     results = results.reset_index()
-        
-    #     # Asign mortality name according to units
-    #     results.loc[results["units"] == "Relative Mortality", "var"] = "Relative Mortality"
-    #     results.loc[results["units"] != "Relative Mortality", "var"] = "Mortality"
-
-    #     # Rename all temperatures name
-    #     results.loc[results["t_type"] == "All", "t_type"] = "All temperatures"
-
-    #     # Rename 'age_group'
-    #     results.loc[results["age_group"] == "all population", "age_group"] = "All ages"
-    #     results.loc[results["age_group"] == "young", "age_group"] = "0-4 years"
-    #     results.loc[results["age_group"] == "older", "age_group"] = "5-64 years"
-    #     results.loc[results["age_group"] == "oldest", "age_group"] = "+65 years"
-
-    #     # Create column 'Variable'
-    #     results["Variable"] = (
-    #         "Health|"
-    #         + results["var"]
-    #         + "|Non-optimal Temperatures|"
-    #         + results["t_type"].str.capitalize()
-    #         + "|"
-    #         + results["age_group"].str.capitalize()
-    #     )
     if sets.reporting_tool == True:
         
         # Export files in .OUT format
