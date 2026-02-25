@@ -965,8 +965,8 @@ def ImportClimtas(temp_path, year, spatial_relation, present_day):
     
     # Read monthly mean of daily mean temperature data
     climtas_ir = (
-        xr.open_dataset(temp_path+f"GTMP_MEAN_30MIN.nc")
-        ["GTMP_MEAN_30MIN"]
+        xr.open_dataset(temp_path+f"GTMP_30MIN.nc")
+        ["GTMP_30MIN"]
         .mean(dim="NM") # Annual temperature
         .rolling(time=30, min_periods=1) 
         .mean() # Climatology
@@ -1551,7 +1551,14 @@ def ExportOUTFiles(results, sets):
     )
     
     # Save .OUT file in output folder
-    output_dir = sets.income_path + "/" + sets.project + "/7_Reporting_Tool/data_wip/" + sets.project + "/" + sets.scenario + "/H2RT" 
+    output_dir = (
+        sets.income_path + "/" 
+        + sets.project 
+        + "/7_Reporting_Tool/data_wip/" 
+        + sets.project + "/" 
+        + sets.scenario 
+        + "/H2RT" 
+    )
     os.makedirs(output_dir, exist_ok=True)  # crea la carpeta si no existe
     output_file = os.path.join(output_dir, "MOR_TEMP.OUT")
 
