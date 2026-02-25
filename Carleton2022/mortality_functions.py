@@ -1515,10 +1515,10 @@ def ExportOUTFiles(results, sets):
     
     """
     Export results in .OUT format to be used as input for TIMER. The function will generate 
-    one .OUT file per age group and temperature type (all, heat and cold) with the total mortality 
-    values per region and year.
+    one .OUT file for all the results of the different age groups, types of mortality, and regions. 
+    The .OUT file will be stored in the data_wip of the corresponding project and scenario.
     """
-    _DIM_TIME = dict(start=sets.years[0], end=sets.years[-1], stepsize=1)
+
     _DIM_IMAGE_REGIONS = ["CAN", "USA", "MEX", "RCAM", "BRA",
                         "RSAM", "NAF", "WAF", "EAF", "SAF",
                         "WEU", "CEU", "TUR", "UKR", "STAN",
