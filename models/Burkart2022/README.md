@@ -1,0 +1,1 @@
+## Mortality-Temperature Model | Burkart et al. version
