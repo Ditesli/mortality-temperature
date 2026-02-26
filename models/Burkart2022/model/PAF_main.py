@@ -9,8 +9,8 @@ with open(config_file) as f:
 
 paf.run_main(wdir=config["wdir"],   # Working directory
              temp_dir=config["temp_dir"], # Temperature data directory
-             temp_source=config["temp_source"], # Temperature data source
-             ssp=config["ssp"],   # SSP scenario
+             project=config["project"], # Temperature data source
+             scenario=config["scenario"],   # SSP scenario
              years=range(config["start_year"],config["end_year"]),  #  Years range
              region_class=config["region_class"],   # Region classification 
              draw_type=config["draw_type"],  # Mean RR or specific/random draw

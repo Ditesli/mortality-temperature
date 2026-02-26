@@ -1,19 +1,20 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
+import re
 
 
 
-def load_temperature_type(temp_dir, temp_source, temp_type, year, pop_ssp):
+def load_temperature_type(temp_dir, scenario, temp_type, year, pop_ssp):
     
     """
     Select the temperature data type to use (ERA5 or monthly statistics)
     """
     
-    if temp_source == "ERA5":
+    if re.search(r"SSP[1-5]_ERA5", scenario):
         daily_temp, num_days = DailyTemperatureERA5(temp_dir, year, temp_type, pop_ssp, to_array=True)
         
-    elif temp_source == "MS":
+    else:
         daily_temp, num_days = DailyFromMonthlyTemperature(temp_dir, year, temp_type.upper())
         
     return daily_temp, num_days

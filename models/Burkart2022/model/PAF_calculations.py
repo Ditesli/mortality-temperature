@@ -4,7 +4,7 @@ import scipy as sp
 import xarray as xr
 import random
 from dataclasses import dataclass
-import sys, os
+import re, sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
 from utils_common import population as pop
@@ -32,7 +32,7 @@ diseases = {"ckd":"Chronic kidney disease",
 
 
 
-def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, draw_type, single_erf=False, extrap_erf=False):
+def run_main(wdir, temp_dir, project, scenario, years, region_class, draw_type, single_erf, extrap_erf):
     
     """
     Run the main model using ERA5 historical data
@@ -48,13 +48,13 @@ def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, draw_type, s
     """
     
     # Load files needed for calculations
-    res = load_files(wdir, ssp, years, region_class, temp_source, draw_type, single_erf, extrap_erf)
+    res = load_files(wdir, scenario, years, region_class, draw_type, single_erf, extrap_erf)
     
     print("[2] Running main model...")
 
     for year in years:
         
-        daily_temp, num_days = tmp.load_temperature_type(temp_dir, temp_source, "mean", year, res.pop_ssp)
+        daily_temp, num_days = tmp.load_temperature_type(temp_dir, scenario, "mean", year, res.pop_ssp)
 
         # Select population for the corresponding year
         pop_ssp_year = res.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values
@@ -73,7 +73,7 @@ def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, draw_type, s
     years_part = f"_{years[0]}-{years[-1]}"
             
     # Save the results and temperature statistics
-    res.paf_final.to_csv(f"{wdir}\\output\\PAF_{region_class}_{temp_source}{years_part}{extrap_part}{erf_part}.csv")  
+    res.paf_final.to_csv(f"{wdir}\\output\\PAF_{project}_{scenario}_{region_class}_{years_part}{extrap_part}{erf_part}.csv")  
     
     print("[3] Model run complete. Results saved.")
     
@@ -94,7 +94,7 @@ class LoadResults:
 
 
 
-def load_files(wdir, ssp, years, region_class, temp_source, draw_type, single_erf=False, extrap_erf=False):
+def load_files(wdir, scenario, years, region_class, draw_type, single_erf, extrap_erf):
     
     """
     Load all the necessary files to run the main model, including:
@@ -109,20 +109,20 @@ def load_files(wdir, ssp, years, region_class, temp_source, draw_type, single_er
     print("[1] Loading files for calculations...")
     
     # Load nc files that contain the temperature zones
-    temperature_zones = read_temperature_zones(wdir, temp_source)
+    temperature_zones = read_temperature_zones(wdir, scenario)
     
     # Load nc files that contain the region classification selected
-    regions, regions_range = pop.read_region_classification(wdir, region_class, temp_source)
+    regions, regions_range = pop.read_region_classification(wdir, region_class, scenario)
     print(f"[1.2] Region classification ({region_class}) loaded as numpy array.")
     
     # Load population nc file of the selected scenario
-    pop_ssp = pop.get_annual_pop(wdir, ssp, temp_source, years)
+    pop_ssp = pop.get_annual_pop(wdir, scenario, years)
     
     # Load Exposure Response Function files for the relevant diseases
     df_erf, diseases, min_dict, max_dict = get_erf_dataframe(wdir, draw_type, extrap_erf)
     
     # Load file with optimal temperatures for 2020 (default year)
-    tmrel = get_tmrel_map(wdir, 2020, draw_type, temp_source)
+    tmrel = get_tmrel_map(wdir, 2020, draw_type, scenario)
     
     # Generate dataframe with RR shifted by the TMREL
     df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), diseases)
@@ -438,7 +438,7 @@ def tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones):
 
 
 
-def get_tmrel_map(wdir, year, draw_type, temp_source):
+def get_tmrel_map(wdir, year, draw_type, scenario):
     
     """
     Get a single TMREL draw according to the arguments of the function
@@ -458,7 +458,7 @@ def get_tmrel_map(wdir, year, draw_type, temp_source):
     
     tmrel = xr.open_dataset(f"{wdir}/data/exposure_response_functions/TMRELs_{year}.nc")
     
-    if temp_source == "MS":
+    if not re.search(r"SSP[1-5]_ERA5", scenario):
         # Reduce resolution to 0.5x0.5 degrees
         tmrel = tmrel.coarsen(latitude=2, longitude=2, boundary="pad").mean(skipna=True)
     
@@ -690,7 +690,7 @@ def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
 
 
 
-def read_temperature_zones(wdir, temp_source):
+def read_temperature_zones(wdir, scenario):
     
     """
     Import ERA5 temperature zones and convert to numpy array
@@ -702,7 +702,7 @@ def read_temperature_zones(wdir, temp_source):
     # Convert file to numpy array
     era5_tz = era5_tz.t2m.values
     
-    if temp_source == "MS":
+    if not re.search(r"SSP[1-5]_ERA5", scenario):
             
         # Reshape array to 4D blocks of 2x2
         arr_reshaped = era5_tz.reshape(360, 2, 720, 2)

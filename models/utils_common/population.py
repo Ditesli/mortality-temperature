@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy import stats
+import re
 
 
 
@@ -34,7 +35,7 @@ def get_all_population_data(wdir, return_pop=False):
 
 
 
-def get_annual_pop(wdir, scenario, temp_source, years=None):
+def get_annual_pop(wdir, scenario, years=None):
     
     '''
     Read scenario-dependent population data, interpolate it to yearly data, reduce resolution to 15 min,
@@ -45,11 +46,11 @@ def get_annual_pop(wdir, scenario, temp_source, years=None):
     ssp = map_ssp(scenario)
     pop = xr.open_dataset(f'{wdir}\\data\\socioeconomic_Data\\population\\GPOP\\GPOP_{ssp}.nc')
     
-    if temp_source == 'ERA5':
+    if re.search(r"SSP[1-5]_ERA5", scenario):
         # Reduce resolution to 15 min to match ERA5 data
         pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
         
-    elif temp_source == 'MS':
+    else:
         pop_coarse = pop.coarsen(latitude=6, longitude=6, boundary='pad').sum(skipna=True)
     
     # Adjust last year to be multiple of 5 for interpolation
@@ -102,7 +103,7 @@ def map_ssp(ssp: str) -> str:
     
     
     
-def read_region_classification(wdir, region_class, temp_source):
+def read_region_classification(wdir, region_class, scenario):
     
     '''
     Load the region classification selected (IMAGE26 or country level) and return as numpy array 
@@ -135,7 +136,7 @@ def read_region_classification(wdir, region_class, temp_source):
         region_nc = xr.open_dataset(wdir+'data/regions_classification/IMAGE/GREG_30MIN.nc')
         
         # Interpolate to match temperature data resolution and average over time dimension for ERA5 data
-        if temp_source == 'ERA5':
+        if re.search(r"SSP[1-5]_ERA5", scenario):
             region_nc = region_nc.interp(longitude=ref_grid.longitude, 
                                         latitude=ref_grid.latitude, 
                                         method='nearest').mean(dim='time') 
@@ -161,7 +162,7 @@ def read_region_classification(wdir, region_class, temp_source):
         region_nc = region_nc.loc_id.values
         
         # Reduce resolution to 0.5x0.5 degrees
-        if temp_source == 'MS':
+        if not re.search(r"SSP[1-5]_ERA5", scenario):
             
             # Reshape array to 4D blocks of 2x2
             arr_reshaped = region_nc.reshape(360, 2, 720, 2)

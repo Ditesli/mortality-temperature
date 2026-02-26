@@ -12,9 +12,9 @@ Temporal
 """
 
 # Define temperature data source
-temp_source: "MS" # MS (monthly statistics) or ERA5
+project: "MS" # MS (monthly statistics) or ERA5
 # Define SSP scenario
-ssp:  "SSP2" # SSP1, SSP2, SSP3, SSP5
+scenario:  "SSP2" # SSP1, SSP2, SSP3, SSP5
 # Set years range
 start_year: 2000
 end_year: 2100
