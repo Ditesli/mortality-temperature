@@ -13,11 +13,11 @@ def main():
     config = load_config()
     wdir = config["wdir"]
 
-    utils.calculate_temperature_zones(wdir, config["path_era5"])
-    utils.generate_raster_gbd_locations(wdir)
+    utils.GenerateTemperatureZones(wdir, config["path_era5"])
+    utils.GenerateRasterGBDLocations(wdir)
 
     for year in [1990, 2000, 2020]:
-        utils.generate_tmrels_rasters(wdir, year)
+        utils.GenerateTMRELsRasters(wdir, year)
         
         
 if __name__ == "__main__":

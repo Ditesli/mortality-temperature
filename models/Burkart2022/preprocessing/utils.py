@@ -1,5 +1,5 @@
 import sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..","..")))
 
 import numpy as np
 import pandas as pd
@@ -12,18 +12,18 @@ from scipy.ndimage import distance_transform_edt
 
 
 
-def calculate_temperature_zones(wdir, era5_path):
+def GenerateTemperatureZones(wdir, era5_path):
     
-    '''
-    Calculate the Temperature zones (tz) per each grid cell, according to GBD methodology 
-    by calculating the mean from 1980-2019.
-    Following their method, monthly mean ERA5 data was retreived from the website: 
-    cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels-monthly-means
-    Sea values were set to NaN using the mask provided by ERA5:
-    confluence.ecmwf.int/pages/viewpage.action?pageId=140385202#ERA5Land:datadocumentation-parameterlistingParameterlistings
-    '''
+    """
+    Generate files with the temeprature zones as defined by Burkart et al., 2022.
+    The code reads in ERA5 monthly temperature data from 1980-2019, aligns the 
+    grid to the population grid and calculates the mean. 
+    A mask with population data and sea-land data are loaded to ensure that all
+    sea pixels are NaN and all pixels with population have assigned a temperature
+    zone.    
+    """
     
-    print('Calculating temperature zones...')
+    print("Calculating temperature zones...")
 
     # Open and preprocess population data and set mask for ALL cells with population
     mask_pop = pop.get_all_population_data(wdir, return_pop=False)
@@ -70,54 +70,54 @@ def calculate_temperature_zones(wdir, era5_path):
         np.nan
         )
     
-    print('[3] Land-sea mask applied and population mask enforced.')
+    print("[3] Land-sea mask applied and population mask enforced.")
     
     # Round data to get temperature zones, clip values between 6 and 28
     era5_rounded = era5_w_nan.where(era5_w_nan.isnull(), era5_w_nan.round())
-    temp_zone_rounded = np.clip(era5_rounded.t2m, 6, 28).mean(dim='time')
+    temp_zone_rounded = np.clip(era5_rounded.t2m, 6, 28).mean(dim="time")
 
     # Save in project data folder
-    temp_zone_rounded.to_netcdf(wdir+'data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc')
+    temp_zone_rounded.to_netcdf(wdir+"data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
     
-    print('[4] Temperature zones calculation completed and saved.')
+    print("[4] Temperature zones calculated.")
 
     
     
-def generate_raster_gbd_locations(wdir):
+def GenerateRasterGBDLocations(wdir):
     
-    '''
+    """
     Convert the level 3 GBD shapefile to a raster format (nmupy array)
-    '''
+    """
 
     # Load population xarray and mask
     mask_pop = pop.get_all_population_data(wdir, return_pop=False)
 
     # Load GBD shapefile with level 3 locations
     # TODO: replace later with level 4 locations
-    gbd_locations_level3 = gpd.read_file(wdir+'data/gbd_locations/GBD_shapefile.shp')
+    gbd_locations_level3 = gpd.read_file(wdir+"data/gbd_locations/GBD_shapefile.shp")
 
     # Convert geopandas dataframe to xarray using location ID label for the pixel values
-    gbd_rasterized_xarray = convert_vector_to_raster(mask_pop, gbd_locations_level3, 'loc_id', set_zero_to_nan=True)
+    gbd_rasterized_xarray = ConvertVectorToRaster(mask_pop, gbd_locations_level3, "loc_id", set_zero_to_nan=True)
 
     # Interpolate TMREL to areas with NaN but population is positive (maily coasts and islands)
-    gbd_rasterized_xarray = fill_missing_with_nearest(gbd_rasterized_xarray, mask_pop.GPOP)
+    gbd_rasterized_xarray = FillMissingWithNearest(gbd_rasterized_xarray, mask_pop.GPOP)
 
     # Save file in GBD_Data folder
-    gbd_rasterized_xarray.to_netcdf(f'{wdir}/data/regions_classification/GBD/GBD_locations_level3.nc')
+    gbd_rasterized_xarray.to_netcdf(f"{wdir}/data/regions_classification/GBD/GBD_locations_level3.nc")
 
     
 
-def convert_vector_to_raster(mask_pop: xr.Dataset, vector_data: gpd.GeoDataFrame, 
+def ConvertVectorToRaster(mask_pop: xr.Dataset, vector_data: gpd.GeoDataFrame, 
                              column: str, set_zero_to_nan=True):
     
-    '''
+    """
     This function uses the GBD level3 locations shapefile and converts it into 
     an xarray setting data from a selected column of the shapefile
-    '''
+    """
     
     # Extract coordinate information
-    y_coords = mask_pop.coords['latitude'].values
-    x_coords = mask_pop.coords['longitude'].values
+    y_coords = mask_pop.coords["latitude"].values
+    x_coords = mask_pop.coords["longitude"].values
 
     # Calculate resolution
     resolution_y = np.abs(y_coords[1] - y_coords[0])
@@ -141,7 +141,7 @@ def convert_vector_to_raster(mask_pop: xr.Dataset, vector_data: gpd.GeoDataFrame
         rasterized_data[rasterized_data == 0] = np.nan  # Set fill value to NaN
     
     # Convert to xarray 
-    rasterized_xarray = xr.DataArray(rasterized_data, coords=[y_coords, x_coords], dims=['latitude', 'longitude'])
+    rasterized_xarray = xr.DataArray(rasterized_data, coords=[y_coords, x_coords], dims=["latitude", "longitude"])
     rasterized_xarray.name = column
 
     # Combine with original xarray to include other non-NaN values but with loc_id data
@@ -151,13 +151,13 @@ def convert_vector_to_raster(mask_pop: xr.Dataset, vector_data: gpd.GeoDataFrame
 
 
 
-def fill_missing_with_nearest(xarray_dataset, mask_positive_pop):
+def FillMissingWithNearest(xarray_dataset, mask_positive_pop):
     
-    '''
+    """
     Fill missing values (NaN) in an xarray dataset using the nearest
     valid value, but only in locations where the population mask indicates
     positive population.
-    '''
+    """
     
     filled_xarray = xarray_dataset.copy()
 
@@ -197,23 +197,23 @@ def fill_missing_with_nearest(xarray_dataset, mask_positive_pop):
         xarray_draw[missing_mask] = xarray_draw[indices[0][missing_mask], indices[1][missing_mask]]
 
         # Store in the new xarray
-        filled_xarray['loc_id'][:, :] = xarray_draw
+        filled_xarray["loc_id"][:, :] = xarray_draw
 
     return filled_xarray
 
 
 
-def import_tmrels_files(wdir, year):
+def ImportTMRELsFiles(wdir, year):
     
-    ''' 
+    """ 
     Open TMREL files and concat them into a single DataFrame with multi-index
     level 1: loc_id, level 2: temperature zone.
     The code needs to import the raster file with the GBD locations first to 
     get the unique loc_ids.
-    '''
+    """
     
     # Open rasterized GBD level 3 locations and convert to numpy array
-    gbd_rasterized = xr.open_dataset(f'{wdir}/data/regions_classification/GBD/GBD_locations_level3.nc')
+    gbd_rasterized = xr.open_dataset(f"{wdir}/data/regions_classification/GBD/GBD_locations_level3.nc")
     gbd_rasterized = gbd_rasterized.loc_id.values
 
     # Get unique location IDs, excluding -1 and NaN and covert to integers
@@ -242,14 +242,14 @@ def import_tmrels_files(wdir, year):
 
 
 
-def read_temperature_zones(wdir):
+def ReadTemperatureZones(wdir):
     
-    '''
+    """
     Read ERA5 temperature zones raster file and convert to numpy array
-    '''
+    """
         
     # Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(wdir+'data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc')
+    era5_tz = xr.open_dataset(wdir+"data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
 
     # Convert file to numpy array
     era5_tz = era5_tz.t2m.values
@@ -258,21 +258,21 @@ def read_temperature_zones(wdir):
 
 
 
-def generate_tmrels_rasters(wdir, year):
+def GenerateTMRELsRasters(wdir, year):
 
-    ''' 
+    """ 
     Create a new 3D array with the same dimensions as the population data and a 
     third dimension for the TMREL draws
-    '''
+    """
     
-    print(f'Generating TMRELs for year {year}...')
+    print(f"Generating TMRELs for year {year}...")
     
     # Import GBD rasterized locations, TMRELs and temperature zones
-    gbd_rasterized, gbd_tmrel = import_tmrels_files(wdir, year)
+    gbd_rasterized, gbd_tmrel = ImportTMRELsFiles(wdir, year)
     mask_pop = pop.get_all_population_data(wdir, return_pop=False)
-    temperature_zones = read_temperature_zones(wdir)
+    temperature_zones = ReadTemperatureZones(wdir)
     
-    print('[1] GBD locations, TMRELs and temperature zones imported.')
+    print("[1] GBD locations, TMRELs and temperature zones imported.")
     
     # Create empty 3D array for TMRELs
     tmrel_array = np.empty((720, 1440, 100))
@@ -297,7 +297,7 @@ def generate_tmrels_rasters(wdir, year):
                 else:
                     tmrel_array[i, j, :] = np.nan  
                     
-    print('[2] TMRELs array populated.')
+    print("[2] TMRELs array populated.")
                     
     # Convert to xarray DataArray
     tmrel_xarray = xr.DataArray(tmrel_array, dims=("latitude", "longitude", "draw"), 
@@ -307,58 +307,58 @@ def generate_tmrels_rasters(wdir, year):
     tmrel_xarray.name = "tmrel"
 
     # Interpolate TMREL to areas with NaN but population is positive (maily coasts and islands)
-    interpolated_tmrel = fill_missing_with_nearest(tmrel_xarray, mask_pop.GPOP)
+    interpolated_tmrel = FillMissingWithNearest(tmrel_xarray, mask_pop.GPOP)
 
     # Save file in GBD_Data folder
-    interpolated_tmrel.to_netcdf(wdir+f'data/exposure_response_functions/TMRELs_{year}.nc')
+    interpolated_tmrel.to_netcdf(wdir+f"data/exposure_response_functions/TMRELs_{year}.nc")
     
-    print(f'[3] TMRELs for year {year} generated and saved.')
+    print(f"[3] TMRELs for year {year} generated and saved.")
     
     
     
-def generate_gdp_rasters(wdir, gdp_dir, year):
+def GenerateGDPRasters(wdir, gdp_dir, year):
     
-    '''
+    """
     Convert GDP and GDPPC to xarray for future analysis and calculations
-    '''
+    """
 
     # Load GBD shapefile with level 3 locations
-    gbd_locations_level3 = gpd.read_file(f'{wdir}\\GBD_Data\\GBD_locations\\Shapefile\\GBD_shapefile.shp')
+    gbd_locations_level3 = gpd.read_file(f"{wdir}\\GBD_Data\\GBD_locations\\Shapefile\\GBD_shapefile.shp")
     
     # Open and preprocess population data and set mask for ALL cells with population
     mask_pop = pop.get_all_population_data(wdir, return_pop=False)
 
     # Load files
-    gdp = pd.read_excel(gdp_dir+'iamc_db gdp.xlsx')
-    gdppc = pd.read_excel(gdp_dir+'iamc_db gdppc.xlsx')
+    gdp = pd.read_excel(gdp_dir+"iamc_db gdp.xlsx")
+    gdppc = pd.read_excel(gdp_dir+"iamc_db gdppc.xlsx")
 
     # Select closest year to 2019 and SSP2 data
-    gdp_year = gdp[gdp['Scenario'] == 'SSP2'][['Region', year]].rename(columns={year:'gdp'})
-    gdppc_year = gdppc[gdppc['Scenario'] == 'SSP2'][['Region', year]].rename(columns={year:'gdppc'})
+    gdp_year = gdp[gdp["Scenario"] == "SSP2"][["Region", year]].rename(columns={year:"gdp"})
+    gdppc_year = gdppc[gdppc["Scenario"] == "SSP2"][["Region", year]].rename(columns={year:"gdppc"})
 
     # Merge to gbd locations shapefile
-    gbd_locations_level3_gdp = gbd_locations_level3.merge(gdp_year, right_on='Region', left_on='ihme_lc_id', how='left')
-    gbd_locations_level3_gdppc = gbd_locations_level3.merge(gdppc_year, right_on='Region', left_on='ihme_lc_id', how='left')
+    gbd_locations_level3_gdp = gbd_locations_level3.merge(gdp_year, right_on="Region", left_on="ihme_lc_id", how="left")
+    gbd_locations_level3_gdppc = gbd_locations_level3.merge(gdppc_year, right_on="Region", left_on="ihme_lc_id", how="left")
 
     # Convert geopandas dataframe to xarray using location ID label for the pixel values
-    gbd_rasterized_gdp = convert_vector_to_raster(mask_pop, gbd_locations_level3_gdp, 'gdp', set_zero_to_nan=True)
-    gbd_rasterized_gdppc = convert_vector_to_raster(mask_pop, gbd_locations_level3_gdppc, 'gdppc', set_zero_to_nan=True)
+    gbd_rasterized_gdp = ConvertVectorToRaster(mask_pop, gbd_locations_level3_gdp, "gdp", set_zero_to_nan=True)
+    gbd_rasterized_gdppc = ConvertVectorToRaster(mask_pop, gbd_locations_level3_gdppc, "gdppc", set_zero_to_nan=True)
 
     gbd_rasterized_gdp_gdppc = xr.merge([gbd_rasterized_gdp, gbd_rasterized_gdppc])
-    gbd_rasterized_gdp_gdppc.to_netcdf(f'{wdir}\\SocioeconomicData\\EconomicData\\GDP_SSP2_{year}.nc')
+    gbd_rasterized_gdp_gdppc.to_netcdf(f"{wdir}\\SocioeconomicData\\EconomicData\\GDP_SSP2_{year}.nc")
 
     # Select only data from original countries 
-    original_countries = ['BRA', 'CHL', 'CHN', 'COL', 'GTM', 'MEX', 'NZL', 'ZAF', 'USA']
-    gdp_countries = gdp[(gdp['Region'].isin(original_countries)) & (gdp['Scenario'] == 'SSP2')][['Region', year]].rename(columns={year:'gdp'})
-    gdppc_countries = gdppc[(gdppc['Region'].isin(original_countries)) & (gdppc['Scenario'] == 'SSP2')][['Region', year]].rename(columns={year:'gdp'})
+    original_countries = ["BRA", "CHL", "CHN", "COL", "GTM", "MEX", "NZL", "ZAF", "USA"]
+    gdp_countries = gdp[(gdp["Region"].isin(original_countries)) & (gdp["Scenario"] == "SSP2")][["Region", year]].rename(columns={year:"gdp"})
+    gdppc_countries = gdppc[(gdppc["Region"].isin(original_countries)) & (gdppc["Scenario"] == "SSP2")][["Region", year]].rename(columns={year:"gdp"})
 
     # Merge to gbd locations shapefile
-    gbd_locations_countries_gdp = gbd_locations_level3.merge(gdp_countries, right_on='Region', left_on='ihme_lc_id', how='left')
-    gbd_locations_countries_gdppc = gbd_locations_level3.merge(gdppc_countries, right_on='Region', left_on='ihme_lc_id', how='left')
+    gbd_locations_countries_gdp = gbd_locations_level3.merge(gdp_countries, right_on="Region", left_on="ihme_lc_id", how="left")
+    gbd_locations_countries_gdppc = gbd_locations_level3.merge(gdppc_countries, right_on="Region", left_on="ihme_lc_id", how="left")
 
     # Convert geopandas dataframe to xarray using location ID label for the pixel values
-    gbd_rasterized_countries_gdp = convert_vector_to_raster(mask_pop, gbd_locations_countries_gdp, 'gdp', set_zero_to_nan=True)
-    gbd_rasterized_countries_gdppc = convert_vector_to_raster(mask_pop, gbd_locations_countries_gdppc, 'gdppc', set_zero_to_nan=True)
+    gbd_rasterized_countries_gdp = ConvertVectorToRaster(mask_pop, gbd_locations_countries_gdp, "gdp", set_zero_to_nan=True)
+    gbd_rasterized_countries_gdppc = ConvertVectorToRaster(mask_pop, gbd_locations_countries_gdppc, "gdppc", set_zero_to_nan=True)
 
     gbd_rasterized_countries_gdp_gdppc = xr.merge([gbd_rasterized_countries_gdp, gbd_rasterized_countries_gdppc])
-    gbd_rasterized_countries_gdp_gdppc.to_netcdf(f'{wdir}\\SocioeconomicData\\EconomicData\\GDP_SSP2_{year}_OriginalCountries.nc')
+    gbd_rasterized_countries_gdp_gdppc.to_netcdf(f"{wdir}\\SocioeconomicData\\EconomicData\\GDP_SSP2_{year}_OriginalCountries.nc")
