@@ -1,0 +1,30 @@
+"""
+Define scenario settings, ERF settings and file paths
+"""
+
+# Path to main working directory
+wdir = "X:/user/liprandicn/mt-comparison/burkart2022/"
+# temp_dir = "X:/user/liprandicn/Data/ERA5/t2m_daily/"
+temp_dir = "X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/"
+
+
+# Define temperature data source
+temp_source = "MS" # MS (monthly statistics) or ERA5
+# Define SSP scenario
+ssp =  "SSP2" # SSP1, SSP2, SSP3, SSP5
+# Define years range
+years = range(2000,2020) 
+# Define region classification
+region_class = "countries" # "IMAGE26" or "countries"
+
+
+"""
+Set settings to select ERF
+"""
+# Choose between keeping temperature zones (False) or using single mean ERF for all zones (True)
+single_erf = False
+# Choose between extrapolating ERFs (True) or keeping them as in Burkart 2021 (False)
+extrap_erf = False
+
+# Choose between calculating mean RR (True), specific or random draw (False). 
+draw_type = "mean"  # "mean", "random" or int (specific draw number)
