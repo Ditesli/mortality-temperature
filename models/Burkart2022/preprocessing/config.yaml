@@ -1,0 +1,5 @@
+# Path to main working directory
+wdir: ""
+
+# Path to ERA5 t2m data and land-sea mask
+path_era5: ""
