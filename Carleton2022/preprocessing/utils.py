@@ -5,7 +5,6 @@ import geopandas as gpd
 from pathlib import Path
 import rasterio
 from rasterio.features import rasterize
-import numpy as np
 import country_converter as coco
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -15,7 +14,7 @@ import mortality_functions as mf
 
 def RegionClassificationFile(
     wdir: str,
-    regions_file: str
+    regions_class: str
     ) -> None:
     
     """
@@ -42,25 +41,13 @@ def RegionClassificationFile(
     Returns
     -------
     None
-        The function writes the merged dataset to disk as a CSV file and does not return an object.
-
-    Output
-    ------
-    A CSV file named:
-        `region_classification.csv`
-    located in the working directory (`wdir`).
-
-    The resulting CSV typically contains columns such as:
-        - "hierid": Unique impact region identifier.
-        - "ISO3": ISO3 country code derived from the first 3 characters of `hierid`.
-        - other region classification columns from the IMAGE regions file.
-        
+        The function writes the merged dataset to disk as a CSV file.
     """
     
     print("Generating region classification file...")
     
     # Read IMAGE csv file
-    image_regions = pd.read_excel(regions_file, sheet_name="regions")
+    image_regions = pd.read_excel(regions_class+"region_classification.csv", sheet_name="regions")
 
     # Read impact regions shapefile and extract regions names
     impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
@@ -75,7 +62,6 @@ def RegionClassificationFile(
 def PopulationHistorical(
     wdir: str,
     landscan_path: str,
-    impact_regions: str
     ) -> None:
     
     """
@@ -106,34 +92,34 @@ def PopulationHistorical(
     print("Generating historical population per impact region and age group...")
     
     # Open impact regions shapefile
-    IMPACT_REGIONS = gpd.read_file(impact_regions)
+    impact_regions = gpd.read_file(wdir+"/carleton_sm/ir_shp/impact-region.shp").to_crs("EPSG:4326")
     
     # Get UN population shares per country and year
-    POPULATION_SHARES = ProcessUNPopulation5years(wdir)
+    population_shares = ProcessUNPopulation5years(wdir)
     
     # Calculate population per impact region for each year from 2000 to 2022
     for year in range(2000,2023):
         # Open LandScan population raster
-        LANDSCAN_POP = rasterio.open(landscan_path + f"landscan-global-{year}-assets/landscan-global-{year}.tif")
-        IMPACT_REGIONS = Raster2ImpactRegionPopulation(LANDSCAN_POP, IMPACT_REGIONS, year)
+        landscan_pop = rasterio.open(landscan_path + f"landscan-global-{year}-assets/landscan-global-{year}.tif")
+        impact_regions = Raster2ImpactRegionPopulation(landscan_pop, impact_regions, year)
         print(f"Population calculated for year: {year}")
 
     # Drop unnecessary columns, reshape to long format and mereg with UN population shares
-    IMPACT_REGIONS_POP = (
-        IMPACT_REGIONS
+    impact_regions_pop = (
+        impact_regions
         .drop(columns=["gadmid", "color", "AREA", "PERIMETER", "geometry"])
         .melt(id_vars=["hierid", "ISO",], var_name="Time", value_name="Value")
-        .merge(POPULATION_SHARES, on=["ISO", "Time"], how="left")
+        .merge(population_shares, on=["ISO", "Time"], how="left")
     )
     
     for age_group in ["young", "older", "oldest"]:
         
         # Calculate population share per age group
-        IMPACT_REGIONS_POP[f"pop_{age_group}"] = IMPACT_REGIONS_POP["Value"] * IMPACT_REGIONS_POP[f"share_{age_group}"]
+        impact_regions_pop[f"pop_{age_group}"] = impact_regions_pop["Value"] * impact_regions_pop[f"share_{age_group}"]
 
         # Pivot to wide format and save
         (
-            IMPACT_REGIONS_POP
+            impact_regions_pop
             [["hierid", "Time", f"pop_{age_group}"]]
             .pivot(index="hierid", columns="Time", values=f"pop_{age_group}")
             .reset_index()
@@ -178,7 +164,7 @@ def Raster2ImpactRegionPopulation(
 
     # Read raster data and affine
     raster_data = landscan_pop.read(1)
-    raster_affine = landscan_pop.transform
+    raster_data = landscan_pop.transform
 
     # Mask no data values
     nodata_val = -2147483647
@@ -190,7 +176,7 @@ def Raster2ImpactRegionPopulation(
     pixel_owner = rasterize(
         shapes_and_ids,
         out_shape=raster_data.shape,
-        transform=raster_affine,
+        transform=raster_data,
         fill=0,          # 0 = without region
         all_touched=False,
         dtype="int32"
@@ -247,28 +233,28 @@ def ProcessUNPopulation5years(
     """
     
     # Read UN population data file
-    UN_POPULATION = (
+    un_population = (
         pd.read_csv(wdir+"population/unpopulation_dataportal.csv")
         [["Iso3", "Time", "Age", "Value"]] # Keep relevant columns
     )
-    UN_POPULATION.loc[UN_POPULATION["Age"].isin(["5-14", "15-64"]), "Age"] = "5-64"
+    un_population.loc[un_population["Age"].isin(["5-14", "15-64"]), "Age"] = "5-64"
 
     # Calculate total population per country and year
-    POPULATION_TOTAL = UN_POPULATION.groupby(["Iso3","Time"]).sum().drop(columns="Age")
+    population_total = un_population.groupby(["Iso3","Time"]).sum().drop(columns="Age")
 
     # Aggregate population by age groups
-    UN_POPULATION = UN_POPULATION.groupby(["Iso3", "Time", "Age"]).sum()
+    un_population = un_population.groupby(["Iso3", "Time", "Age"]).sum()
 
     # Calculate share of young, older and oldest population
-    POPULATION_TOTAL["share_young"] = UN_POPULATION.xs("0-4",level=2)["Value"]/ POPULATION_TOTAL["Value"]
-    POPULATION_TOTAL["share_older"] = UN_POPULATION.xs("5-64",level=2)["Value"] / POPULATION_TOTAL["Value"]
-    POPULATION_TOTAL["share_oldest"] = UN_POPULATION.xs("65+",level=2)["Value"]  / POPULATION_TOTAL["Value"]
+    population_total["share_young"] = un_population.xs("0-4",level=2)["Value"]/ population_total["Value"]
+    population_total["share_older"] = un_population.xs("5-64",level=2)["Value"] / population_total["Value"]
+    population_total["share_oldest"] = un_population.xs("65+",level=2)["Value"]  / population_total["Value"]
 
-    POPULATION_TOTAL = POPULATION_TOTAL.reset_index()
+    population_total = population_total.reset_index()
 
-    POPULATION_TOTAL = POPULATION_TOTAL.rename(columns={"Iso3":"ISO", "Value":"total"})
+    population_total = population_total.rename(columns={"Iso3":"ISO", "Value":"total"})
     
-    return POPULATION_TOTAL
+    return population_total
 
 
 
@@ -282,6 +268,8 @@ def PopulationProjections(wdir, pop_dir):
     ----------
     wdir : str
         Working directory
+    pop_dir : str
+        Directory where the IMAGE population nc files are stored. 
         
     Returns:
     ----------
@@ -289,13 +277,6 @@ def PopulationProjections(wdir, pop_dir):
         The function saves CSV files with population projections per age group and SSP scenario at the 
         impact region level in the subdirectory `data/population/pop_ssp` of the working directory.
         If no folder exists, it will be created.
-        
-    Data sources:
-    ----------
-    1. Population data projections per age group from the SSP projections, available at:
-        https://dataexplorer.wittgensteincentre.org/wcde-v3/  (K.C. et al. (2024)).
-        The data was populaiton size (000"s) at country level for all the 5-year age groups
-        and SSP scenarios.
     """
     
     SSP = ["SSP1", "SSP2", "SSP3", "SSP5"]
@@ -304,34 +285,34 @@ def PopulationProjections(wdir, pop_dir):
     for ssp in SSP:
         
         # Agregate raster IMAGE total population per impact region and year
-        TOTAL_POPULATION_IR = IMAGEPopulation2ImpactRegion(wdir=wdir, pop_dir=pop_dir, ssp=ssp, years=YEARS)
+        total_population_ir = IMAGEPopulation2ImpactRegion(wdir=wdir, pop_dir=pop_dir, ssp=ssp, years=YEARS)
         
         # Load population data projections per age group to disagregate IMAGE data
-        POPULATION_GROUPS = LoadAgeGroupPopulationData(pop_dir=pop_dir, ssp=ssp, years=YEARS)
+        population_groups = LoadAgeGroupPopulationData(pop_dir=pop_dir, ssp=ssp, years=YEARS)
         
         # Pivot and merge function
         def pivot_and_merge(group_name):
             
-            df = POPULATION_GROUPS[POPULATION_GROUPS["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
+            df = population_groups[population_groups["group"] == group_name].pivot(index=["Area", "ISO3"], columns="Year", values="share").reset_index()
             df = df.rename(columns={c: f"{c}_share" for c in df.columns if isinstance(c, int)})
-            return TOTAL_POPULATION_IR.merge(df, on="ISO3", how="left")
+            return total_population_ir.merge(df, on="ISO3", how="left")
         
         # Create population dataframes for each age group
-        POP_YOUNG, POP_OLDER, POP_OLDEST = (pivot_and_merge(g) for g in ["young", "older", "oldest"])
+        pop_young, pop_older, pop_oldest = (pivot_and_merge(g) for g in ["young", "older", "oldest"])
         
         # Create output directory if it doesn"t exist
         out_path = Path(wdir) / "data" / "population" / "pop_ssp"
         out_path.mkdir(parents=True, exist_ok=True)
 
         # Multiply shares by total population to get absolute numbers
-        for pop, group in zip([POP_YOUNG, POP_OLDER, POP_OLDEST],["young", "older", "oldest"]):        
+        for pop, group in zip([pop_young, pop_older, pop_oldest],["young", "older", "oldest"]):        
             for y in YEARS:
                 pop[str(y)] = pop[str(y)+"_share"] * pop[str(y)]
                         
-            NON_SHARE_COLS = [c for c in pop.columns if "share" not in c]
+            non_share_cols = [c for c in pop.columns if "share" not in c]
             
             # Save population projection files per age group and SSP scenario
-            pop[NON_SHARE_COLS].to_csv(out_path/ f"pop_{ssp.lower()}_{group}.csv", index=False)
+            pop[non_share_cols].to_csv(out_path/ f"pop_{ssp.lower()}_{group}.csv", index=False)
 
         
         
@@ -364,33 +345,33 @@ def IMAGEPopulation2ImpactRegion(wdir, pop_dir, ssp, years):
     print(f"Calculating population per impact region for SSP: {ssp}...")
     
     # Read in impact regions shapefile
-    IMPACT_REGIONS = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
+    impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
     
     # Read IMAGE SSP population nc file
-    POP_IMAGE = xr.open_dataset(pop_dir+f"/IMAGE_POP/{ssp.upper()}/GPOP.nc")
+    pop_image = xr.open_dataset(pop_dir+f"/IMAGE_POP/{ssp.upper()}/GPOP.nc")
     
     # Ensure CRS is set to EPSG:4326 and align with impact regions
-    POP_IMAGE = POP_IMAGE.rio.write_crs("EPSG:4326", inplace=False)
-    IMPACT_REGIONS = IMPACT_REGIONS.to_crs(POP_IMAGE.rio.crs)
+    pop_image = pop_image.rio.write_crs("EPSG:4326", inplace=False)
+    impact_regions = impact_regions.to_crs(pop_image.rio.crs)
 
     # Select relevant years including "present-day" years (2000-2010)
-    POP_IMAGE = POP_IMAGE.sel(time=pd.to_datetime([f"{y}-01-01" for y in years]))
+    pop_image = pop_image.sel(time=pd.to_datetime([f"{y}-01-01" for y in years]))
     
-    MINLENGTH = len(IMPACT_REGIONS) + 1
+    minlength = len(impact_regions) + 1
 
     # Prepare tuples of (geometry, region_id) for rasterization
-    SHAPES_AND_IDS = [(geom, idx) for idx, geom in enumerate(IMPACT_REGIONS.geometry, start=1)]
+    shapes_and_ids = [(geom, idx) for idx, geom in enumerate(impact_regions.geometry, start=1)]
         
     # Rasterize region polygons once
-    OUT_SHAPE = POP_IMAGE.isel(time=0).GPOP.shape
+    out_shape = pop_image.isel(time=0).GPOP.shape
 
     # Get raster transform 
-    RASTER_AFFINE = POP_IMAGE.rio.transform()    
+    raster_affine = pop_image.rio.transform()    
 
-    PIXEL_OWNER = rasterize(
-        SHAPES_AND_IDS,
-        out_shape=OUT_SHAPE,
-        transform=RASTER_AFFINE,
+    pixel_owner = rasterize(
+        shapes_and_ids,
+        out_shape=out_shape,
+        transform=raster_affine,
         fill=0,          # 0 = without region
         all_touched=False,
         dtype="int32"
@@ -400,31 +381,31 @@ def IMAGEPopulation2ImpactRegion(wdir, pop_dir, ssp, years):
     
     for i, year in enumerate(years):
         
-        RASTER_DATA = POP_IMAGE.isel(time=i).GPOP.values
+        raster_data = pop_image.isel(time=i).GPOP.values
         
         # Mask valid data (NaN = nodata)
-        VALID_POP_MASK = ~np.isnan(RASTER_DATA)
+        valid_pop_mask = ~np.isnan(raster_data)
 
         # Sum population per region using np.bincount in pixels without NaN
-        SUMS = np.bincount(
-            PIXEL_OWNER[VALID_POP_MASK], 
-            weights=RASTER_DATA[VALID_POP_MASK], 
-            minlength=MINLENGTH
+        sums = np.bincount(
+            pixel_owner[valid_pop_mask], 
+            weights=raster_data[valid_pop_mask], 
+            minlength=minlength
         )[1:]  
 
         # Add results to impact_regions GeoDataFrame
-        year_data[str(year)] = SUMS
+        year_data[str(year)] = sums
         
-    IMPACT_REGIONS = pd.concat(
-        [IMPACT_REGIONS, pd.DataFrame(year_data, index=IMPACT_REGIONS.index)],
+    impact_regions = pd.concat(
+        [impact_regions, pd.DataFrame(year_data, index=impact_regions.index)],
         axis=1
     )
     
     # Add ISO3 column
-    IMPACT_REGIONS["ISO3"] = IMPACT_REGIONS["hierid"].str[:3]
+    impact_regions["ISO3"] = impact_regions["hierid"].str[:3]
 
     # Only return regions names and population columns
-    return IMPACT_REGIONS[["hierid", "ISO3"] + [c for c in IMPACT_REGIONS.columns if str(c).isdigit()]]
+    return impact_regions[["hierid", "ISO3"] + [c for c in impact_regions.columns if str(c).isdigit()]]
 
 
 
@@ -461,28 +442,28 @@ def LoadAgeGroupPopulationData(pop_dir, ssp, years):
     """
     
     # Load population data projections per 5-year age group
-    POPULATION_5YEAR_AGE = (pd.read_csv(pop_dir+"/WCDE_POP_SSP/wcde_data.csv", 
+    population_5year_age = (pd.read_csv(pop_dir+"/WCDE_POP_SSP/wcde_data.csv", 
                                        skiprows=8)
                             .query("Scenario == @ssp and Year in @years")
     )
     
-    POPULATION_5YEAR_AGE = CompletePopulationDataLustrum(POPULATION_5YEAR_AGE)
+    population_5year_age = CompletePopulationDataLustrum(population_5year_age)
     
     # Define age groups to classify wcde ages
-    AGE_GROUPS = {
+    age_groups = {
         "young": ["0--4"],
         "older": [f"{i}--{i+4}" for i in range(5, 65, 5)],
         "oldest": [f"{i}--{i+4}" for i in range(65, 100, 5)] + ["100+"]
     }
     
     # Assign age group to each age
-    POPULATION_5YEAR_AGE.loc[:,"group"] = POPULATION_5YEAR_AGE["Age"].map(
-        lambda x: next((grp for grp, ages in AGE_GROUPS.items() if x in ages), None)
+    population_5year_age.loc[:,"group"] = population_5year_age["Age"].map(
+        lambda x: next((grp for grp, ages in age_groups.items() if x in ages), None)
     )
     
     # Aggregate population by group
-    POPULATION_GROUPS = (
-        POPULATION_5YEAR_AGE
+    population_groups = (
+        population_5year_age
         .dropna(subset=["group"]) # Drop rows with ages that don"t fit into defined groups ("All")
         .groupby(["Area", "Year", "group"], as_index=False)["Population"]
         .sum()
@@ -492,7 +473,7 @@ def LoadAgeGroupPopulationData(pop_dir, ssp, years):
     dfs = []
 
     # Interpolate for every Area and group combination
-    for (area, group), group_df in POPULATION_GROUPS.groupby(["Area", "group"]):
+    for (area, group), group_df in population_groups.groupby(["Area", "group"]):
         # Create year range
         # years = range(group_df["Year"].min(), group_df["Year"].max() + 1)
         # Reindex to include all years
@@ -507,25 +488,25 @@ def LoadAgeGroupPopulationData(pop_dir, ssp, years):
         dfs.append(group_df)
 
     # Concateenate all dataframes
-    POPULATION_GROUPS_ANNUAL =  pd.concat(dfs, ignore_index=True)
+    population_groups_annual =  pd.concat(dfs, ignore_index=True)
     
     # Calculate share of each age group
-    POPULATION_GROUPS_ANNUAL["Population_total"] = (
-        POPULATION_GROUPS_ANNUAL
+    population_groups_annual["Population_total"] = (
+        population_groups_annual
         .groupby(["Area", "Year"])["Population"]
         .transform("sum")
     )
-    POPULATION_GROUPS_ANNUAL["share"] = (
-        POPULATION_GROUPS_ANNUAL["Population"] / 
-        POPULATION_GROUPS_ANNUAL["Population_total"]
+    population_groups_annual["share"] = (
+        population_groups_annual["Population"] / 
+        population_groups_annual["Population_total"]
     )
     
     # Convert locations to ISO3
-    unique_locations = POPULATION_GROUPS_ANNUAL["Area"].unique()
-    conversion_dict = {loc: coco.convert(names=loc, to="ISO3") for loc in unique_locations}
-    POPULATION_GROUPS_ANNUAL["ISO3"] = POPULATION_GROUPS_ANNUAL["Area"].map(conversion_dict)
+    unique_locations = population_groups_annual["Area"].unique()
+    conversion_dic = {loc: coco.convert(names=loc, to="ISO3") for loc in unique_locations}
+    population_groups_annual["ISO3"] = population_groups_annual["Area"].map(conversion_dic)
     
-    return POPULATION_GROUPS_ANNUAL
+    return population_groups_annual
 
 
 
@@ -538,7 +519,7 @@ def CompletePopulationDataLustrum(df):
     """
     
     # Create a MultiIndex of all combinations of Area, Scenario, and Years
-    UNIQUE_MLTIDX = pd.MultiIndex.from_product(
+    unique_mltidx = pd.MultiIndex.from_product(
         [
             df["Area"].unique(),
             df["Scenario"].unique(),
@@ -549,73 +530,94 @@ def CompletePopulationDataLustrum(df):
     )
     
     # Reindex the DataFrame to include all combinations, filling missing values with NaN
-    DF_FULL = (
+    df_full = (
         df
         .set_index(["Area", "Scenario", "Year", "Age"])
-        .reindex(UNIQUE_MLTIDX)
+        .reindex(unique_mltidx)
         .reset_index()
     )
     
     # Forward-fill and backward-fill missing values within each Population and Scenario group
-    DF_FULL["Population"] = (
-        DF_FULL
+    df_full["Population"] = (
+        df_full
         .groupby(["Area", "Scenario", "Year", "Age"])["Population"]
         .transform("bfill")
         .transform("ffill")
     )
     
-    return DF_FULL
+    return df_full
 
 
 
 def DailyTemperaturesERA5PresentDay(wdir, era5_dir):
     
-    years = range(2000,2011)
+    # Present day years for which to calculate T_0 (2000-2010)
+    YEARS = range(2000,2011)
     
-    spatial_relation, ir = mf.GridRelationship(wdir, "ERA5", era5_dir, years)
+    # Get spatial relationship between ERA5 grid and impact regions
+    spatial_relation, ir = mf.GridRelationship(wdir, "ERA5", era5_dir, YEARS)
     
-    for year in years:
-        T_0 = mf.ERA5Temperature2IR(era5_dir, year, ir, spatial_relation)
-        T_0.to_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
+    # Create directory if it doesn't exist
+    out_path = Path(wdir) / "data" / "climate_data"
+    out_path.mkdir(parents=True, exist_ok=True)
+    
+    # Calculate T_0 for each year and save as CSV
+    for year in YEARS:
+        t_0 = mf.ERA5Temperature2IR(era5_dir, year, ir, spatial_relation)
+        t_0.to_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
         
         
 
 def ClimatologiesERA5(wdir, era5_dir, years):
     
     # Get spatial relationship between ERA5 grid and impact regions
-    spatial_relation, ir = mf.GridRelationship(wdir, None,"ERA5", era5_dir, None, years)
+    class Settings:
+        def __init__(self, wdir, scenario, era5_dir, years):
+            self.wdir = wdir
+            self.scenario = scenario
+            self.temp_path = era5_dir
+            self.years = years
+            
+    sets = Settings(wdir=wdir, scenario="ERA5", era5_dir=era5_dir, years=years)
+
+    spatial_relation, ir = mf.GridRelationship(sets)
     
     # Define period for climatology calculation (30-year running mean)
-    PERIOD = 30
+    period = 30
 
     # Calculate annual mean temperature for each year used in the analysis using ERA5 daily data
-    ANNUAL_TEMPERATURES = {}
+    annual_temperatures = {}
     
-    for y in range(years[0]-PERIOD, years[-1]):
+    for y in range(years[0]-period, years[-1]):
         print("Calculating annual mean temperature for year:", y)
 
         with xr.open_dataset(f"{era5_dir}era5_t2m_mean_day_{y}.nc") as ds:
-            ANNUAL_TEMPERATURES[y] = ds["t2m"].mean(dim="valid_time")  - 273.15
+            annual_temperatures[y] = ds["t2m"].mean(dim="valid_time")  - 273.15
+            annual_temperatures[y] = (
+                annual_temperatures[y]
+                .assign_coords(longitude=((annual_temperatures[y].longitude + 180) % 360 - 180))
+                .sortby("longitude")
+            )
         
     # Calculate climatology as the 30-year running mean of annual temperatures in the analysis period
-    CLIMATOLOGIES_DIC = { }
+    climatologies_dic = { }
     
     for year in years:
         print("Calculating climatology for year:", year)
 
-        YEARS30 = [year-PERIOD, year-1]
+        years30 = range(year-period, year)
 
-        RUNNING_SUM = sum(ANNUAL_TEMPERATURES[y] for y in YEARS30)
-        CLIMATOLOGY = RUNNING_SUM / len(YEARS30)
+        running_sum = sum(annual_temperatures[y] for y in years30)
+        climatology = running_sum / len(years30)
         
-        CLIMATOLOGY = CLIMATOLOGY.values.ravel()
-        CLIMATOLOGIES_DIC[year] = CLIMATOLOGY[spatial_relation.index]
-        
-    # Apply spatial relationship to get climatology values at the impact region level 
-    CLIMATOLOGIES_DF = pd.DataFrame(CLIMATOLOGIES_DIC, index=spatial_relation["index_right"])
-    # Average them if multiple grid cells correspond to the same region
-    CLIMATOLOGIES_DF = (CLIMATOLOGIES_DF.groupby("index_right").mean().round(1))
-    CLIMATOLOGIES_DF.insert(0, "hierid", ir)
+        climatology = climatology.values.ravel()
+        climatologies_dic[year] = climatology[spatial_relation.index]
     
-    CLIMATOLOGIES_DF.to_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
+    # Apply spatial relationship to get climatology values at the impact region level 
+    climatologies_df = pd.DataFrame(climatologies_dic, index=spatial_relation["index_right"])
+    # Average them if multiple grid cells correspond to the same region
+    climatologies_df = climatologies_df.groupby("index_right").mean()
+    
+    climatologies_df.insert(0, "hierid", ir)
+    climatologies_df.to_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
                             index=False)
