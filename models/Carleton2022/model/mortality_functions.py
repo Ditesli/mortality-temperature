@@ -5,7 +5,7 @@ import geopandas as gpd
 from dataclasses import dataclass, field
 from shapely.geometry import Polygon
 import re, sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
 import prism
 
@@ -1589,8 +1589,7 @@ def PostprocessResults(sets, fls):
         # Export files in .OUT format
         ExportOUTFiles(results, sets)
 
-
-    results = results.rename(columns={"IMAGE26": "region"})
+    results = results.reset_index().rename(columns={sets.regions: "region"})
     
     if sets.adaptation == True:
         adaptation = ""
@@ -1600,9 +1599,13 @@ def PostprocessResults(sets, fls):
         project = f"{sets.project}"
     else:
         project = ""
+    if sets.region != "IMAGE26":
+        region_name = f"_{sets.region}"
+    else:
+        region_name = ""
         
     # Save results to CSV                
     results.to_csv(sets.wdir +
-                   f"output/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+                   f"output/mortality_{project}_{sets.scenario}{adaptation}{region_name}_{sets.years[0]}-{sets.years[-1]}.csv") 
     
     print("Scenario ran successfully!")

@@ -7,7 +7,7 @@ import rasterio
 from rasterio.features import rasterize
 import country_converter as coco
 import sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 import mortality_functions as mf
 
 
