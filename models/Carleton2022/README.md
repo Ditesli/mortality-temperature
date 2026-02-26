@@ -1,4 +1,4 @@
-## Mortality-Temperature Model - Carleton et al. Version
+## Mortality-Temperature Model | Carleton et al. Version
 
 The model originates from the work by [(Carleton et al., 2022)](https://doi.org/10.1093/qje/qjac020). It is an econometric model that relates daily temperature with the relative mortality (deaths per 100k people), through functions where mortality increases towards hot and cold non-optimal temperatures. These functions, developed for a total of 24,378 administrative regions and three age groups, are defined as fourth degree polynomials, 
 
