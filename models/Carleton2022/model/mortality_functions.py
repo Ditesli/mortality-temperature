@@ -1599,9 +1599,13 @@ def PostprocessResults(sets, fls):
         project = f"{sets.project}"
     else:
         project = ""
+    if sets.region != "IMAGE26":
+        region_name = f"_{sets.region}"
+    else:
+        region_name = ""
         
     # Save results to CSV                
     results.to_csv(sets.wdir +
-                   f"output/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+                   f"output/mortality_{project}_{sets.scenario}{adaptation}{region_name}_{sets.years[0]}-{sets.years[-1]}.csv") 
     
     print("Scenario ran successfully!")
