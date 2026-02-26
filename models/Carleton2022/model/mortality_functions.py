@@ -5,7 +5,7 @@ import geopandas as gpd
 from dataclasses import dataclass, field
 from shapely.geometry import Polygon
 import re, sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
 import prism
 
@@ -1589,8 +1589,7 @@ def PostprocessResults(sets, fls):
         # Export files in .OUT format
         ExportOUTFiles(results, sets)
 
-
-    results = results.rename(columns={"IMAGE26": "region"})
+    results = results.reset_index().rename(columns={sets.regions: "region"})
     
     if sets.adaptation == True:
         adaptation = ""
