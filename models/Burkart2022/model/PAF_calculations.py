@@ -5,59 +5,177 @@ import xarray as xr
 import random
 from dataclasses import dataclass
 import sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
 from utils_common import population as pop
 
 
 
+diseases = {"ckd":"Chronic kidney disease", 
+            "cvd_cmp":"Cardiomyopathy and myocarditis", 
+            "cvd_htn":"Hypertensive heart disease", 
+            "cvd_ihd":"Ischemic heart disease", 
+            "cvd_stroke":"Stroke", 
+            "diabetes":"Diabetes mellitus",
+            "inj_animal":"Animal contact", 
+            "inj_disaster":"Exposure to forces of nature", 
+            "inj_drowning":"Drowning", 
+            "inj_homicide":"Interpersonal violence", 
+            "inj_mech":"Exposure to mechanical forces", 
+            "inj_othunintent":"Other unintentional injuries", 
+            "inj_suicide":"Self-harm", 
+            "inj_trans_other":"Other transport injuries", 
+            "inj_trans_road":"Road injuries", 
+            "resp_copd":"Chronic obstructive pulmonary disease", 
+            "lri":"Lower respiratory infections"}
 
-diseases = {'ckd':'Chronic kidney disease', 
-            'cvd_cmp':'Cardiomyopathy and myocarditis', 
-            'cvd_htn':'Hypertensive heart disease', 
-            'cvd_ihd':'Ischemic heart disease', 
-            'cvd_stroke':'Stroke', 
-            'diabetes':'Diabetes mellitus',
-            'inj_animal':'Animal contact', 
-            'inj_disaster':'Exposure to forces of nature', 
-            'inj_drowning':'Drowning', 
-            'inj_homicide':'Interpersonal violence', 
-            'inj_mech':'Exposure to mechanical forces', 
-            'inj_othunintent':'Other unintentional injuries', 
-            'inj_suicide':'Self-harm', 
-            'inj_trans_other':'Other transport injuries', 
-            'inj_trans_road':'Road injuries', 
-            'resp_copd':'Chronic obstructive pulmonary disease', 
-            'lri':'Lower respiratory infections'}
+
+
+
+def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, draw_type, single_erf=False, extrap_erf=False):
+    
+    """
+    Run the main model using ERA5 historical data
+    
+    Parameters:
+    - years: list of years to run the model
+    - ssp: string with the name of the SSP scenario
+    - single_erf: boolean, if True use a single mean ERF for all temperature zones
+    - all_diseases: boolean, if True use all diseases, if False use only metabolic and cardiovascular diseases
+    - mean: boolean, if True use the mean ERF, if False use a random draw or a specific draw
+    - random_draw: boolean, if True use a random draw, if False use a specific draw
+    - draw: integer, if not None use a specific draw (between 0 and 999)
+    """
+    
+    # Load files needed for calculations
+    res = load_files(wdir, ssp, years, region_class, temp_source, draw_type, single_erf, extrap_erf)
+    
+    print("[2] Running main model...")
+
+    for year in years:
+        
+        daily_temp, num_days = tmp.load_temperature_type(temp_dir, temp_source, "mean", year, res.pop_ssp)
+
+        # Select population for the corresponding year
+        pop_ssp_year = res.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values
+
+        # Set a mask of pixels for each region
+        for region in res.regions_range:
+            
+            get_regional_paf(pop_ssp_year, res.regions, region, year, num_days, res.temperature_zones, 
+                             daily_temp, res.tmrel, res.df_erf_tmrel, res.paf_final, res.diseases, res.min_dict, 
+                             res.max_dict, single_erf)
+                
+        print(f"Year {year} done") 
+        
+    erf_part = "_1erf" if single_erf else ""
+    extrap_part = "_extrap" if extrap_erf else ""
+    years_part = f"_{years[0]}-{years[-1]}"
+            
+    # Save the results and temperature statistics
+    res.paf_final.to_csv(f"{wdir}\\output\\PAF_{region_class}_{temp_source}{years_part}{extrap_part}{erf_part}.csv")  
+    
+    print("[3] Model run complete. Results saved.")
+    
+   
+    
+@dataclass
+class LoadResults:
+    paf_final: any
+    pop_ssp: any
+    regions: any
+    regions_range: any
+    temperature_zones: any
+    tmrel: any
+    df_erf_tmrel: any
+    diseases: any
+    min_dict: dict
+    max_dict: dict
+
+
+
+def load_files(wdir, ssp, years, region_class, temp_source, draw_type, single_erf=False, extrap_erf=False):
+    
+    """
+    Load all the necessary files to run the main model, including:
+    - Population data netcdf file for the selected SSP scenario
+    - IMAGE regions netcdf file
+    - Temperature zones netcdf file
+    - TMREL netcdf file for the selected year (default 2020)
+    - Exposure Response Function files for the relevant diseases, with the option to get the mean of draws, 
+      a random draw or a specific draw (latest is useful for uncertainty analysis)
+    """
+    
+    print("[1] Loading files for calculations...")
+    
+    # Load nc files that contain the temperature zones
+    temperature_zones = read_temperature_zones(wdir, temp_source)
+    
+    # Load nc files that contain the region classification selected
+    regions, regions_range = pop.read_region_classification(wdir, region_class, temp_source)
+    print(f"[1.2] Region classification ({region_class}) loaded as numpy array.")
+    
+    # Load population nc file of the selected scenario
+    pop_ssp = pop.get_annual_pop(wdir, ssp, temp_source, years)
+    
+    # Load Exposure Response Function files for the relevant diseases
+    df_erf, diseases, min_dict, max_dict = get_erf_dataframe(wdir, draw_type, extrap_erf)
+    
+    # Load file with optimal temperatures for 2020 (default year)
+    tmrel = get_tmrel_map(wdir, 2020, draw_type, temp_source)
+    
+    # Generate dataframe with RR shifted by the TMREL
+    df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), diseases)
+    
+    if single_erf == True:
+
+        df_erf_tmrel = average_erf(df_erf_tmrel)
+        
+    # Create final dataframe
+    paf_final = pd.DataFrame(index=regions_range, 
+                           columns=pd.MultiIndex.from_product([years, diseases, ["cold", "hot", "all"]]))  
+    
+    return LoadResults(
+        paf_final=paf_final,
+        pop_ssp=pop_ssp,
+        regions=regions,
+        regions_range=regions_range,
+        temperature_zones=temperature_zones,
+        tmrel=tmrel,
+        df_erf_tmrel=df_erf_tmrel,
+        diseases=diseases,
+        min_dict=min_dict,
+        max_dict=max_dict
+    )
 
 
 
 def rr_to_paf(df, rr_year, diseases, year, region, temp_type):
     
-    '''
+    """
     Convert the Relative Risk into the Population Atributable Fraction following
     Burkart et al.
-    '''
+    """
     
     # Convert the RR to PAF
-    df[[f'{col}' for col in diseases]] = np.where(df[diseases] < 1, 
-                                                  df['population'].values[:, None] * (df[diseases] - 1),
-                                                  df['population'].values[:, None] * (1 - 1 / df[diseases]))
+    df[[f"{col}" for col in diseases]] = np.where(df[diseases] < 1, 
+                                                  df["population"].values[:, None] * (df[diseases] - 1),
+                                                  df["population"].values[:, None] * (1 - 1 / df[diseases]))
     
     # Aggregate PAFs
     df_aggregated = df.sum(axis=0)
     
     # Locate aggregated PAF in annual dataframe
-    rr_year.loc[region, (year, diseases, temp_type)] = [df_aggregated[f'{d}'] for d in diseases]
+    rr_year.loc[region, (year, diseases, temp_type)] = [df_aggregated[f"{d}"] for d in diseases]
     
     
 
 def get_temp_array_from_mask(daily_temp, valid_mask, pop_array, num_days):
     
-    '''
+    """
     Creates a 1-D array from the daily temperature data by masking first cells with
     population and the flattening
-    '''
+    """
     
     # Create an empty array to store the daily temperatures
     dayTemp_array = np.empty(len(pop_array), dtype=np.float32) 
@@ -82,10 +200,10 @@ def get_temp_array_from_mask(daily_temp, valid_mask, pop_array, num_days):
     
 def get_array_from_mask(data, valid_mask, num_days):
     
-    ''' 
+    """ 
     Converts GREG, yearly population and temperature zone xarrays into 1-D numpy arrays 
     by keeping only the entries where there is population data (data is more than 0)
-    '''
+    """
     
     # Convert xarray to numpy and get the values for the valid mask
     data_masked = data[valid_mask]
@@ -98,12 +216,12 @@ def get_array_from_mask(data, valid_mask, num_days):
     
 def get_data_masked_per_region(valid_mask, num_days, pop, era5_tz, daily_temp, tmrel): 
     
-    '''
+    """
     Use the mask for the population data to mask the population temperature zone, tmrel map and 
     daily temperature data. The first three maps are repreated 365/366 times depending the 
     number of days in the specific year. This process creates 1-D arrays for the data representing
     the different combinations.
-    '''
+    """
     
     # Get arrays for the data using the functions defined above
     pop_array = get_array_from_mask(pop, valid_mask, num_days)
@@ -111,7 +229,7 @@ def get_data_masked_per_region(valid_mask, num_days, pop, era5_tz, daily_temp, t
     dayTemp_array = get_temp_array_from_mask(daily_temp, valid_mask, pop_array, num_days)
     tmrel_array = get_array_from_mask(tmrel, valid_mask, num_days)
     
-    # print(f'Data masked')
+    # print(f"Data masked")
     
     return pop_array, meanTemp_array, dayTemp_array, tmrel_array
     
@@ -119,14 +237,14 @@ def get_data_masked_per_region(valid_mask, num_days, pop, era5_tz, daily_temp, t
 
 def create_population_df(mask, pop_ssp_year, temperature_zones, daily_temp, tmrel, num_days, min_dict, max_dict, single_erf=False):
     
-    '''
+    """
     Create a dataframe that includes data on temperature zone, daily temperature, population and tmrel
     for all the grid cells with population data in a given IMAGE region.
     The dataframe is grouped per temperature_zone and daily_temperature, calculating the fraction of
     population per each combination.
     The daily temperature values are truncated according to the min and max values available in the ERF.
     This dataframe will be used to merge with the ERF and calculate the RR and PAF.    
-    '''
+    """
     
     pop_array, t_zones_array, daily_t_array, tmrel_array = get_data_masked_per_region(mask, 
                                                                                     num_days, 
@@ -139,22 +257,22 @@ def create_population_df(mask, pop_ssp_year, temperature_zones, daily_temp, tmre
     daily_temperatures_array = np.array(daily_t_array, dtype=np.float64)
     
     # Create a dataframe that includes data on temperature zone, daily temperature, population and tmrel
-    df_pop = pd.DataFrame({'temperature_zone': t_zones_array, 'daily_temperature': np.round(daily_temperatures_array,1),
-                           'population': np.round(pop_array,1), 'tmrel':np.round(tmrel_array,1)})
+    df_pop = pd.DataFrame({"temperature_zone": t_zones_array, "daily_temperature": np.round(daily_temperatures_array,1),
+                           "population": np.round(pop_array,1), "tmrel":np.round(tmrel_array,1)})
 
     # Truncate min and max Temperature values according to availability in ERF
-    df_pop['daily_temperature'] = df_pop['daily_temperature'].clip(lower=df_pop['temperature_zone'].map(min_dict), 
-                                                                   upper=df_pop['temperature_zone'].map(max_dict))
+    df_pop["daily_temperature"] = df_pop["daily_temperature"].clip(lower=df_pop["temperature_zone"].map(min_dict), 
+                                                                   upper=df_pop["temperature_zone"].map(max_dict))
     
     if single_erf == False:
         # Group per temperature_zone, daily_temperature and tmrel, calculating the fraction of population per each combination
-        df_pop = df_pop.groupby(['temperature_zone', 'daily_temperature', 'tmrel'], as_index=False).sum()
+        df_pop = df_pop.groupby(["temperature_zone", "daily_temperature", "tmrel"], as_index=False).sum()
     
     else:
         # Group per daily_temperature and tmrel, calculating the fraction of population per each combination
-        df_pop = df_pop.groupby(['daily_temperature', 'tmrel'], as_index=False).sum()
+        df_pop = df_pop.groupby(["daily_temperature", "tmrel"], as_index=False).sum()
         
-    df_pop['population'] /= df_pop['population'].sum()
+    df_pop["population"] /= df_pop["population"].sum()
     
     return df_pop
 
@@ -163,7 +281,7 @@ def create_population_df(mask, pop_ssp_year, temperature_zones, daily_temp, tmre
 def get_regional_paf(pop_ssp_year, regions, region, year, num_days, temperature_zones, daily_temp, tmrel, 
                      df_erf_tmrel, rr_year, diseases, min_dict, max_dict, single_erf):
     
-    '''
+    """
     Get the Population Atributable Fraction per region and year by:
     1. Creating a dataframe with population weighted factors per temperature zone and daily temperature
     2. Merging the dataframe with the ERF shifted by the TMREL to assign RR values
@@ -184,7 +302,7 @@ def get_regional_paf(pop_ssp_year, regions, region, year, num_days, temperature_
     - diseases: list of diseases to calculate the RR
     - min_dict: dictionary with the minimum temperature values per temperature zone
     - max_dict: dictionary with the maximum temperature values per temperature zone
-    '''
+    """
     
     # Get mask of 
     image_region_mask = (pop_ssp_year > 0.) & (regions == region)
@@ -195,41 +313,41 @@ def get_regional_paf(pop_ssp_year, regions, region, year, num_days, temperature_
     
     if single_erf == True:
         # Merge the ERF with the grouped data to assign rr, excluding the temperature_zone column
-        df_all = pd.merge(df_pop, df_erf_tmrel,  on=['daily_temperature', 'tmrel'], how='left')
+        df_all = pd.merge(df_pop, df_erf_tmrel,  on=["daily_temperature", "tmrel"], how="left")
         
     else:
         # Merge the ERF with the grouped data to assign rr
-        df_all = pd.merge(df_pop, df_erf_tmrel,  on=['temperature_zone', 'daily_temperature', 'tmrel'], how='left')
+        df_all = pd.merge(df_pop, df_erf_tmrel,  on=["temperature_zone", "daily_temperature", "tmrel"], how="left")
 
     # Make two new dataframes separating the cold and hot attributable deaths
-    df_cold = df_all[df_all['daily_temperature'] < df_all['tmrel']].copy()
-    df_hot = df_all[df_all['daily_temperature'] > df_all['tmrel']].copy()
+    df_cold = df_all[df_all["daily_temperature"] < df_all["tmrel"]].copy()
+    df_hot = df_all[df_all["daily_temperature"] > df_all["tmrel"]].copy()
         
-    for df, temp_type in zip([df_hot, df_cold, df_all], ['hot', 'cold', 'all']):
+    for df, temp_type in zip([df_hot, df_cold, df_all], ["hot", "cold", "all"]):
         rr_to_paf(df, rr_year, diseases, year, region, temp_type)
         
         
 
 def average_erf(df):
     
-    '''
-    Average all the columns of the Exposure Response Functions dataframe except 'daily_temperature'.
+    """
+    Average all the columns of the Exposure Response Functions dataframe except "daily_temperature".
     This is useful when using a single ERF for all temperature zones.
     Parameters:
     - df: dataframe with the ERF data
     Returns:
     - df_mean: dataframe with the averaged ERF data
-    '''
+    """
     
-    # Exclude the 'temperature_zone' column from averaging
-    cols_to_average = df.columns.difference(['temperature_zone', 'tmrel'])
+    # Exclude the "temperature_zone" column from averaging
+    cols_to_average = df.columns.difference(["temperature_zone", "tmrel"])
     
-    # Calculate the mean for the selected columns, grouped by 'daily_temperature'
-    df_mean = df[cols_to_average].groupby(df['daily_temperature']).transform('mean')
+    # Calculate the mean for the selected columns, grouped by "daily_temperature"
+    df_mean = df[cols_to_average].groupby(df["daily_temperature"]).transform("mean")
     
-    # Combine the mean values with the 'temperature_zone' and 'daily_temperatures' columns
-    df_mean['tmrel'] = df['tmrel']
-    df_mean['daily_temperature'] = df['daily_temperature']
+    # Combine the mean values with the "temperature_zone" and "daily_temperatures" columns
+    df_mean["tmrel"] = df["tmrel"]
+    df_mean["daily_temperature"] = df["daily_temperature"]
     
     df_mean = df_mean.drop_duplicates().reset_index(drop=True)
         
@@ -240,13 +358,13 @@ def average_erf(df):
 
 def divide_by_tmrel(group, diseases):
     
-    '''
+    """
     This function works per temperature zone groups. It locates the row whose daily temperature equals 
     the TMREL and divides this row for the rest of them
-    '''    
+    """    
     
     # Locate the rows whose daily temperature equals the TMREL
-    fila_tmrel = group.loc[group['daily_temperature'] == group['tmrel'].iloc[0]]
+    fila_tmrel = group.loc[group["daily_temperature"] == group["tmrel"].iloc[0]]
     
     # Select first row
     reference = fila_tmrel.iloc[0][diseases]
@@ -260,7 +378,7 @@ def divide_by_tmrel(group, diseases):
 
 def shift_rr(df_erf, df_tz_tmrel, diseases):
     
-    '''
+    """
     For every temperature zone, the merging assings all the possible TMREL. 
     This implies that we will have repeated rows for the daily temperature and relative risks.
     This function divides the RR values by the RR at TMREL for each temperature zone,
@@ -271,16 +389,16 @@ def shift_rr(df_erf, df_tz_tmrel, diseases):
     - diseases: list of diseases to calculate the RR
     Returns:
     - df_erf_tmrel: dataframe with the shifted RR values
-    '''
+    """
 
     # Merge df_tz_tmrel with ERF data
-    df_erf_tmrel = pd.merge(df_erf, df_tz_tmrel, on=['temperature_zone'], how='left') 
+    df_erf_tmrel = pd.merge(df_erf, df_tz_tmrel, on=["temperature_zone"], how="left") 
     
     # Set temperature_zone as index
-    df_erf_tmrel = df_erf_tmrel.set_index('temperature_zone')
+    df_erf_tmrel = df_erf_tmrel.set_index("temperature_zone")
     
     # For each temperature zone, divide the RR by the TMREL
-    df_erf_tmrel = df_erf_tmrel.groupby('temperature_zone', group_keys=False).apply(
+    df_erf_tmrel = df_erf_tmrel.groupby("temperature_zone", group_keys=False).apply(
         lambda group: divide_by_tmrel(group, diseases))
 
     # Reset index
@@ -292,7 +410,7 @@ def shift_rr(df_erf, df_tz_tmrel, diseases):
 
 def tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones):
     
-    '''
+    """
     This will produce a dataframe with the unique combinations of temperature zones and TMREL.
     This is necessary to later merge with the ERF dataframe to shift the RR curves
     Parameters:
@@ -301,17 +419,17 @@ def tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones):
     - temperature_zones: 2-D np.array with the temperature zones per pixel
     Returns:
     - df_tz_tmrel: dataframe with unique combinations of temperature zones and TMREL
-    '''
+    """
     
     # Get any cell with population data for the selected scenario
-    mask_pop = (pop_ssp.GPOP > 0).any(dim='time')
+    mask_pop = (pop_ssp.GPOP > 0).any(dim="time")
     
     # Mask TMREL and temperature_zones arrays
     tmrel_valid_pop = tmrel[mask_pop.values]
     tz_valid_pop = temperature_zones[mask_pop.values]
     
     # Create dataframe with these data
-    df_tz_tmrel = pd.DataFrame({'temperature_zone': tz_valid_pop, 'tmrel': np.round(tmrel_valid_pop,1)})
+    df_tz_tmrel = pd.DataFrame({"temperature_zone": tz_valid_pop, "tmrel": np.round(tmrel_valid_pop,1)})
     
     # Remove duplicated rows
     df_tz_tmrel = df_tz_tmrel.drop_duplicates()
@@ -322,7 +440,7 @@ def tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones):
 
 def get_tmrel_map(wdir, year, draw_type, temp_source):
     
-    '''
+    """
     Get a single TMREL draw according to the arguments of the function
     - Mean: Calculates the mean of all draws 
     - random_draw: Selects a random draw between the 100 available
@@ -335,19 +453,19 @@ def get_tmrel_map(wdir, year, draw_type, temp_source):
     
     Returns: 
     1. 2-D np.array with the optimal temperature per pixel
-    '''
+    """
     # year = 2020
     
-    tmrel = xr.open_dataset(f'{wdir}/data/exposure_response_functions/TMRELs_{year}.nc')
+    tmrel = xr.open_dataset(f"{wdir}/data/exposure_response_functions/TMRELs_{year}.nc")
     
-    if temp_source == 'MS':
+    if temp_source == "MS":
         # Reduce resolution to 0.5x0.5 degrees
-        tmrel = tmrel.coarsen(latitude=2, longitude=2, boundary='pad').mean(skipna=True)
+        tmrel = tmrel.coarsen(latitude=2, longitude=2, boundary="pad").mean(skipna=True)
     
-    if draw_type == 'mean':
+    if draw_type == "mean":
         tmrel = tmrel.tmrel.values.mean(axis=2)
             
-    elif draw_type == 'random':
+    elif draw_type == "random":
         draw = random.randint(1,100)
         tmrel = tmrel.sel(draw=draw).tmrel.values
         
@@ -358,7 +476,7 @@ def get_tmrel_map(wdir, year, draw_type, temp_source):
             draw = draw_type
         tmrel = tmrel.sel(draw=draw).tmrel.values
         
-    print('[1.4] Theoretical Minimum Response Levels (TMREL) data loaded.')
+    print("[1.4] Theoretical Minimum Response Levels (TMREL) data loaded.")
         
     return tmrel
 
@@ -366,23 +484,23 @@ def get_tmrel_map(wdir, year, draw_type, temp_source):
 
 def linear_interp(xx, yy):
     
-    '''
+    """
     Code to make linear interpolation over a DF column.
     Used to interpolate raw ln(RR) data 
-    '''
+    """
     
-    lin_interp = sp.interpolate.interp1d(xx, yy, kind='linear', fill_value='extrapolate')    
+    lin_interp = sp.interpolate.interp1d(xx, yy, kind="linear", fill_value="extrapolate")    
     return lambda zz: lin_interp(zz)  
 
 
 
 def extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_lim, mode):
     
-    '''
+    """
     Function to extrapolate hot and cold tails of the ERF curves
-    '''
+    """
     
-    if mode=='hot':
+    if mode=="hot":
         
         # Choose index with last extreme
         index_peak = erf_tz.index[0] if len(zero_crossings) == 0 else erf_tz.index[zero_crossings[-1]]
@@ -393,7 +511,7 @@ def extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_l
             np.linspace(erf_tz.index[-1]+0.1, temp_lim, int((temp_lim - erf_tz.index[-1])/0.1)+1), 1
         )
         
-    if mode=='cold':
+    if mode=="cold":
         
         # Choose index with first extreme
         index_peak = erf_tz.index[-1] if len(zero_crossings) == 0 else erf_tz.index[zero_crossings[0]]
@@ -412,7 +530,7 @@ def extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_l
 
 def extrapolate_erf(erf):
     
-    '''
+    """
     If extrapolation is indicated, this function extrapolates the ERF curves to a defined range
     using log-linear interpolation based on the last segment of the curves.
     It identifies local extremes to determine the segments for extrapolation.
@@ -421,7 +539,7 @@ def extrapolate_erf(erf):
     - erf: DataFrame with original ERF data
     Returns:
     - erf_extrap: DataFrame with original and extrapolated ERF data
-    '''
+    """
     
     # Set extapolation range
     temp_max = 50 
@@ -451,10 +569,10 @@ def extrapolate_erf(erf):
             zero_crossings = np.where(np.diff(np.sign(dy)) != 0)[0]
             
             if erf_tz.index[-1] < temp_max:
-                extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_max, 'hot')
+                extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_max, "hot")
                 
             if erf_tz.index[0] > temp_min:
-                extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_min, 'cold')
+                extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_min, "cold")
             
     return erf_extrap  
 
@@ -462,23 +580,23 @@ def extrapolate_erf(erf):
 
 def read_erf_data(wdir, all_diseases=True):
     
-    '''
+    """
     Read the raw Exposure Response Functions of relevant diseases from the specified path.
     
     Returns:
     - erf: Dictionary containing the ERF dataframes. Relevant diseases only
     
-    '''
+    """
     if all_diseases:
-        disease_list = ['ckd', 'cvd_cmp', 'cvd_htn', 'cvd_ihd', 'cvd_stroke', 'diabetes', 'inj_animal', 'inj_disaster', 'inj_drowning', 
-                'inj_homicide', 'inj_mech', 'inj_othunintent', 'inj_suicide', 'inj_trans_other', 'inj_trans_road', 'resp_copd', 'lri']   
+        disease_list = ["ckd", "cvd_cmp", "cvd_htn", "cvd_ihd", "cvd_stroke", "diabetes", "inj_animal", "inj_disaster", "inj_drowning", 
+                "inj_homicide", "inj_mech", "inj_othunintent", "inj_suicide", "inj_trans_other", "inj_trans_road", "resp_copd", "lri"]   
     else:
-        disease_list = ['ckd', 'cvd_cmp', 'cvd_htn', 'cvd_ihd', 'cvd_stroke', 'diabetes', 'lri', 'resp_copd'] 
+        disease_list = ["ckd", "cvd_cmp", "cvd_htn", "cvd_ihd", "cvd_stroke", "diabetes", "lri", "resp_copd"] 
     
     erf_dict = {}
 
     for disease in disease_list:
-        erf_disease = pd.read_csv(f'{wdir}/data/exposure_response_functions/ERF/{disease}_curve_samples.csv', 
+        erf_disease = pd.read_csv(f"{wdir}/data/exposure_response_functions/ERF/{disease}_curve_samples.csv", 
                                   index_col=[0,1])
         erf_disease.index = pd.MultiIndex.from_arrays([erf_disease.index.get_level_values(0),
                                                        erf_disease.index.get_level_values(1).round(1)])
@@ -490,7 +608,7 @@ def read_erf_data(wdir, all_diseases=True):
 
 def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
     
-    '''
+    """
     Get a single erf draw according to the arguments of the function, the function either:
     - Mean: Calculates the mean of all draws 
     - random_draw: Selects a random draw between the 1000 available
@@ -510,32 +628,32 @@ def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
     1. Dataframe with temperature_zone, daily_temperature as Multiindex, and 
     the diseases in the columns
     2. Dicionaries with max and min daily temperatures per temperature zone
-    '''
+    """
         
     erf_dict, disease_list = read_erf_data(wdir, all_diseases=True)
     
     # Choose disease with the largest daily temperature range to create the base dataframe
     
-    # erf = pd.DataFrame(index=erf_dict['ckd'].index)
-    erf = pd.DataFrame(index = pd.MultiIndex.from_arrays([erf_dict['ckd'].index.get_level_values(0), 
-                                                          erf_dict['ckd'].index.get_level_values(1).round(1)]))
+    # erf = pd.DataFrame(index=erf_dict["ckd"].index)
+    erf = pd.DataFrame(index = pd.MultiIndex.from_arrays([erf_dict["ckd"].index.get_level_values(0), 
+                                                          erf_dict["ckd"].index.get_level_values(1).round(1)]))
 
     # Fill the dataframe with the selected draw or the mean of all draws
     for disease in disease_list:
-        if draw_type == 'mean':
+        if draw_type == "mean":
             erf[disease] = erf_dict[disease].mean(axis=1)
 
-        elif draw_type == 'random':
+        elif draw_type == "random":
             draw = random.randint(0,999)
-            erf[disease] = erf_dict[disease][f'draw_{draw}']  
+            erf[disease] = erf_dict[disease][f"draw_{draw}"]  
             
         elif isinstance(draw_type, int):
-            erf[disease] = erf_dict[disease][f'draw_{draw_type}']
+            erf[disease] = erf_dict[disease][f"draw_{draw_type}"]
      
     # Extrapolate ERF 
 
     if extrap_erf == True:
-        print('Extrapolating ERFs...')
+        print("Extrapolating ERFs...")
         erf = extrapolate_erf(erf) 
          
     else:
@@ -546,14 +664,14 @@ def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
     erf = erf.apply(lambda x: np.exp(x))
     
     # Rename for posterior merging
-    erf.rename_axis(index={'annual_temperature':'temperature_zone'}, inplace=True)  
+    erf.rename_axis(index={"annual_temperature":"temperature_zone"}, inplace=True)  
     
     # Convert MultiIndex levels into columns
     erf_reset = erf.reset_index()
     
     # Perform groupby operation using the columns
-    min_dict = erf_reset.groupby('temperature_zone')['daily_temperature'].min().to_dict()
-    max_dict = erf_reset.groupby('temperature_zone')['daily_temperature'].max().to_dict()
+    min_dict = erf_reset.groupby("temperature_zone")["daily_temperature"].min().to_dict()
+    max_dict = erf_reset.groupby("temperature_zone")["daily_temperature"].max().to_dict()
         
     # Round daily temperature values and set float64 format to posterior merging
     erf.index = pd.MultiIndex.from_frame(erf.index.to_frame(index=False).assign(
@@ -561,12 +679,12 @@ def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
     
     # Fill dataframe columns to remove NaNs in diseases that have a smaller tmeperature range
     # This "flattens" the curves !!!
-    erf = erf.groupby('temperature_zone').bfill().ffill()
+    erf = erf.groupby("temperature_zone").bfill().ffill()
 
     # Keep only temperature zones as index
-    erf = erf.reset_index().set_index('temperature_zone')
+    erf = erf.reset_index().set_index("temperature_zone")
     
-    print('[1.3] Exposure Response Functions dataframe generated.')
+    print("[1.3] Exposure Response Functions dataframe generated.")
             
     return erf, disease_list, min_dict, max_dict
 
@@ -574,17 +692,17 @@ def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
 
 def read_temperature_zones(wdir, temp_source):
     
-    '''
+    """
     Import ERA5 temperature zones and convert to numpy array
-    '''
+    """
     
     # Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(f'{wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc')
+    era5_tz = xr.open_dataset(f"{wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
     
     # Convert file to numpy array
     era5_tz = era5_tz.t2m.values
     
-    if temp_source == 'MS':
+    if temp_source == "MS":
             
         # Reshape array to 4D blocks of 2x2
         arr_reshaped = era5_tz.reshape(360, 2, 720, 2)
@@ -592,124 +710,6 @@ def read_temperature_zones(wdir, temp_source):
         # Calculate mode over the 2x2 blocks to reduce resolution
         era5_tz = sp.stats.mode(sp.stats.mode(arr_reshaped, axis=3, keepdims=False).mode, axis=1, keepdims=False).mode
     
-    print('[1.1] Temperature zones loaded as numpy array.')
+    print("[1.1] Temperature zones loaded as numpy array.")
     
     return era5_tz
-
-    
-    
-@dataclass
-class LoadResults:
-    paf_final: any
-    pop_ssp: any
-    regions: any
-    regions_range: any
-    temperature_zones: any
-    tmrel: any
-    df_erf_tmrel: any
-    diseases: any
-    min_dict: dict
-    max_dict: dict
-
-
-
-def load_files(wdir, ssp, years, region_class, temp_source, draw_type, single_erf=False, extrap_erf=False):
-    
-    '''
-    Load all the necessary files to run the main model, including:
-    - Population data netcdf file for the selected SSP scenario
-    - IMAGE regions netcdf file
-    - Temperature zones netcdf file
-    - TMREL netcdf file for the selected year (default 2020)
-    - Exposure Response Function files for the relevant diseases, with the option to get the mean of draws, 
-      a random draw or a specific draw (latest is useful for uncertainty analysis)
-    '''
-    
-    print('[1] Loading files for calculations...')
-    
-    # Load nc files that contain the temperature zones
-    temperature_zones = read_temperature_zones(wdir, temp_source)
-    
-    # Load nc files that contain the region classification selected
-    regions, regions_range = pop.read_region_classification(wdir, region_class, temp_source)
-    print(f'[1.2] Region classification ({region_class}) loaded as numpy array.')
-    
-    # Load population nc file of the selected scenario
-    pop_ssp = pop.get_annual_pop(wdir, ssp, temp_source, years)
-    
-    # Load Exposure Response Function files for the relevant diseases
-    df_erf, diseases, min_dict, max_dict = get_erf_dataframe(wdir, draw_type, extrap_erf)
-    
-    # Load file with optimal temperatures for 2020 (default year)
-    tmrel = get_tmrel_map(wdir, 2020, draw_type, temp_source)
-    
-    # Generate dataframe with RR shifted by the TMREL
-    df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), diseases)
-    
-    if single_erf == True:
-
-        df_erf_tmrel = average_erf(df_erf_tmrel)
-        
-    # Create final dataframe
-    paf_final = pd.DataFrame(index=regions_range, 
-                           columns=pd.MultiIndex.from_product([years, diseases, ['cold', 'hot', 'all']]))  
-    
-    return LoadResults(
-        paf_final=paf_final,
-        pop_ssp=pop_ssp,
-        regions=regions,
-        regions_range=regions_range,
-        temperature_zones=temperature_zones,
-        tmrel=tmrel,
-        df_erf_tmrel=df_erf_tmrel,
-        diseases=diseases,
-        min_dict=min_dict,
-        max_dict=max_dict
-    )
-
-        
-        
-def run_main(wdir, temp_dir, temp_source, ssp, years, region_class, draw_type, single_erf=False, extrap_erf=False):
-    
-    '''
-    Run the main model using ERA5 historical data
-    
-    Parameters:
-    - years: list of years to run the model
-    - ssp: string with the name of the SSP scenario
-    - single_erf: boolean, if True use a single mean ERF for all temperature zones
-    - all_diseases: boolean, if True use all diseases, if False use only metabolic and cardiovascular diseases
-    - mean: boolean, if True use the mean ERF, if False use a random draw or a specific draw
-    - random_draw: boolean, if True use a random draw, if False use a specific draw
-    - draw: integer, if not None use a specific draw (between 0 and 999)
-    '''
-    
-    # Load files needed for calculations
-    res = load_files(wdir, ssp, years, region_class, temp_source, draw_type, single_erf, extrap_erf)
-    
-    print('[2] Running main model...')
-
-    for year in years:
-        
-        daily_temp, num_days = tmp.load_temperature_type(temp_dir, temp_source, 'mean', year, res.pop_ssp)
-
-        # Select population for the corresponding year
-        pop_ssp_year = res.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values
-
-        # Set a mask of pixels for each region
-        for region in res.regions_range:
-            
-            get_regional_paf(pop_ssp_year, res.regions, region, year, num_days, res.temperature_zones, 
-                             daily_temp, res.tmrel, res.df_erf_tmrel, res.paf_final, res.diseases, res.min_dict, 
-                             res.max_dict, single_erf)
-                
-        print(f'Year {year} done') 
-        
-    erf_part = "_1erf" if single_erf else ""
-    extrap_part = "_extrap" if extrap_erf else ""
-    years_part = f"_{years[0]}-{years[-1]}"
-            
-    # Save the results and temperature statistics
-    res.paf_final.to_csv(f'{wdir}\\output\\burkart_paf_{region_class}_{temp_source}{years_part}{extrap_part}{erf_part}.csv')  
-    
-    print('[3] Model run complete. Results saved.')
