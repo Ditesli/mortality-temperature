@@ -17,7 +17,7 @@ def get_all_population_data(wdir, return_pop=False):
 
     # Concatenate population data for all SSP scenarios
     pop_all_ssp = xr.concat(
-        [get_annual_pop(wdir, ssp, years=range(2000, 2101)) for ssp in SSPs],
+        [LoadPopulationMap(wdir, ssp, years=range(2000, 2101)) for ssp in SSPs],
         dim='ssp'
     )
 
@@ -35,7 +35,7 @@ def get_all_population_data(wdir, return_pop=False):
 
 
 
-def get_annual_pop(wdir, ssp, years):
+def LoadPopulationMap(wdir, ssp, years):
     
     '''
     Read scenario-dependent population data, interpolate it to yearly data, 
@@ -60,7 +60,7 @@ def get_annual_pop(wdir, ssp, years):
     
     
     
-def read_region_classification(wdir, region_class, scenario):
+def LoadRegionClassificationMap(wdir, region_class, scenario):
     
     '''
     Load the region classification selected (IMAGE26 or country level) and return as numpy array 

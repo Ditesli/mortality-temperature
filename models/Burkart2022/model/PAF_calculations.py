@@ -2,37 +2,79 @@ import pandas as pd
 import numpy as np
 import scipy as sp
 import xarray as xr
-import random
-from dataclasses import dataclass
-import re, sys, os
+import re, sys, os, random
+from dataclasses import dataclass, field
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
 from utils_common import population as pop
 
 
 
-diseases = {"ckd":"Chronic kidney disease", 
-            "cvd_cmp":"Cardiomyopathy and myocarditis", 
-            "cvd_htn":"Hypertensive heart disease", 
-            "cvd_ihd":"Ischemic heart disease", 
-            "cvd_stroke":"Stroke", 
-            "diabetes":"Diabetes mellitus",
-            "inj_animal":"Animal contact", 
-            "inj_disaster":"Exposure to forces of nature", 
-            "inj_drowning":"Drowning", 
-            "inj_homicide":"Interpersonal violence", 
-            "inj_mech":"Exposure to mechanical forces", 
-            "inj_othunintent":"Other unintentional injuries", 
-            "inj_suicide":"Self-harm", 
-            "inj_trans_other":"Other transport injuries", 
-            "inj_trans_road":"Road injuries", 
-            "resp_copd":"Chronic obstructive pulmonary disease", 
-            "lri":"Lower respiratory infections"}
+def CalculatePAF(
+    wdir: str,
+    temp_dir: str,
+    project: str,
+    scenario: str,
+    years: list,
+    regions: str,
+    draw: any,
+    single_erf: bool,
+    extrap_erf: bool
+    ):
+
+    sets = ModelSettings(
+        wdir=wdir,
+        temp_dir=temp_dir,
+        project=project,
+        scenario=scenario,
+        years=years,
+        regions=regions,
+        draw=draw,
+        single_erf=single_erf,
+        extrap_erf=extrap_erf,
+    )
+
+    model = PAFModel(sets=sets)
+
+    model.run()
+    
 
 
+@dataclass
+class ModelSettings:
+    wdir: str
+    temp_dir: str
+    project: str
+    scenario: str
+    years: list
+    regions: str 
+    draw: any
+    single_erf: bool
+    extrap_erf: bool
+    diseases: dict = field(default_factory=lambda: {
+        "ckd":"Chronic kidney disease", 
+        "cvd_cmp":"Cardiomyopathy and myocarditis", 
+        "cvd_htn":"Hypertensive heart disease", 
+        "cvd_ihd":"Ischemic heart disease", 
+        "cvd_stroke":"Stroke", 
+        "diabetes":"Diabetes mellitus",
+        "inj_animal":"Animal contact", 
+        "inj_disaster":"Exposure to forces of nature", 
+        "inj_drowning":"Drowning", 
+        "inj_homicide":"Interpersonal violence", 
+        "inj_mech":"Exposure to mechanical forces", 
+        "inj_othunintent":"Other unintentional injuries", 
+        "inj_suicide":"Self-harm", 
+        "inj_trans_other":"Other transport injuries", 
+        "inj_trans_road":"Road injuries", 
+        "resp_copd":"Chronic obstructive pulmonary disease", 
+        "lri":"Lower respiratory infections"
+    })
 
 
-def run_main(wdir, temp_dir, project, scenario, years, region_class, draw_type, single_erf, extrap_erf):
+@dataclass
+class PAFModel:
+    sets: ModelSettings
     
     """
     Run the main model using ERA5 historical data
@@ -47,45 +89,49 @@ def run_main(wdir, temp_dir, project, scenario, years, region_class, draw_type, 
     - draw: integer, if not None use a specific draw (between 0 and 999)
     """
     
-    # Load files needed for calculations
-    res = load_files(wdir, scenario, years, region_class, draw_type, single_erf, extrap_erf)
-    
-    print("[2] Running main model...")
-
-    for year in years:
+    def load_inputs(self):
+        self.fls = LoadInputData.from_files(sets=self.sets)
         
-        daily_temp, num_days = tmp.load_temperature_type(temp_dir, scenario, "mean", year, res.pop_ssp)
-
-        # Select population for the corresponding year
-        pop_ssp_year = res.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values
-
-        # Set a mask of pixels for each region
-        for region in res.regions_range:
-            
-            get_regional_paf(pop_ssp_year, res.regions, region, year, num_days, res.temperature_zones, 
-                             daily_temp, res.tmrel, res.df_erf_tmrel, res.paf_final, res.diseases, res.min_dict, 
-                             res.max_dict, single_erf)
-                
-        print(f"Year {year} done") 
+    def run(self):
+        print(f"Running model for project {self.sets.project} and scenario {self.sets.scenario}...")
+        self.load_inputs()
         
-    erf_part = "_1erf" if single_erf else ""
-    extrap_part = "_extrap" if extrap_erf else ""
-    years_part = f"_{years[0]}-{years[-1]}"
+        print("[2] Starting PAF calculations...")
+        
+        for year in self.sets.years:
+            CalculatePAFYear(
+                sets=self.sets,
+                fls=self.sets,
+                year=year
+                )
             
-    # Save the results and temperature statistics
-    res.paf_final.to_csv(f"{wdir}\\output\\PAF_{project}_{scenario}_{region_class}_{years_part}{extrap_part}{erf_part}.csv")  
-    
-    print("[3] Model run complete. Results saved.")
+        self.postprocess()
+        
+    def postprocess(self):
+        PostprocessResults(sets=self.sets, fls=self.fls)
     
    
     
 @dataclass
-class LoadResults:
+class LoadInputData:
+    
+    """
+    Container for all input data required to run the model.
+
+    Attributes
+    ----------
+    temperature_zones: np.ndarray
+        Array with temperature zones per grid cell and aligned with daily temperature resolution.
+    regions: any
+
+    """
+    
+    temperature_zones: np.ndarray
     paf_final: any
     pop_ssp: any
     regions: any
     regions_range: any
-    temperature_zones: any
+    
     tmrel: any
     df_erf_tmrel: any
     diseases: any
@@ -93,60 +139,71 @@ class LoadResults:
     max_dict: dict
 
 
-
-def load_files(wdir, scenario, years, region_class, draw_type, single_erf, extrap_erf):
-    
-    """
-    Load all the necessary files to run the main model, including:
-    - Population data netcdf file for the selected SSP scenario
-    - IMAGE regions netcdf file
-    - Temperature zones netcdf file
-    - TMREL netcdf file for the selected year (default 2020)
-    - Exposure Response Function files for the relevant diseases, with the option to get the mean of draws, 
-      a random draw or a specific draw (latest is useful for uncertainty analysis)
-    """
-    
-    print("[1] Loading files for calculations...")
-    
-    # Load nc files that contain the temperature zones
-    temperature_zones = read_temperature_zones(wdir, scenario)
-    
-    # Load nc files that contain the region classification selected
-    regions, regions_range = pop.read_region_classification(wdir, region_class, scenario)
-    print(f"[1.2] Region classification ({region_class}) loaded as numpy array.")
-    
-    # Load population nc file of the selected scenario
-    pop_ssp = pop.get_annual_pop(wdir, scenario, years)
-    
-    # Load Exposure Response Function files for the relevant diseases
-    df_erf, diseases, min_dict, max_dict = get_erf_dataframe(wdir, draw_type, extrap_erf)
-    
-    # Load file with optimal temperatures for 2020 (default year)
-    tmrel = get_tmrel_map(wdir, 2020, draw_type, scenario)
-    
-    # Generate dataframe with RR shifted by the TMREL
-    df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), diseases)
-    
-    if single_erf == True:
-
-        df_erf_tmrel = average_erf(df_erf_tmrel)
+    @classmethod
+    def from_files(cls, sets):
         
-    # Create final dataframe
-    paf_final = pd.DataFrame(index=regions_range, 
-                           columns=pd.MultiIndex.from_product([years, diseases, ["cold", "hot", "all"]]))  
+        """
+        Read and load all input files required for PAF calculations. Data is located in 
+        the wdir/data folder.  
+        """
+        
+        print("[1] Loading files for calculations...")
+        
+        temperature_zones = LoadTemperatureZones(sets.wdir, sets.scenario)
+        
+        print(f"[1.2] Loading region classification ({sets.region_class}) map...")
+        regions, regions_range = pop.LoadRegionClassificationMap(sets.wdir, sets.region_class, sets.scenario)
+        
+        print("[1.3] Loading SSP population data...")
+        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, sets.years)
+        
+        print("[1.3] Loading Exposure Response Functions (ERFs)...")
+        df_erf, diseases, min_dict, max_dict = get_erf_dataframe(sets.wdir, sets.draw_type, sets.extrap_erf)
+        
+        print("[1.3] Theoretical Minimum Risk Exposure Levels (TMRELs)...")
+        tmrel = get_tmrel_map(sets.wdir, 2010, sets.draw, sets.scenario) # Deafult years: 2010
+        
+        print("[1.4] Generate Rleative Risks (RRs) shifted by TMRELs...")
+        df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), diseases)
+        
+        if sets.single_erf == True:
+            print("[1.4.1] Generating single ERF per disease...")
+            df_erf_tmrel = average_erf(df_erf_tmrel)
+            
+        print("[1.5] Creating final dataframe to store results...")
+        paf_final = pd.DataFrame(index=regions_range, 
+                            columns=pd.MultiIndex.from_product([sets.years, diseases, ["cold", "hot", "all"]]))  
+        
+        return cls(
+            paf_final=paf_final,
+            pop_ssp=pop_ssp,
+            regions=regions,
+            regions_range=regions_range,
+            temperature_zones=temperature_zones,
+            tmrel=tmrel,
+            df_erf_tmrel=df_erf_tmrel,
+            diseases=diseases,
+            min_dict=min_dict,
+            max_dict=max_dict
+        )
+        
+        
+        
+def CalculatePAFYear(sets, fls, year):
     
-    return LoadResults(
-        paf_final=paf_final,
-        pop_ssp=pop_ssp,
-        regions=regions,
-        regions_range=regions_range,
-        temperature_zones=temperature_zones,
-        tmrel=tmrel,
-        df_erf_tmrel=df_erf_tmrel,
-        diseases=diseases,
-        min_dict=min_dict,
-        max_dict=max_dict
-    )
+    print(f"Calculating Population Attributable Fraction for year {year}...") 
+    
+    daily_temp, num_days = tmp.load_temperature_type(sets.temp_dir, sets.scenario, "mean", year, fls.pop_ssp)
+
+    # Select population for the corresponding year
+    pop_ssp_year = fls.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values
+
+    # Set a mask of pixels for each region
+    for region in sets.regions_range:
+        
+        get_regional_paf(pop_ssp_year, sets.regions, region, year, num_days, fls.temperature_zones, 
+                            daily_temp, fls.tmrel, fls.df_erf_tmrel, fls.paf_final, sets.diseases, fls.min_dict, 
+                            fls.max_dict, sets.single_erf)
 
 
 
@@ -690,26 +747,40 @@ def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
 
 
 
-def read_temperature_zones(wdir, scenario):
+def LoadTemperatureZones(wdir, scenario):
     
     """
     Import ERA5 temperature zones and convert to numpy array
     """
     
-    # Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(f"{wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+    print("[1.1] Loading temperature zones as numpy array...")
     
-    # Convert file to numpy array
-    era5_tz = era5_tz.t2m.values
+    # Import ERA5 temperature zones
+    era5_tz = (
+        xr.open_dataset(f"{wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+        .t2m.values
+    )
     
     if not re.search(r"SSP[1-5]_ERA5", scenario):
             
         # Reshape array to 4D blocks of 2x2
         arr_reshaped = era5_tz.reshape(360, 2, 720, 2)
-
         # Calculate mode over the 2x2 blocks to reduce resolution
         era5_tz = sp.stats.mode(sp.stats.mode(arr_reshaped, axis=3, keepdims=False).mode, axis=1, keepdims=False).mode
     
-    print("[1.1] Temperature zones loaded as numpy array.")
-    
     return era5_tz
+
+
+
+def PostprocessResults(sets, fls):
+        
+    print("[3] Model run complete. Saving results...")
+    
+    erf_part = "_1erf" if sets.single_erf else ""
+    extrap_part = "_extrap" if sets.extrap_erf else ""
+    years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+            
+    # Save the results and temperature statistics
+    fls.paf_final.to_csv(f"{sets.wdir}\\output\\PAF_{sets.project}_{sets.scenario}_{sets.region_class}_{years_part}{extrap_part}{erf_part}.csv")  
+    
+    print("Model ran succesfully!")
