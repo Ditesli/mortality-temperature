@@ -155,11 +155,10 @@ class LoadInputData:
         
         df_erf, min_dict, max_dict = LoadExposureResponseFunctions(sets)
         tmrel = LoadTMRELsMap(sets, 2010) # Default years: 2010
-        df_erf_tmrel = ShiftRRfromTMREL(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), sets.diseases)
+        df_erf_tmrel = ShiftRRfromTMREL(df_erf, pop_ssp, tmrel, temperature_zones, sets.diseases)
         
         if sets.single_erf == True:
-            print("[1.4.1] Generating single ERF per disease...")
-            df_erf_tmrel = average_erf(df_erf_tmrel)
+            df_erf_tmrel = AverageToSingleERF(df_erf_tmrel)
             
         print("[1.5] Creating final dataframe to store results...")
         paf_final = pd.DataFrame(index=regions_range, 
@@ -173,6 +172,7 @@ class LoadInputData:
             regions_range=regions_range,
             temperature_zones=temperature_zones,
             tmrel=tmrel,
+            df_erf_tmrel=df_erf_tmrel,
             min_dict=min_dict,
             max_dict=max_dict
         )
@@ -379,6 +379,77 @@ def LoadTMRELsMap(sets, year):
         
     return tmrel
 
+
+
+def ShiftRRfromTMREL(df_erf, pop_ssp, tmrel, temperature_zones, diseases):
+    
+    """
+    Every temperature zone gets assings all the possible TMREL (with positive POP). 
+    The dataframe is later merged with the ERF to divide the RR values by the RR at 
+    TMREL for each temperature zone, shifting the curves so that RR=1 at TMREL.
+    """
+            
+    print("[1.4] Shifting Relative Risks (RRs) relative to TMRELs...")
+    
+    
+    def divide_by_tmrel(group, diseases):
+        
+        """
+        Locates per temperature zone the row whose daily temperature equals 
+        the TMREL to divide the rest of rows.
+        """    
+        
+        # Locate the rows whose daily temperature equals the TMREL
+        row_tmrel = group.loc[group["daily_temperature"] == group["tmrel"].iloc[0]]
+        # Divide by first row to shift the RR vertically
+        group[diseases] = group[diseases] / row_tmrel.iloc[0][diseases]
+        
+        return group
+
+    
+    # Mask TMREL and temperature_zones arrays with valid POP
+    mask_pop = (pop_ssp.GPOP > 0).any(dim="time")
+    tmrel_valid_pop = tmrel[mask_pop.values]
+    tz_valid_pop = temperature_zones[mask_pop.values]
+
+    
+    df_erf_tmrel = (
+        pd.DataFrame({"temperature_zone": tz_valid_pop, "tmrel": np.round(tmrel_valid_pop,1)})
+        .drop_duplicates()
+        .merge(df_erf, on=["temperature_zone"], how="right") # Merge with ERF data
+        .set_index("temperature_zone")  # Set temperature_zone as index
+        .groupby("temperature_zone", group_keys=False).apply( # For each tz, divide RR by TMREL
+            lambda group: divide_by_tmrel(group, list(diseases.keys())))
+        .reset_index()
+    )
+
+    return df_erf_tmrel
+
+        
+
+def AverageToSingleERF(df):
+    
+    """
+    Average all the columns of the Exposure Response Functions dataframe except 
+    "daily_temperature" to get a single ERF for all temperature zones.
+    """
+    
+    print("[1.4.1] Generating single ERF per disease...")
+    
+    # Exclude the "temperature_zone" and "tmrel" columns from averaging
+    cols_to_average = df.columns.difference(["temperature_zone", "tmrel"])
+    
+    # Calculate the mean for the selected columns, grouped by "daily_temperature"
+    df_mean = df[cols_to_average].groupby(df["daily_temperature"]).transform("mean")
+    
+    # Combine the mean values with the "temperature_zone" and "daily_temperatures" columns
+    df_mean["tmrel"] = df["tmrel"]
+    df_mean["daily_temperature"] = df["daily_temperature"]
+    
+    df_mean = df_mean.drop_duplicates().reset_index(drop=True)
+        
+    return df_mean
+
      
         
 def CalculatePAFYear(sets, fls, year):
@@ -575,118 +646,6 @@ def get_regional_paf(pop_ssp_year, regions, region, year, num_days, temperature_
     for df, temp_type in zip([df_heat, df_cold, df_all], ["heat", "cold", "all"]):
         rr_to_paf(df, rr_year, diseases, year, region, temp_type)
         
-        
-
-def average_erf(df):
-    
-    """
-    Average all the columns of the Exposure Response Functions dataframe except "daily_temperature".
-    This is useful when using a single ERF for all temperature zones.
-    Parameters:
-    - df: dataframe with the ERF data
-    Returns:
-    - df_mean: dataframe with the averaged ERF data
-    """
-    
-    # Exclude the "temperature_zone" column from averaging
-    cols_to_average = df.columns.difference(["temperature_zone", "tmrel"])
-    
-    # Calculate the mean for the selected columns, grouped by "daily_temperature"
-    df_mean = df[cols_to_average].groupby(df["daily_temperature"]).transform("mean")
-    
-    # Combine the mean values with the "temperature_zone" and "daily_temperatures" columns
-    df_mean["tmrel"] = df["tmrel"]
-    df_mean["daily_temperature"] = df["daily_temperature"]
-    
-    df_mean = df_mean.drop_duplicates().reset_index(drop=True)
-        
-    
-    return df_mean
-
-
-
-def divide_by_tmrel(group, diseases):
-    
-    """
-    This function works per temperature zone groups. It locates the row whose daily temperature equals 
-    the TMREL and divides this row for the rest of them
-    """    
-    
-    # Locate the rows whose daily temperature equals the TMREL
-    fila_tmrel = group.loc[group["daily_temperature"] == group["tmrel"].iloc[0]]
-    
-    # Select first row
-    reference = fila_tmrel.iloc[0][diseases]
-    
-    # Divide to shift the RR vertically
-    group[diseases] = group[diseases] / reference
-    
-    return group
-
-
-
-def ShiftRRfromTMREL(df_erf, df_tz_tmrel, diseases):
-    
-    """
-    For every temperature zone, the merging assings all the possible TMREL. 
-    This implies that we will have repeated rows for the daily temperature and relative risks.
-    This function divides the RR values by the RR at TMREL for each temperature zone,
-    effectively shifting the curves so that RR=1 at TMREL.
-    Parameters:
-    - df_erf: dataframe with the ERF data
-    - df_tz_tmrel: dataframe with unique combinations of temperature zones and TMREL
-    - diseases: list of diseases to calculate the RR
-    Returns:
-    - df_erf_tmrel: dataframe with the shifted RR values
-    """
-            
-    print("[1.4] Shifting Relative Risks (RRs) relative to TMRELs...")
-
-    # Merge df_tz_tmrel with ERF data
-    df_erf_tmrel = pd.merge(df_erf, df_tz_tmrel, on=["temperature_zone"], how="left") 
-    
-    # Set temperature_zone as index
-    df_erf_tmrel = df_erf_tmrel.set_index("temperature_zone")
-    
-    # For each temperature zone, divide the RR by the TMREL
-    df_erf_tmrel = df_erf_tmrel.groupby("temperature_zone", group_keys=False).apply(
-        lambda group: divide_by_tmrel(group, diseases))
-
-    # Reset index
-    df_erf_tmrel = df_erf_tmrel.reset_index()
-
-    return df_erf_tmrel
-
-
-
-def tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones):
-    
-    """
-    This will produce a dataframe with the unique combinations of temperature zones and TMREL.
-    This is necessary to later merge with the ERF dataframe to shift the RR curves
-    Parameters:
-    - pop_ssp: xarray with population data for the selected scenario
-    - tmrel: 2-D np.array with the optimal temperature per pixel
-    - temperature_zones: 2-D np.array with the temperature zones per pixel
-    Returns:
-    - df_tz_tmrel: dataframe with unique combinations of temperature zones and TMREL
-    """
-    
-    # Get any cell with population data for the selected scenario
-    mask_pop = (pop_ssp.GPOP > 0).any(dim="time")
-    
-    # Mask TMREL and temperature_zones arrays
-    tmrel_valid_pop = tmrel[mask_pop.values]
-    tz_valid_pop = temperature_zones[mask_pop.values]
-    
-    # Create dataframe with these data
-    df_tz_tmrel = pd.DataFrame({"temperature_zone": tz_valid_pop, "tmrel": np.round(tmrel_valid_pop,1)})
-    
-    # Remove duplicated rows
-    df_tz_tmrel = df_tz_tmrel.drop_duplicates()
-    
-    return df_tz_tmrel
-
 
 
 def PostprocessResults(sets, fls):
