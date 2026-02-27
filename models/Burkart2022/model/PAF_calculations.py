@@ -118,20 +118,34 @@ class LoadInputData:
     Attributes
     ----------
     temperature_zones: np.ndarray
-        Array with temperature zones per grid cell and aligned with daily temperature resolution.
-    regions: any
-
+        2D array with temperature zones per grid cell aligned with daily temperature resolution.
+    regions: np.ndarray
+        2D array with region locations per grid cell aligned with daily temperature resolution.
+    regions_range: np.ndarray
+        1D array with location indices,
+    pop_ssp: np.ndarray
+        2D array with population per grid cell aligned with daily temperature resolution.
+    min_dict: dict
+        Minimum daily temperature of the ERF per disease.
+    max_dict: dict
+        Maximum daily temperature of the ERF per disease.
+    tmrel: np.ndarray
+        2D array with TMRELs per grid cell aligned with daily temperature resolution.
+    df_erf_tmrel: pd.DataFrame
+        Dataframe with unique combinations of temperature zones and TMRELs per location.
+    paf_final: pd.DataFrame
+        Dataframe to store Population Attributable Fraction results.
     """
     
     temperature_zones: np.ndarray
-    paf_final: any
-    pop_ssp: any
-    regions: any
-    regions_range: any
-    tmrel: any
-    df_erf_tmrel: any
+    regions: np.ndarray
+    regions_range: np.ndarray
+    pop_ssp: np.ndarray
     min_dict: dict
     max_dict: dict
+    tmrel: np.ndarray
+    df_erf_tmrel: pd.DataFrame
+    paf_final: pd.DataFrame
 
 
     @classmethod
@@ -161,20 +175,22 @@ class LoadInputData:
             df_erf_tmrel = AverageToSingleERF(df_erf_tmrel)
             
         print("[1.5] Creating final dataframe to store results...")
-        paf_final = pd.DataFrame(index=regions_range, 
-                            columns=pd.MultiIndex.from_product([sets.years, sets.diseases, ["cold", "heat", "all"]]))  
+        paf_final = pd.DataFrame(
+            index=regions_range, 
+            columns=pd.MultiIndex.from_product([sets.years, sets.diseases, ["cold", "heat", "all"]])
+            )  
         
         
         return cls(
-            paf_final=paf_final,
-            pop_ssp=pop_ssp,
+            temperature_zones=temperature_zones,
             regions=regions,
             regions_range=regions_range,
-            temperature_zones=temperature_zones,
+            pop_ssp=pop_ssp,
+            min_dict=min_dict,
+            max_dict=max_dict,           
             tmrel=tmrel,
             df_erf_tmrel=df_erf_tmrel,
-            min_dict=min_dict,
-            max_dict=max_dict
+            paf_final=paf_final
         )
     
 
