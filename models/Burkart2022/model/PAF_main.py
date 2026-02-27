@@ -12,8 +12,8 @@ paf.CalculatePAF(wdir=config["wdir"],   # Working directory
                  project=config["project"], # Temperature data source
                  scenario=config["scenario"],   # SSP scenario
                  years=range(config["start_year"],config["end_year"]),  # Years range
-                 region_class=config["region_class"],   # Region classification 
-                 draw_type=config["draw_type"],  # Mean RR or specific/random draw
+                 regions=config["region_class"],   # Region classification 
+                 draw=config["draw_type"],  # Mean RR or specific/random draw
                  single_erf=config["single_erf"],   # Single ERF or use temperature zones
                  extrap_erf=config["extrap_erf"]   # Extrapolate ERF(s)
                  )
