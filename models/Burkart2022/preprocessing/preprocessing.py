@@ -15,9 +15,7 @@ def main():
 
     utils.GenerateTemperatureZones(wdir, config["path_era5"])
     utils.GenerateRasterGBDLocations(wdir)
-
-    for year in [1990, 2000, 2020]:
-        utils.GenerateTMRELsRasters(wdir, year)
+    utils.GenerateTMRELsRasters(wdir)
         
         
 if __name__ == "__main__":

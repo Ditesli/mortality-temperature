@@ -211,28 +211,27 @@ def ImportTMRELsFiles(wdir, year):
     get the unique loc_ids.
     """
     
-    # Open rasterized GBD level 3 locations and convert to numpy array
-    gbd_rasterized = xr.open_dataset(f"{wdir}/data/regions_classification/GBD/GBD_locations_level3.nc")
-    gbd_rasterized = gbd_rasterized.loc_id.values
+    # Open rasterized GBD level 3 locations 
+    gbd_rasterized = (
+        xr.open_dataset(f"{wdir}/data/gbd_locations/GBD_locations_level3.nc")
+        .loc_id.values # Convert to numpy array
+    )
 
-    # Get unique location IDs, excluding -1 and NaN and covert to integers
+    # Unique location IDs, excluding -1 and NaN, as integers
     loc_ids = np.unique(gbd_rasterized)[1:-1].astype(int)
-
-    # Create an empty list to store filtered DataFrames
-    df_list = []
-
+    
     # Loop through each location ID level 3
+    df_list = []
     for loc_id in loc_ids:
-        file_path = wdir+f"data/exposure_response_functions/TMRELs/tmrel_{loc_id}.csv"
-        
-        # Read the CSV file into a DataFrame with a multi-index
-        df = pd.read_csv(file_path, index_col=[0, 1, 2])
 
-        # Filter the DataFrame for the year -----> This can be 1990, 2010, 2020
-        df_filtered = df.xs(year, axis=0, level=1)
+        tmrel = (
+            pd.read_csv(wdir+f"/data/burkart_sm/TMRELs/tmrel_{loc_id}.csv",
+                        index_col=[0, 1, 2])
+            .xs(year, axis=0, level=1) # Filter selected year ---> 1990, 2010, 2020
+        )
 
         # Append the filtered DataFrame to the list
-        df_list.append(df_filtered)
+        df_list.append(tmrel)
 
     # Concatenate all filtered DataFrames into a single DataFrame
     gbd_tmrel = pd.concat(df_list, axis=0)
@@ -241,123 +240,76 @@ def ImportTMRELsFiles(wdir, year):
 
 
 
-def ReadTemperatureZones(wdir):
-    
-    """
-    Read ERA5 temperature zones raster file and convert to numpy array
-    """
-        
-    # Import ERA5 temperature zones
-    era5_tz = xr.open_dataset(wdir+"data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
-
-    # Convert file to numpy array
-    era5_tz = era5_tz.t2m.values
-    
-    return era5_tz
-
-
-
-def GenerateTMRELsRasters(wdir, year):
+def GenerateTMRELsRasters(wdir):
 
     """ 
-    Create a new 3D array with the same dimensions as the population data and a 
-    third dimension for the TMREL draws
+    Create a 3D raster with the same dimensions as the population data and a 
+    third dimension for the TMREL draws.
     """
     
-    print(f"Generating TMRELs for year {year}...")
+    print("Generating TMRELs rasters...")
     
-    # Import GBD rasterized locations, TMRELs and temperature zones
-    gbd_rasterized, gbd_tmrel = ImportTMRELsFiles(wdir, year)
+    print("[1] Importing GBD locations, TMRELs and temperature zones...")
+    
+    # Import population mask
     mask_pop = pop.get_all_population_data(wdir, return_pop=False)
-    temperature_zones = ReadTemperatureZones(wdir)
     
-    print("[1] GBD locations, TMRELs and temperature zones imported.")
+    # Import Temperature Zones
+    temperature_zones = (
+        xr.open_dataset(wdir+"/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+        .t2m.values # Convert to numpy array
+    )
     
-    # Create empty 3D array for TMRELs
-    tmrel_array = np.empty((720, 1440, 100))
-
-    for i in range(gbd_rasterized.shape[0]):
+    for year in [1990, 2010, 2020]:
         
-        for j in range(gbd_rasterized.shape[1]):
-            
-            loc_id = gbd_rasterized[i, j]
-            temp_zone = temperature_zones[i, j]
-            
-            # Skip if either value is NaN
-            if np.isnan(loc_id) or np.isnan(temp_zone):
-                tmrel_array[i, j, :] = np.nan
+        print(f"[2] TMRELs for year {year}...")
+    
+        # Import TMRELs
+        gbd_rasterized, gbd_tmrel = ImportTMRELsFiles(wdir, year)    
+        
+        print("[2.1] Assigning each GBD location and temeprature zone its corresponding TMREL...")
+        
+        # Create empty 3D array for TMRELs with predefined resolution
+        tmrel_array = np.empty((720, 1440, 100))
+
+        # Scan every grid cell
+        for i in range(gbd_rasterized.shape[0]):
+            for j in range(gbd_rasterized.shape[1]):
                 
-            # Handle valid loc_id and temp_zone
-            else:
-                # Check if the index exists in the DataFrame
-                if (loc_id, temp_zone) in gbd_tmrel.index:
-                    tmrel_array[i, j, :] = gbd_tmrel.loc[(loc_id, temp_zone)].values
-                # Handle missing indices
+                loc_id = gbd_rasterized[i, j]
+                temp_zone = temperature_zones[i, j]
+                
+                # Skip if either value is NaN
+                if np.isnan(loc_id) or np.isnan(temp_zone):
+                    tmrel_array[i, j, :] = np.nan
+                    
+                # Handle valid loc_id and temp_zone
                 else:
-                    tmrel_array[i, j, :] = np.nan  
-                    
-    print("[2] TMRELs array populated.")
-                    
-    # Convert to xarray DataArray
-    tmrel_xarray = xr.DataArray(tmrel_array, dims=("latitude", "longitude", "draw"), 
-                                coords=dict(latitude=mask_pop.latitude.values,
-                                            longitude=mask_pop.longitude.values, 
-                                            draw=np.arange(1, 101)))
-    tmrel_xarray.name = "tmrel"
+                    # Check if the index exists in the DataFrame
+                    if (loc_id, temp_zone) in gbd_tmrel.index:
+                        tmrel_array[i, j, :] = gbd_tmrel.loc[(loc_id, temp_zone)].values
+                    # Handle missing indices
+                    else:
+                        tmrel_array[i, j, :] = np.nan  
+                        
+        print(f"[2.2] Converting {year} TMRELs to xarray and saving them as nc file...")
+                        
+        # Convert to xarray DataArray
+        tmrel_xarray = xr.DataArray(
+            tmrel_array, 
+            dims=("latitude", "longitude", "draw"), 
+            coords=dict(
+                latitude=mask_pop.latitude.values,
+                longitude=mask_pop.longitude.values, 
+                draw=np.arange(1, 101)
+            ),
+        name= "tmrel"
+        )
 
-    # Interpolate TMREL to areas with NaN but population is positive (maily coasts and islands)
-    interpolated_tmrel = FillMissingWithNearest(tmrel_xarray, mask_pop.GPOP)
+        # Interpolate TMREL to areas with NaN but population is positive (maily coasts and islands)
+        interpolated_tmrel = FillMissingWithNearest(tmrel_xarray, mask_pop.GPOP)
 
-    # Save file in GBD_Data folder
-    interpolated_tmrel.to_netcdf(wdir+f"data/exposure_response_functions/TMRELs_{year}.nc")
-    
-    print(f"[3] TMRELs for year {year} generated and saved.")
-    
-    
-    
-def GenerateGDPRasters(wdir, gdp_dir, year):
-    
-    """
-    Convert GDP and GDPPC to xarray for future analysis and calculations
-    """
-
-    # Load GBD shapefile with level 3 locations
-    gbd_locations_level3 = gpd.read_file(f"{wdir}\\GBD_Data\\GBD_locations\\Shapefile\\GBD_shapefile.shp")
-    
-    # Open and preprocess population data and set mask for ALL cells with population
-    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
-
-    # Load files
-    gdp = pd.read_excel(gdp_dir+"iamc_db gdp.xlsx")
-    gdppc = pd.read_excel(gdp_dir+"iamc_db gdppc.xlsx")
-
-    # Select closest year to 2019 and SSP2 data
-    gdp_year = gdp[gdp["Scenario"] == "SSP2"][["Region", year]].rename(columns={year:"gdp"})
-    gdppc_year = gdppc[gdppc["Scenario"] == "SSP2"][["Region", year]].rename(columns={year:"gdppc"})
-
-    # Merge to gbd locations shapefile
-    gbd_locations_level3_gdp = gbd_locations_level3.merge(gdp_year, right_on="Region", left_on="ihme_lc_id", how="left")
-    gbd_locations_level3_gdppc = gbd_locations_level3.merge(gdppc_year, right_on="Region", left_on="ihme_lc_id", how="left")
-
-    # Convert geopandas dataframe to xarray using location ID label for the pixel values
-    gbd_rasterized_gdp = ConvertVectorToRaster(mask_pop, gbd_locations_level3_gdp, "gdp", set_zero_to_nan=True)
-    gbd_rasterized_gdppc = ConvertVectorToRaster(mask_pop, gbd_locations_level3_gdppc, "gdppc", set_zero_to_nan=True)
-
-    gbd_rasterized_gdp_gdppc = xr.merge([gbd_rasterized_gdp, gbd_rasterized_gdppc])
-    gbd_rasterized_gdp_gdppc.to_netcdf(f"{wdir}\\SocioeconomicData\\EconomicData\\GDP_SSP2_{year}.nc")
-
-    # Select only data from original countries 
-    original_countries = ["BRA", "CHL", "CHN", "COL", "GTM", "MEX", "NZL", "ZAF", "USA"]
-    gdp_countries = gdp[(gdp["Region"].isin(original_countries)) & (gdp["Scenario"] == "SSP2")][["Region", year]].rename(columns={year:"gdp"})
-    gdppc_countries = gdppc[(gdppc["Region"].isin(original_countries)) & (gdppc["Scenario"] == "SSP2")][["Region", year]].rename(columns={year:"gdp"})
-
-    # Merge to gbd locations shapefile
-    gbd_locations_countries_gdp = gbd_locations_level3.merge(gdp_countries, right_on="Region", left_on="ihme_lc_id", how="left")
-    gbd_locations_countries_gdppc = gbd_locations_level3.merge(gdppc_countries, right_on="Region", left_on="ihme_lc_id", how="left")
-
-    # Convert geopandas dataframe to xarray using location ID label for the pixel values
-    gbd_rasterized_countries_gdp = ConvertVectorToRaster(mask_pop, gbd_locations_countries_gdp, "gdp", set_zero_to_nan=True)
-    gbd_rasterized_countries_gdppc = ConvertVectorToRaster(mask_pop, gbd_locations_countries_gdppc, "gdppc", set_zero_to_nan=True)
-
-    gbd_rasterized_countries_gdp_gdppc = xr.merge([gbd_rasterized_countries_gdp, gbd_rasterized_countries_gdppc])
-    gbd_rasterized_countries_gdp_gdppc.to_netcdf(f"{wdir}\\SocioeconomicData\\EconomicData\\GDP_SSP2_{year}_OriginalCountries.nc")
+        # Save file in GBD_Data folder
+        interpolated_tmrel.to_netcdf(wdir+f"/data/TMRELs_nc/TMRELs_{year}.nc")
+        
+    print("TMRELs generated and saved.")
