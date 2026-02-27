@@ -154,11 +154,8 @@ class LoadInputData:
         pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, sets.years)
         
         df_erf, min_dict, max_dict = LoadExposureResponseFunctions(sets)
-
-        tmrel = get_tmrel_map(sets.wdir, 2010, sets.draw, sets.scenario) # Default years: 2010
-        
-        print("[1.4] Generate Rleative Risks (RRs) shifted by TMRELs...")
-        df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), sets.diseases)
+        tmrel = LoadTMRELsMap(sets, 2010) # Default years: 2010
+        df_erf_tmrel = ShiftRRfromTMREL(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), sets.diseases)
         
         if sets.single_erf == True:
             print("[1.4.1] Generating single ERF per disease...")
@@ -210,25 +207,15 @@ def LoadTemperatureZones(sets):
 def LoadExposureResponseFunctions(sets):
     
     """
-    Get a single erf draw according to the arguments of the function, the function either:
-    - Mean: Calculates the mean of all draws 
-    - random_draw: Selects a random draw between the 1000 available
-    - draw: Select a specific draw for all diseases (useful for propagation of uncertainty runs)
-    
-    The function:
-    1. Selects a draw or calculates the mean per disease and puts them in a single dataframe
-    2. Uses the np.exp function to convert original ln(RR) to RR
-    3. Renames temperature zone columns
-    4. Produces two dics corresponding to the max and min daily temperatures in each 
-    temperature zone available in the files. This serves to clip later on the daily T data
-    and could potentially change in the future if the ERFs are extrapolated.
-    5. Put dataframe entries in float64 format
-    6. Fills any NaN values
-    
-    Returns: 
-    1. Dataframe with temperature_zone, daily_temperature as Multiindex, and 
-    the diseases in the columns
-    2. Dicionaries with max and min daily temperatures per temperature zone
+    Get a single erf dataframe with all the Relative Risks of all diseases. Depending on the
+    draw the dataframe can contain:
+    - the mean of all draws 
+    - random draw between the 1000 available
+    - select a specific draw (useful for propagation of uncertainty runs)
+    Later the original ln(RR) are converted to RR and fill in the nans of the dataframe to 
+    complete all daily temperature ranges with flattened curves.
+    The function also produces two dics corresponding to the max and min daily temperatures 
+    in each temperature zone available in the files.
     """
     
     print("[1.4] Loading Exposure Response Functions (ERFs)...")
@@ -287,8 +274,8 @@ def LoadExposureResponseFunctions(sets):
 def ExtrapolateERF(erf):
     
     """
-    If extrapolation is indicated, this function extrapolates the ERF curves to a defined range
-    using log-linear interpolation based on the last segment of the curves.
+    If extrapolation is indicated, this function extrapolates the ERF curves to a 
+    defined range using log-linear interpolation based on the last segment of the curves.
     It identifies local extremes to determine the segments for extrapolation.
     Returns a new dataframe with original and extrapolated values.
     """
@@ -360,6 +347,37 @@ def ExtrapolateToHeatAndCold(erf, tz, erf_extrap, disease, zero_cross, t_lim, mo
     yy = interp(xx)
     xx_multiindex = pd.MultiIndex.from_product([[tz], xx])
     erf_extrap.loc[xx_multiindex, disease] = yy
+    
+    
+    
+def LoadTMRELsMap(sets, year):
+    
+    """
+    The function gets a single TMREL draw according to draw argument:
+    - mean of all draws 
+    - random draw between the 100 available
+    - specific draw (useful for propagation of uncertainty runs)
+    The function loads the .nc file with optimal temperatures for the selected year
+    (Available: 1990, 2010, 2020). Default: 2010.
+    """
+            
+    print("[1.5] Loading Theoretical Minimum Risk Exposure Levels (TMRELs)...")
+    
+    tmrel = xr.open_dataset(f"{sets.wdir}/data/TMRELs_nc/TMRELs_{year}.nc")
+    
+    if not re.search(r"SSP[1-5]_ERA5", sets.scenario):
+        # Reduce resolution to 0.5x0.5 degrees
+        tmrel = tmrel.coarsen(latitude=2, longitude=2, boundary="pad").mean(skipna=True)
+    
+    if sets.draw == "mean":
+        tmrel = tmrel.tmrel.values.mean(axis=2)
+    elif sets.draw == "random":
+        tmrel = tmrel.sel(draw=random.randint(1,100)).tmrel.values
+    elif isinstance(sets.draw, int):
+        draw = sets.draw % 100 if sets.draw > 100 else sets.draw
+        tmrel = tmrel.sel(draw=draw).tmrel.values
+        
+    return tmrel
 
      
         
@@ -607,7 +625,7 @@ def divide_by_tmrel(group, diseases):
 
 
 
-def shift_rr(df_erf, df_tz_tmrel, diseases):
+def ShiftRRfromTMREL(df_erf, df_tz_tmrel, diseases):
     
     """
     For every temperature zone, the merging assings all the possible TMREL. 
@@ -621,6 +639,8 @@ def shift_rr(df_erf, df_tz_tmrel, diseases):
     Returns:
     - df_erf_tmrel: dataframe with the shifted RR values
     """
+            
+    print("[1.4] Shifting Relative Risks (RRs) relative to TMRELs...")
 
     # Merge df_tz_tmrel with ERF data
     df_erf_tmrel = pd.merge(df_erf, df_tz_tmrel, on=["temperature_zone"], how="left") 
@@ -666,52 +686,6 @@ def tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones):
     df_tz_tmrel = df_tz_tmrel.drop_duplicates()
     
     return df_tz_tmrel
-
-
-
-def get_tmrel_map(wdir, year, draw_type, scenario):
-    
-    """
-    Get a single TMREL draw according to the arguments of the function
-    - Mean: Calculates the mean of all draws 
-    - random_draw: Selects a random draw between the 100 available
-    - draw: Select a specific draw for all diseases (useful for propagation of uncertainty runs)
-    
-    The function:
-    1. Opens the .nc file with optimal temperatures for the selected year
-    (Available: 1990, 2010, 2020). Default for future projections: 2020
-    2. Selects a draw o calculates the mean
-    
-    Returns: 
-    1. 2-D np.array with the optimal temperature per pixel
-    """
-    
-            
-    print("[1.5] Theoretical Minimum Risk Exposure Levels (TMRELs)...")
-    
-    tmrel = xr.open_dataset(f"{wdir}/data/exposure_response_functions/TMRELs_{year}.nc")
-    
-    if not re.search(r"SSP[1-5]_ERA5", scenario):
-        # Reduce resolution to 0.5x0.5 degrees
-        tmrel = tmrel.coarsen(latitude=2, longitude=2, boundary="pad").mean(skipna=True)
-    
-    if draw_type == "mean":
-        tmrel = tmrel.tmrel.values.mean(axis=2)
-            
-    elif draw_type == "random":
-        draw = random.randint(1,100)
-        tmrel = tmrel.sel(draw=draw).tmrel.values
-        
-    elif isinstance(draw_type, int):
-        if draw_type > 100:
-            draw = draw_type % 100   # Toma solo decenas y unidades
-        else:
-            draw = draw_type
-        tmrel = tmrel.sel(draw=draw).tmrel.values
-        
-    print("[1.4] Theoretical Minimum Response Levels (TMREL) data loaded.")
-        
-    return tmrel
 
 
 
