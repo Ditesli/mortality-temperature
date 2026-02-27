@@ -194,7 +194,7 @@ class LoadInputData:
     results: pd.DataFrame
     gammas: any
     pop: pd.DataFrame
-    base_years: list = range(2001,2011)
+    base_years: list=range(2001,2011)
 
     @classmethod
     def from_files(cls, sets):
@@ -286,19 +286,19 @@ class BaselineERFsInputs:
             )
         
         # Generate a single time 'present day' ERFs (no adaptation)
-        erfs_t0, tmin_t0 = GenerateERFAll(
+        erfs_t0, tmin_t0=GenerateERFAll(
             sets=sets, 
             fls=fls,
             year=None, 
             adaptation=False, 
-            baseline = None,
+            baseline=None,
             counterfactual=None
             ) 
         
         print("[1.5] Loading 'present-day' temperature data...")
         
         # Import present day temperatures
-        daily_temp_t0 = ImportPresentDayTemperatures(
+        daily_temp_t0=ImportPresentDayTemperatures(
             sets=sets, 
             base_years=range(2001,2011), 
             ir=fls.ir, 
@@ -327,14 +327,14 @@ class BaselineERFsInputs:
             
             
         return BaselineERFsInputs(
-            climtas_t0 = climtas_t0,
-            loggdppc_t0 = loggdppc_t0,
-            erfs_t0 = erfs_t0,
-            tmin_t0 = tmin_t0,
-            image_shares = image_shares,
+            climtas_t0=climtas_t0,
+            loggdppc_t0=loggdppc_t0,
+            erfs_t0=erfs_t0,
+            tmin_t0=tmin_t0,
+            image_shares=image_shares,
             country_shares=country_shares,
-            image_gdppc = image_gdppc,
-            daily_temp_t0 = daily_temp_t0
+            image_gdppc=image_gdppc,
+            daily_temp_t0=daily_temp_t0
         )
 
 
@@ -831,7 +831,7 @@ def ImportIMAGEloggdppc(year, baseline):
     )
     
     # Merge IMAGE GDPpc with GDPpc shares
-    gdppc =  baseline.image_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
+    gdppc = baseline.image_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
     
     # Calculate share of log(GDPpc) based on regional GDPpc
     gdppc["gdppc"] = gdppc["Value"] * gdppc["gdppc_share"] 
@@ -867,7 +867,7 @@ def GenerateGDPpcShares(wdir, fls):
                 gdppc_times_shares=lambda d: d["gdppc"] * d["gdppc_ir_shares"],
                 gdppc_country=lambda d: d.groupby(group_var)["gdppc_times_shares"].transform("sum"),
                 share_country_gdp=lambda d: d["gdppc_times_shares"] / d["gdppc_country"],
-                gdppc_share =  lambda d: d["share_country_gdp"] / d["gdppc_ir_shares"]
+                gdppc_share=lambda d: d["share_country_gdp"] / d["gdppc_ir_shares"]
             )
             [["region", group_var, "gdppc_share"]]
             .set_index("region")
@@ -1017,7 +1017,7 @@ def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4, tmin):
     if tmin is None:
         # Locate idx of T (temperature array) between 20 and 30 degrees C
         idx_start = np.where(np.isclose(T, 10.0, atol=0.05))[0][0]
-        idx_end   = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
+        idx_end = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
         segment = raw[:, idx_start:idx_end]
         
         # Find local minimum of erf between 20 and 30 degrees
@@ -1306,7 +1306,7 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     
     # Generate ERFs used when there is income growth and adaptation
     if sets.adaptation==True:    
-        erfs_t, _ = GenerateERFAll(
+        erfs_t, _=GenerateERFAll(
             sets=sets,
             fls=fls,
             year=year,
