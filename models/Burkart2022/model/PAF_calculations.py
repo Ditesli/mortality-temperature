@@ -144,7 +144,7 @@ class LoadInputData:
         temperature_zones = LoadTemperatureZones(sets.wdir, sets.scenario)
         
         print(f"[1.2] Loading region classification ({sets.regions}) map...")
-        regions, regions_range = pop.LoadRegionClassificationMap(sets.wdir, sets.regions, sets.scenario)
+        regions, regions_range = pop.LoadRegionClassificationMap(sets.wdir, sets.temp_dir, sets.regions, sets.scenario)
         
         print("[1.3] Loading SSP population data...")
         pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, sets.years)

@@ -3,6 +3,7 @@ import pandas as pd
 import xarray as xr
 from scipy import stats
 import re, os
+from . import temperature as tmp
 
 
 
@@ -60,7 +61,7 @@ def LoadPopulationMap(wdir, ssp, years):
     
     
     
-def LoadRegionClassificationMap(wdir, region_class, scenario):
+def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario):
     
     '''
     Load the region classification selected (IMAGE26 or country level) and return as numpy array 
@@ -76,58 +77,44 @@ def LoadRegionClassificationMap(wdir, region_class, scenario):
     - region_nc: numpy array with region classification
     - regions_range: range or list with number of regions
     '''
-    
-    ### Import ERA5 temperature zones
-    lats = np.arange(89.875, -90, -0.25)
-    lons = np.arange(-179.875, 180, 0.25)
 
-    ref_grid = xr.DataArray(
-        np.full((lats.size, lons.size), np.nan),
-        coords={"latitude": lats, "longitude": lons},
-        dims=["latitude", "longitude"]
-    )
+    if re.search(r"SSP[1-5]_ERA5", scenario):
+        temp_grid = tmp.DailyTemperatureERA5(temp_dir, 2000, "mean", pop_ssp=None, to_array=False)
+        
+    else:
+        temp_grid,_ = tmp.OpenMontlhyTemperatures(temp_dir, "mean")
+        
         
     if region_class == 'IMAGE26':
     
         # Read in IMAGE region data and interpolate to match files resolution
-        region_nc = xr.open_dataset(wdir+'data/regions_classification/IMAGE/GREG_30MIN.nc')
-        
-        # Interpolate to match temperature data resolution and average over time dimension for ERA5 data
-        if re.search(r"SSP[1-5]_ERA5", scenario):
-            region_nc = region_nc.interp(longitude=ref_grid.longitude, 
-                                        latitude=ref_grid.latitude, 
-                                        method='nearest').mean(dim='time') 
-            
-        # Convert files to numpy arrays
-        region_nc = region_nc.GREG_30MIN.values
-        
-        # Get number of regions
-        regions_range = range(1,27)
+        regions = (
+            xr.open_dataset(wdir+'data/region_classification/GREG_30MIN.nc')
+            .mean(dim="time") # Mean over time dimension
+            .interp(longitude=temp_grid.longitude,  # Match temperature data resolution 
+                    latitude=temp_grid.latitude, 
+                    method='nearest')
+            .GREG_30MIN.values
+            )
+
+        # Get number of regions excluding 27 and nan
+        regions_range = np.unique(regions)[:-2].astype(int)
         
     if region_class == 'countries':
         
         # Read in GBD LEVEL 3 region data: countries and territories
-        region_nc = xr.open_dataset(wdir+'data/regions_classification/GBD/GBD_locations_level3.nc')
-        
-        # Interpolate to match temperature data resolution
-        region_nc = region_nc.interp(longitude=ref_grid.longitude, 
-                                     latitude=ref_grid.latitude, 
+        regions = (
+            xr.open_dataset(wdir+'data/GBD_locations/GBD_locations_level3.nc')
+            .interp(longitude=temp_grid.longitude, 
+                                     latitude=temp_grid.latitude, 
                                      method='nearest')
+            .loc_id.values
+        )
         
-        # Get number of regions
-        regions_range = np.unique(region_nc.loc_id.values)[1:-1].astype(int)  # Exclude -1 and nan
-        region_nc = region_nc.loc_id.values
+        # Get number of regions excluding -1 and nan
+        regions_range = np.unique(regions)[1:-1].astype(int) 
         
-        # Reduce resolution to 0.5x0.5 degrees
-        if not re.search(r"SSP[1-5]_ERA5", scenario):
-            
-            # Reshape array to 4D blocks of 2x2
-            arr_reshaped = region_nc.reshape(360, 2, 720, 2)
-
-            # Calculate mode over the 2x2 blocks to reduce resolution
-            region_nc = stats.mode(stats.mode(arr_reshaped, axis=3, keepdims=False).mode, axis=1, keepdims=False).mode
-    
     # Set negative values to 0
-    region_nc = np.maximum(region_nc, 0)  
+    regions = np.maximum(regions, 0)  
         
-    return region_nc, regions_range
+    return regions, regions_range
