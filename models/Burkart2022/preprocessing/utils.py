@@ -86,28 +86,37 @@ def GenerateTemperatureZones(wdir, era5_path):
 def GenerateRasterGBDLocations(wdir):
     
     """
-    Convert the level 3 GBD shapefile to a raster format (nmupy array)
+    Convert the level 3 GBD shapefile to a raster format (numpy array)
     """
 
+    print("[1] Loading population data to create mask...")
+    
     # Load population xarray and mask
     mask_pop = pop.get_all_population_data(wdir, return_pop=False)
+    
+    print("[2] Loading GBD location shapefile and rasterize it...")
 
     # Load GBD shapefile with level 3 locations
-    # TODO: replace later with level 4 locations
-    gbd_locations_level3 = gpd.read_file(wdir+"data/gbd_locations/GBD_shapefile.shp")
+    gbd_locations_level3 = gpd.read_file(wdir+"/data/gbd_locations/gbd_shapefiles/GBD_shapefile.shp")
 
     # Convert geopandas dataframe to xarray using location ID label for the pixel values
-    gbd_rasterized_xarray = ConvertVectorToRaster(mask_pop, gbd_locations_level3, "loc_id", set_zero_to_nan=True)
+    gbd_rasterized_xarray = ConvertVectorizedToRaster(mask_pop, gbd_locations_level3, "loc_id", set_zero_to_nan=True)
 
-    # Interpolate TMREL to areas with NaN but population is positive (maily coasts and islands)
+    print("[3] Filling in missing pixels but with poulation..")
+
+    # Interpolate to areas with NaN but with population (maily coasts and islands)
     gbd_rasterized_xarray = FillMissingWithNearest(gbd_rasterized_xarray, mask_pop.GPOP)
 
     # Save file in GBD_Data folder
-    gbd_rasterized_xarray.to_netcdf(f"{wdir}/data/regions_classification/GBD/GBD_locations_level3.nc")
+    output_dir = wdir + "/data/gbd_locations"
+    os.makedirs(output_dir, exist_ok=True)
+    gbd_rasterized_xarray.to_netcdf(output_dir+"/GBD_locations_level3.nc")
+    
+    print("[4] Raster file generated and saved.")
 
     
 
-def ConvertVectorToRaster(mask_pop: xr.Dataset, vector_data: gpd.GeoDataFrame, 
+def ConvertVectorizedToRaster(mask_pop: xr.Dataset, vector_data: gpd.GeoDataFrame, 
                              column: str, set_zero_to_nan=True):
     
     """
@@ -154,51 +163,41 @@ def ConvertVectorToRaster(mask_pop: xr.Dataset, vector_data: gpd.GeoDataFrame,
 def FillMissingWithNearest(xarray_dataset, mask_positive_pop):
     
     """
-    Fill missing values (NaN) in an xarray dataset using the nearest
-    valid value, but only in locations where the population mask indicates
-    positive population.
+    Fill missing values (NaN) in an xarray dataset using the nearest valid
+    value, but only in locations where the population mask is positive.
     """
     
     filled_xarray = xarray_dataset.copy()
-
-    # Check if the dataset has 2 or 3 dimensions
     
-    if len(tuple(xarray_dataset.sizes.values())) == 3:
-        
-        # 3D array with multiple draws (TMRELs)
-        for draw in range(xarray_dataset.shape[2]):
-            xarray_draw = xarray_dataset[:, :, draw].values
-            missing_mask = np.isnan(xarray_draw) & mask_positive_pop.values
-
-            # Mask where there are valid values
-            valid_mask = ~np.isnan(xarray_draw)
-
-            # Get coordinates of the closest valid value
-            distance, indices = distance_transform_edt(~valid_mask, return_indices=True)
-
-            # Fill NaN
-            xarray_draw[missing_mask] = xarray_draw[indices[0][missing_mask], indices[1][missing_mask]]
-
-            # Store in the new xarray
-            filled_xarray[:, :, draw] = xarray_draw
-            
-    if len(tuple(xarray_dataset.sizes.values())) == 2:
-        
-        # Single 2D array (e.g., GBD locations)
-        xarray_draw = xarray_dataset.loc_id.values
+    
+    def fill_nearest_2d(xarray_draw):
+        # Get missing pixerls mask
         missing_mask = np.isnan(xarray_draw) & mask_positive_pop.values
-        # Mask where there are valid values
-        valid_mask = ~np.isnan(xarray_draw)
-        
         # Get coordinates of the closest valid value
-        distance, indices = distance_transform_edt(~valid_mask, return_indices=True)
-
+        _,indices = distance_transform_edt(np.isnan(xarray_draw), return_indices=True)
         # Fill NaN
         xarray_draw[missing_mask] = xarray_draw[indices[0][missing_mask], indices[1][missing_mask]]
+        return xarray_draw
+    
+    
+     # Single 2D array (GBD locations)   
+    if len(tuple(xarray_dataset.sizes.values())) == 2:
+        # Get 2d-values
+        xarray_draw = xarray_dataset.loc_id.values
+        # Fill missing and store in the new xarray
+        filled_xarray["loc_id"][:, :] = fill_nearest_2d(xarray_draw)
 
-        # Store in the new xarray
-        filled_xarray["loc_id"][:, :] = xarray_draw
-
+    
+    # 3D array with multiple draws (TMRELs)
+    if len(tuple(xarray_dataset.sizes.values())) == 3:
+        # Iterate over draws
+        for draw in range(xarray_dataset.shape[2]):
+            # Get 2d-values
+            xarray_draw = xarray_dataset[:, :, draw].values
+            # Fill missing and store in the new xarray
+            filled_xarray[:, :, draw] = fill_nearest_2d(xarray_draw)
+            
+    
     return filled_xarray
 
 
