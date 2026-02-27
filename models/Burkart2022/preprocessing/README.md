@@ -6,8 +6,7 @@ Generate temperature zones at the grid cell level defined by Burkart et al. as t
     
 
 ## GBD locations
-The script generates raster files for the GBD locations at level 3 using the shapefile 
-available at the [GBD Publication Figures Repository](https://github.com/matejmisik/gbd_publication_figures/tree/main/Figures/Global_map) (retrieved on 04/2025).
+The script generates raster files for the GBD locations at level 3 using the shapefile available at the [GBD Publication Figures Repository](https://github.com/matejmisik/gbd_publication_figures/tree/main/Figures/Global_map) (retrieved on 04/2025).
 
 
 ## TMRELs
