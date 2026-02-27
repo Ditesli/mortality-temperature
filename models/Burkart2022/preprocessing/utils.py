@@ -20,66 +20,66 @@ def GenerateTemperatureZones(wdir, era5_path):
     grid to the population grid and calculates the mean. 
     A mask with population data and sea-land data are loaded to ensure that all
     sea pixels are NaN and all pixels with population have assigned a temperature
-    zone.    
+    zone. Temperature is also interpolated to match population grid,
     """
     
     print("Calculating temperature zones...")
+    
+    print("[1] Loading population data to create mask...")
 
     # Open and preprocess population data and set mask for ALL cells with population
-    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
+    mask_pop = pop.get_all_population_data(wdir, return_pop=False)    
     
-    print('[1] Population data loaded and mask created.')
+    print("[2] Loading ERA5 historical temperature data and computing climatologies...")
+
+    era5_t2m = (
+        xr.open_dataset(era5_path + "/era5_t2m_mean_1980-2019.nc")
+        .drop_vars("number") # Discard dummy var "number"
+        .mean(dim="valid_time")  # Calculate 1980-2019 mean
+        .assign_coords(longitude=lambda x: ((x.longitude + 180) % 360 - 180))
+        .sortby("longitude") # Shift coordinates
+        .interp(
+            longitude=mask_pop.longitude, # Align latitudes with mask_pop
+            latitude=mask_pop.latitude, 
+            method="nearest"
+            )
+        - 273.15 # Convert to Celius
+    )
     
-    # Open ERA5 t2m data and discard dummy var 'number'
-    era5_t2m = xr.open_dataset(era5_path+'era5_t2m_mean_1980-2019.nc') 
-    era5_t2m = era5_t2m.drop_vars('number')
+    print("[3] Loading ERA5 land sea-mask...")
+
+    # Open ERA5 land-sea mask, discard dummy var "time" and rename variable to "t2m" for easier handling
+    era5_land_sea = (
+        xr.open_dataset(era5_path+"/lsm_1279l4_0.1x0.1.grb_v4_unpack.nc") 
+        .drop_vars("time")
+        .rename({"lsm": "t2m"})
+        .assign_coords(longitude=lambda x: ((x.longitude + 180) % 360 - 180))
+        .sortby("longitude") # Shift coordinates
+        .interp(
+            longitude=mask_pop.longitude, # Align latitudes with mask_pop
+            latitude=mask_pop.latitude, 
+            method="nearest"
+            )
+    )
     
-    # Calculate 1980-2019 mean
-    era5_t2m_mean = era5_t2m.mean(dim='valid_time')
+    print("[4] Applying land-sea and population mask and clipping temperatures to tz...")
     
-    # Convert to Celius
-    era5_t2m_mean -= 273.15
-
-    # Shift coordinates
-    era5_t2m_mean = era5_t2m_mean.assign_coords(longitude=((era5_t2m_mean.longitude + 180) % 360 - 180)).sortby("longitude")
-
-    # Interpolate to align temperature and population latitude
-    era5_t2m_mean = era5_t2m_mean.interp(longitude=mask_pop.longitude, 
-                                         latitude=mask_pop.latitude, 
-                                         method="nearest")
+    output_dir = wdir + "/data/temperature_zones"
+    os.makedirs(output_dir, exist_ok=True)
     
-    print('[2] ERA5 historical temperature data loaded and preprocessed.')
-
-    # Open ERA5 land-sea mask, discard dummy var 'time' and rename variable to 't2m' for easier handling
-    era5_land_sea = xr.open_dataset(era5_path+'lsm_1279l4_0.1x0.1.grb_v4_unpack.nc') 
-    era5_land_sea = era5_land_sea.drop_vars('time')
-    era5_land_sea = era5_land_sea.rename({'lsm': 't2m'})
-
-    # Shift coordinates
-    era5_land_sea = era5_land_sea.assign_coords(longitude=((era5_land_sea.longitude + 180) % 360 - 180)).sortby("longitude")
-
-    ### Interpolate land-sea data to 0.25 degree resolution to match population grids
-    era5_land_sea_15min = era5_land_sea.interp(longitude=mask_pop.longitude, 
-                                               latitude=mask_pop.latitude, 
-                                               method="nearest")
-
-    ### Set sea and Antarctica to NaN and ensure that ANY cell (of any scenario and year) with POP data has a temperature zone
-    era5_w_nan = xr.where(
-        ((mask_pop.GPOP) | (era5_land_sea_15min.t2m > 0)) & (era5_t2m_mean.latitude >= -60),
-        era5_t2m_mean,
-        np.nan
+    (
+        era5_t2m
+        .where(
+            ((mask_pop.GPOP) | (era5_land_sea.t2m > 0)) & # Keep only land or cells with POP
+            (era5_t2m.latitude >= -60) # Exclude Antarctica to save memory
         )
+        .where(lambda x: x.isnull(), lambda x: x.round()) # Round data to integers
+        .pipe(lambda x: np.clip(x.t2m, 6, 28)) # Clip values between 6 and 28
+        .mean(dim="time")
+        .to_netcdf(output_dir+"/ERA5_mean_1980-2019_land_t2m_tz.nc") # Save
+    )
     
-    print("[3] Land-sea mask applied and population mask enforced.")
-    
-    # Round data to get temperature zones, clip values between 6 and 28
-    era5_rounded = era5_w_nan.where(era5_w_nan.isnull(), era5_w_nan.round())
-    temp_zone_rounded = np.clip(era5_rounded.t2m, 6, 28).mean(dim="time")
-
-    # Save in project data folder
-    temp_zone_rounded.to_netcdf(wdir+"data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
-    
-    print("[4] Temperature zones calculated.")
+    print("[5] Temperature zones calculated and saved.")
 
     
     
