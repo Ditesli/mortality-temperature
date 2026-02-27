@@ -10,4 +10,4 @@ The script generates raster files for the GBD locations at level 3 using the sha
 
 
 ## TMRELs
-TMRELs (Theoretical Minimum Risk Exposure Levels) as raster files.
+Convert the TMRELs (Theoretical Minimum Risk Exposure Levels) csv files to raster files. This process uses the TMRELs produced by Burkart et al. (data provided by the authors under request) and generates nc files with global data where each pixel has assigned its correpsonding TMRELs (100 draws) depending on its GBD location and Temperature Zone. The code generates 3 files, one for each TMREL baseline year (1990, 2010, and 2020).
