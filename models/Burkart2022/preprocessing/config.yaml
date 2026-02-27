@@ -3,6 +3,3 @@ wdir:
 
 # Path to ERA5 t2m data and land-sea mask
 path_era5: 
-
-# Path to population data nc files from IMAGE
-path_pop: 
