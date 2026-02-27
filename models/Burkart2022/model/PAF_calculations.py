@@ -77,16 +77,8 @@ class PAFModel:
     sets: ModelSettings
     
     """
-    Run the main model using ERA5 historical data
-    
-    Parameters:
-    - years: list of years to run the model
-    - ssp: string with the name of the SSP scenario
-    - single_erf: boolean, if True use a single mean ERF for all temperature zones
-    - all_diseases: boolean, if True use all diseases, if False use only metabolic and cardiovascular diseases
-    - mean: boolean, if True use the mean ERF, if False use a random draw or a specific draw
-    - random_draw: boolean, if True use a random draw, if False use a specific draw
-    - draw: integer, if not None use a specific draw (between 0 and 999)
+    Run the main model 
+    ADD DESCRIPTION
     """
     
     def load_inputs(self):
@@ -151,8 +143,8 @@ class LoadInputData:
         
         temperature_zones = LoadTemperatureZones(sets.wdir, sets.scenario)
         
-        print(f"[1.2] Loading region classification ({sets.region_class}) map...")
-        regions, regions_range = pop.LoadRegionClassificationMap(sets.wdir, sets.region_class, sets.scenario)
+        print(f"[1.2] Loading region classification ({sets.regions}) map...")
+        regions, regions_range = pop.LoadRegionClassificationMap(sets.wdir, sets.regions, sets.scenario)
         
         print("[1.3] Loading SSP population data...")
         pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, sets.years)
@@ -186,6 +178,31 @@ class LoadInputData:
             min_dict=min_dict,
             max_dict=max_dict
         )
+    
+
+
+def LoadTemperatureZones(wdir, scenario):
+    
+    """
+    Import ERA5 temperature zones and convert to numpy array
+    """
+    
+    print("[1.1] Loading temperature zones as numpy array...")
+    
+    # Import ERA5 temperature zones
+    era5_tz = (
+        xr.open_dataset(f"{wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+        .t2m.values
+    )
+    
+    if not re.search(r"SSP[1-5]_ERA5", scenario):
+            
+        # Reshape array to 4D blocks of 2x2
+        arr_reshaped = era5_tz.reshape(360, 2, 720, 2)
+        # Calculate mode over the 2x2 blocks to reduce resolution
+        era5_tz = sp.stats.mode(sp.stats.mode(arr_reshaped, axis=3, keepdims=False).mode, axis=1, keepdims=False).mode
+    
+    return era5_tz
         
         
         
@@ -747,31 +764,6 @@ def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
 
 
 
-def LoadTemperatureZones(wdir, scenario):
-    
-    """
-    Import ERA5 temperature zones and convert to numpy array
-    """
-    
-    print("[1.1] Loading temperature zones as numpy array...")
-    
-    # Import ERA5 temperature zones
-    era5_tz = (
-        xr.open_dataset(f"{wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
-        .t2m.values
-    )
-    
-    if not re.search(r"SSP[1-5]_ERA5", scenario):
-            
-        # Reshape array to 4D blocks of 2x2
-        arr_reshaped = era5_tz.reshape(360, 2, 720, 2)
-        # Calculate mode over the 2x2 blocks to reduce resolution
-        era5_tz = sp.stats.mode(sp.stats.mode(arr_reshaped, axis=3, keepdims=False).mode, axis=1, keepdims=False).mode
-    
-    return era5_tz
-
-
-
 def PostprocessResults(sets, fls):
         
     print("[3] Model run complete. Saving results...")
@@ -781,6 +773,6 @@ def PostprocessResults(sets, fls):
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
             
     # Save the results and temperature statistics
-    fls.paf_final.to_csv(f"{sets.wdir}\\output\\PAF_{sets.project}_{sets.scenario}_{sets.region_class}_{years_part}{extrap_part}{erf_part}.csv")  
+    fls.paf_final.to_csv(f"{sets.wdir}\\output\\PAF_{sets.project}_{sets.scenario}_{sets.regions}_{years_part}{extrap_part}{erf_part}.csv")  
     
     print("Model ran succesfully!")
