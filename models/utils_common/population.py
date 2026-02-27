@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy import stats
-import re
+import re, os
 
 
 
@@ -13,16 +13,16 @@ def get_all_population_data(wdir, return_pop=False):
     concatenated along a new 'ssp' dimension.
     '''
     
-    ssp_scenarios = ['SSP1', 'SSP2', 'SSP3', 'SSP5']
+    SSPs = ['SSP1', 'SSP2', 'SSP3', 'SSP5']
 
     # Concatenate population data for all SSP scenarios
     pop_all_ssp = xr.concat(
-        [get_annual_pop(wdir, ssp, years=range(1980, 2101)) for ssp in ssp_scenarios],
+        [get_annual_pop(wdir, ssp, years=range(2000, 2101)) for ssp in SSPs],
         dim='ssp'
     )
 
     # Assign ssp names to the new dimension
-    pop_all_ssp['ssp'] = [s.lower() for s in ssp_scenarios]  # ['ssp1', 'ssp2', ...]
+    pop_all_ssp['ssp'] = [s.lower() for s in SSPs]  
         
     # Mask with positive pop values
     mask_positive_pop = (pop_all_ssp > 0).any(dim=['time', 'ssp'])
@@ -35,71 +35,28 @@ def get_all_population_data(wdir, return_pop=False):
 
 
 
-def get_annual_pop(wdir, scenario, years=None):
+def get_annual_pop(wdir, ssp, years):
     
     '''
-    Read scenario-dependent population data, interpolate it to yearly data, reduce resolution to 15 min,
-    and select years range if provided.
+    Read scenario-dependent population data, interpolate it to yearly data, 
+    reduce resolution to 15 min, and select years range if provided.
     '''
     
-    # Map scenario name and open selected scenario file 
-    ssp = map_ssp(scenario)
-    pop = xr.open_dataset(f'{wdir}\\data\\socioeconomic_Data\\population\\GPOP\\GPOP_{ssp}.nc')
+    # Open IMAGE SSP population data
+    wdir_up = os.path.dirname(wdir)
+    pop = xr.open_dataset(f'{wdir_up}/data/image_population/{ssp}/GPOP.nc')
     
-    if re.search(r"SSP[1-5]_ERA5", scenario):
+    # if re.search(r"SSP[1-5]_ERA5", scenario):
         # Reduce resolution to 15 min to match ERA5 data
-        pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
-        
-    else:
-        pop_coarse = pop.coarsen(latitude=6, longitude=6, boundary='pad').sum(skipna=True)
-    
-    # Adjust last year to be multiple of 5 for interpolation
-    last_year = years[-1]
-    if last_year % 5 != 0:
-        last_year = last_year + (5 - last_year % 5)
-        
-    start_year = years[0]
-    if start_year % 5 != 0:
-        start_year = start_year - (start_year % 5)
+    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
+    # else:
+    #     pop_coarse = pop.coarsen(latitude=6, longitude=6, boundary='pad').sum(skipna=True)
     
     # Select years if provided
     if years:
-        pop_coarse = pop_coarse.sel(time=slice(f'{start_year}-01-01', f'{last_year}-01-01'))
-        
-    # Linearly interpolate to yearly data
-    yearly_data = pd.date_range(start=f'{years[0]}/01/01', end= f'{years[-1]}/01/01', freq='YS')
-    pop_yearly = pop_coarse.interp(time=yearly_data)
+        pop_coarse = pop_coarse.sel(time=slice(f'{years[0]}-01-01', f'{years[-1]}-01-01'))
     
-    return pop_yearly
-
-
-
-def map_ssp(ssp: str) -> str:
-    
-    '''
-    Map input SSP names to the corresponding names used in the GPOP dataset.
-    Parameters:
-    ssp (str): Input SSP name (e.g., "SSP1", "SSP2", "SSP3", "SSP5").
-    Returns:
-    str: Corresponding GPOP SSP name.
-    Raises:
-    ValueError: If the input SSP name is not valid.
-    '''
-    
-    mapping = {
-        "SSP1": "SSP1_M",
-        "SSP2": "SSP2_CP",
-        "SSP3": "SSP3_H",
-        "SSP5": "SSP5_H"
-    }
-    
-    # Normalize input
-    ssp_normalized = ssp.strip().upper()
-    
-    try:
-        return mapping[ssp_normalized]
-    except KeyError:
-        raise ValueError(f"SSP '{ssp}' not valid. Use one of the following: {list(mapping.keys())}.")
+    return pop_coarse
     
     
     
