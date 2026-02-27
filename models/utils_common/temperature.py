@@ -220,10 +220,10 @@ def OpenMontlhyTemperatures(temp_dir, temp_type):
     
     # Read temperature mean and std files of from scenario 
     if temp_type.upper() == "MEAN":
-        temp_mean = xr.open_dataset(temp_dir+f"GTMP_30MIN.nc")
+        temp_mean = xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
     else: 
-        temp_mean = xr.open_dataset(temp_dir+f"GTMP_{temp_type}_30MIN.nc")
-    temp_std = xr.open_dataset(temp_dir+f"GTMP_STD_30MIN.nc")
+        temp_mean = xr.open_dataset(temp_dir+f"/GTMP_{temp_type}_30MIN.nc")
+    temp_std = xr.open_dataset(temp_dir+f"/GTMP_STD_30MIN.nc")
     
     # Select temperature variable depending on type
     if temp_type.upper() == "MEAN":

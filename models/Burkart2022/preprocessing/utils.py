@@ -28,7 +28,7 @@ def GenerateTemperatureZones(wdir, era5_path):
     print("[1] Loading population data to create mask...")
 
     # Open and preprocess population data and set mask for ALL cells with population
-    mask_pop = pop.get_all_population_data(wdir, return_pop=False)    
+    mask_pop = pop.get_all_population_data(wdir, "ERA5", return_pop=False)    
     
     print("[2] Loading ERA5 historical temperature data and computing climatologies...")
 
@@ -92,7 +92,7 @@ def GenerateRasterGBDLocations(wdir):
     print("[1] Loading population data to create mask...")
     
     # Load population xarray and mask
-    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
+    mask_pop = pop.get_all_population_data(wdir, "ERA5", return_pop=False)
     
     print("[2] Loading GBD location shapefile and rasterize it...")
 

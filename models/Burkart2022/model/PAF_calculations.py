@@ -70,6 +70,11 @@ class ModelSettings:
         "resp_copd":"Chronic obstructive pulmonary disease", 
         "lri":"Lower respiratory infections"
     })
+    
+    def __post_init__(self):
+        if isinstance(self.years, range):
+            self.years = range(self.years.start, self.years.stop + 1)
+
 
 
 @dataclass
@@ -123,10 +128,8 @@ class LoadInputData:
     pop_ssp: any
     regions: any
     regions_range: any
-    
     tmrel: any
     df_erf_tmrel: any
-    diseases: any
     min_dict: dict
     max_dict: dict
 
@@ -141,22 +144,21 @@ class LoadInputData:
         
         print("[1] Loading files for calculations...")
         
-        temperature_zones = LoadTemperatureZones(sets.wdir, sets.scenario)
+        temperature_zones = LoadTemperatureZones(sets)
         
         print(f"[1.2] Loading region classification ({sets.regions}) map...")
         regions, regions_range = pop.LoadRegionClassificationMap(sets.wdir, sets.temp_dir, sets.regions, sets.scenario)
         
         print("[1.3] Loading SSP population data...")
-        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, sets.years)
+        ssp = re.search(r"SSP\d", sets.scenario).group()
+        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, sets.years)
         
-        print("[1.3] Loading Exposure Response Functions (ERFs)...")
-        df_erf, diseases, min_dict, max_dict = get_erf_dataframe(sets.wdir, sets.draw_type, sets.extrap_erf)
-        
-        print("[1.3] Theoretical Minimum Risk Exposure Levels (TMRELs)...")
-        tmrel = get_tmrel_map(sets.wdir, 2010, sets.draw, sets.scenario) # Deafult years: 2010
+        df_erf, min_dict, max_dict = LoadExposureResponseFunctions(sets)
+
+        tmrel = get_tmrel_map(sets.wdir, 2010, sets.draw, sets.scenario) # Default years: 2010
         
         print("[1.4] Generate Rleative Risks (RRs) shifted by TMRELs...")
-        df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), diseases)
+        df_erf_tmrel = shift_rr(df_erf, tz_tmrel_combinations(pop_ssp, tmrel, temperature_zones), sets.diseases)
         
         if sets.single_erf == True:
             print("[1.4.1] Generating single ERF per disease...")
@@ -164,7 +166,8 @@ class LoadInputData:
             
         print("[1.5] Creating final dataframe to store results...")
         paf_final = pd.DataFrame(index=regions_range, 
-                            columns=pd.MultiIndex.from_product([sets.years, diseases, ["cold", "hot", "all"]]))  
+                            columns=pd.MultiIndex.from_product([sets.years, sets.diseases, ["cold", "heat", "all"]]))  
+        
         
         return cls(
             paf_final=paf_final,
@@ -173,15 +176,13 @@ class LoadInputData:
             regions_range=regions_range,
             temperature_zones=temperature_zones,
             tmrel=tmrel,
-            df_erf_tmrel=df_erf_tmrel,
-            diseases=diseases,
             min_dict=min_dict,
             max_dict=max_dict
         )
     
 
 
-def LoadTemperatureZones(wdir, scenario):
+def LoadTemperatureZones(sets):
     
     """
     Import ERA5 temperature zones and convert to numpy array
@@ -191,11 +192,11 @@ def LoadTemperatureZones(wdir, scenario):
     
     # Import ERA5 temperature zones
     era5_tz = (
-        xr.open_dataset(f"{wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+        xr.open_dataset(f"{sets.wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
         .t2m.values
     )
     
-    if not re.search(r"SSP[1-5]_ERA5", scenario):
+    if not re.search(r"SSP[1-5]_ERA5", sets.scenario):
             
         # Reshape array to 4D blocks of 2x2
         arr_reshaped = era5_tz.reshape(360, 2, 720, 2)
@@ -203,8 +204,164 @@ def LoadTemperatureZones(wdir, scenario):
         era5_tz = sp.stats.mode(sp.stats.mode(arr_reshaped, axis=3, keepdims=False).mode, axis=1, keepdims=False).mode
     
     return era5_tz
+
+
+
+def LoadExposureResponseFunctions(sets):
+    
+    """
+    Get a single erf draw according to the arguments of the function, the function either:
+    - Mean: Calculates the mean of all draws 
+    - random_draw: Selects a random draw between the 1000 available
+    - draw: Select a specific draw for all diseases (useful for propagation of uncertainty runs)
+    
+    The function:
+    1. Selects a draw or calculates the mean per disease and puts them in a single dataframe
+    2. Uses the np.exp function to convert original ln(RR) to RR
+    3. Renames temperature zone columns
+    4. Produces two dics corresponding to the max and min daily temperatures in each 
+    temperature zone available in the files. This serves to clip later on the daily T data
+    and could potentially change in the future if the ERFs are extrapolated.
+    5. Put dataframe entries in float64 format
+    6. Fills any NaN values
+    
+    Returns: 
+    1. Dataframe with temperature_zone, daily_temperature as Multiindex, and 
+    the diseases in the columns
+    2. Dicionaries with max and min daily temperatures per temperature zone
+    """
+    
+    print("[1.4] Loading Exposure Response Functions (ERFs)...")
+    
+    #  Read the raw Exposure Response Functions from the specified path.
+    erf_dict = {}
+    for disease in list(sets.diseases.keys()):
+        erf_disease = pd.read_csv(f"{sets.wdir}/data/burkart_sm/ERF/{disease}_curve_samples.csv", 
+                                    index_col=[0,1])
+        erf_disease.index = pd.MultiIndex.from_arrays([erf_disease.index.get_level_values(0),
+                                                        erf_disease.index.get_level_values(1).round(1)])
+        erf_dict[disease] = erf_disease
+
+    # Choose disease with the largest daily temperature range to create the base dataframe
+    erf = pd.DataFrame(index=pd.MultiIndex.from_arrays([erf_dict["ckd"].index.get_level_values(0), 
+                                                        erf_dict["ckd"].index.get_level_values(1).round(1)]))
+    
+
+    # Fill the dataframe with the selected draw or the mean of all draws
+    for disease in sets.diseases.keys():
+        if sets.draw == "mean":
+            erf[disease] = erf_dict[disease].mean(axis=1)
+        elif sets.draw == "random":
+            draw = random.randint(0,999)
+            erf[disease] = erf_dict[disease][f"draw_{draw}"]  
+        elif isinstance(sets.draw_type, int):
+            erf[disease] = erf_dict[disease][f"draw_{sets.draw}"]
         
+     
+    # Extrapolate ERF 
+    if sets.extrap_erf == True:
+        print("[1.3.1] Extrapolating ERFs...")
+        erf = ExtrapolateERF(erf)     
+    else:
+        pass     
+    
+    
+    erf = (
+        erf
+        .astype(float).apply(lambda x: np.exp(x)) # Convert log(rr) to rr   
+        .rename_axis(index={"annual_temperature":"temperature_zone"})
+        .reset_index() # Convert MultiIndex levels into columns
+        .set_index("temperature_zone") # Keep only one index
+        .groupby("temperature_zone", group_keys=False)
+        .apply(lambda g: g.bfill().ffill()) # Flatten the curves 
+    )
+    
+    # Get min and max temperature values per disease
+    min_dict = erf.groupby("temperature_zone")["daily_temperature"].min().to_dict()
+    max_dict = erf.groupby("temperature_zone")["daily_temperature"].max().to_dict()
         
+    return erf, min_dict, max_dict
+
+
+
+def ExtrapolateERF(erf):
+    
+    """
+    If extrapolation is indicated, this function extrapolates the ERF curves to a defined range
+    using log-linear interpolation based on the last segment of the curves.
+    It identifies local extremes to determine the segments for extrapolation.
+    Returns a new dataframe with original and extrapolated values.
+    """
+    
+    # Set extapolation range
+    temp_max = 50 
+    temp_min = -22
+    
+    # Round index level 1 to one decimal
+    erf.index = pd.MultiIndex.from_arrays([erf.index.get_level_values(0), 
+                                           erf.index.get_level_values(1).round(1)])
+
+    # Define new dataframe to store original values
+    erf_extrap = pd.DataFrame(index=pd.MultiIndex.from_product([range(6,29), np.round(np.arange(temp_min, temp_max+0.1, 0.1),1)],
+                                                                names=["annual_temperature", "daily_temperature"]), 
+                              columns=erf.columns)
+    erf_extrap.loc[erf.index, erf.columns] = erf
+    
+    # Iterate over temperature zones and disease
+    for tz in erf_extrap.index.levels[0]:
+        for disease in erf.columns:
+            
+            # Select relevant column
+            erf_tz = erf.loc[tz, disease].dropna()
+            
+            # Take derivative of selected series to find local extremes
+            dy = np.gradient(erf_tz, erf_tz.index)
+            zero_crossings = np.where(np.diff(np.sign(dy)) != 0)[0]
+            
+            # Extrapolate extremes and locate in dataframe
+            if erf_tz.index[-1] < temp_max:
+                ExtrapolateToHeatAndCold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_max, "heat")
+            if erf_tz.index[0] > temp_min:
+                ExtrapolateToHeatAndCold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_min, "cold")
+            
+    return erf_extrap 
+
+
+
+def ExtrapolateToHeatAndCold(erf, tz, erf_extrap, disease, zero_cross, t_lim, mode):
+        
+    """
+    Extrapolate hot and cold tails of the ERF curves by applying a log-linear
+    extrapolation in the last values of the functions.
+    """
+    
+    def linear_interp(xx, yy):
+        # Linear interpolation of raw ln(RR) data over a df column.        
+        lin_interp = sp.interpolate.interp1d(xx, yy, kind="linear", fill_value="extrapolate")    
+        return lambda zz: lin_interp(zz)  
+    
+    # Extapolate towards hot or cold temperatures
+    if mode=="heat":
+        
+        # Choose index with last extreme
+        index_peak = erf.index[0] if len(zero_cross) == 0 else erf.index[zero_cross[-1]]
+        # Define interpolation with last values
+        interp = linear_interp(erf[index_peak:].index, erf.loc[index_peak:].values)
+        # Define temperature values to interpolate
+        xx = np.round(np.linspace(erf.index[-1]+0.1, t_lim, int((t_lim - erf.index[-1])/0.1)+1), 1)
+        
+    if mode=="cold":
+        
+        index_peak = erf.index[-1] if len(zero_cross) == 0 else erf.index[zero_cross[0]]
+        interp = linear_interp(erf[:index_peak].index, erf.loc[:index_peak].values)
+        xx = np.round(np.linspace(t_lim, erf.index[0], int((erf.index[0] - t_lim)/0.1)+1), 1)
+    
+    # Locate extrapolated values
+    yy = interp(xx)
+    xx_multiindex = pd.MultiIndex.from_product([[tz], xx])
+    erf_extrap.loc[xx_multiindex, disease] = yy
+
+     
         
 def CalculatePAFYear(sets, fls, year):
     
@@ -359,7 +516,7 @@ def get_regional_paf(pop_ssp_year, regions, region, year, num_days, temperature_
     Get the Population Atributable Fraction per region and year by:
     1. Creating a dataframe with population weighted factors per temperature zone and daily temperature
     2. Merging the dataframe with the ERF shifted by the TMREL to assign RR values
-    3. Separating the dataframe into cold and hot attributable deaths
+    3. Separating the dataframe into cold and heat attributable deaths
     4. Calculating the PAF and storing it in the final dataframe
     
     Parameters:
@@ -393,11 +550,11 @@ def get_regional_paf(pop_ssp_year, regions, region, year, num_days, temperature_
         # Merge the ERF with the grouped data to assign rr
         df_all = pd.merge(df_pop, df_erf_tmrel,  on=["temperature_zone", "daily_temperature", "tmrel"], how="left")
 
-    # Make two new dataframes separating the cold and hot attributable deaths
+    # Make two new dataframes separating the cold and heat attributable deaths
     df_cold = df_all[df_all["daily_temperature"] < df_all["tmrel"]].copy()
-    df_hot = df_all[df_all["daily_temperature"] > df_all["tmrel"]].copy()
+    df_heat = df_all[df_all["daily_temperature"] > df_all["tmrel"]].copy()
         
-    for df, temp_type in zip([df_hot, df_cold, df_all], ["hot", "cold", "all"]):
+    for df, temp_type in zip([df_heat, df_cold, df_all], ["heat", "cold", "all"]):
         rr_to_paf(df, rr_year, diseases, year, region, temp_type)
         
         
@@ -528,7 +685,9 @@ def get_tmrel_map(wdir, year, draw_type, scenario):
     Returns: 
     1. 2-D np.array with the optimal temperature per pixel
     """
-    # year = 2020
+    
+            
+    print("[1.5] Theoretical Minimum Risk Exposure Levels (TMRELs)...")
     
     tmrel = xr.open_dataset(f"{wdir}/data/exposure_response_functions/TMRELs_{year}.nc")
     
@@ -553,214 +712,6 @@ def get_tmrel_map(wdir, year, draw_type, scenario):
     print("[1.4] Theoretical Minimum Response Levels (TMREL) data loaded.")
         
     return tmrel
-
-
-
-def linear_interp(xx, yy):
-    
-    """
-    Code to make linear interpolation over a DF column.
-    Used to interpolate raw ln(RR) data 
-    """
-    
-    lin_interp = sp.interpolate.interp1d(xx, yy, kind="linear", fill_value="extrapolate")    
-    return lambda zz: lin_interp(zz)  
-
-
-
-def extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_lim, mode):
-    
-    """
-    Function to extrapolate hot and cold tails of the ERF curves
-    """
-    
-    if mode=="hot":
-        
-        # Choose index with last extreme
-        index_peak = erf_tz.index[0] if len(zero_crossings) == 0 else erf_tz.index[zero_crossings[-1]]
-        # Define interpolation with last range
-        interp = linear_interp(erf_tz[index_peak:].index, erf_tz.loc[index_peak:].values)
-        # Define temperature values to interpolate
-        xx = np.round(
-            np.linspace(erf_tz.index[-1]+0.1, temp_lim, int((temp_lim - erf_tz.index[-1])/0.1)+1), 1
-        )
-        
-    if mode=="cold":
-        
-        # Choose index with first extreme
-        index_peak = erf_tz.index[-1] if len(zero_crossings) == 0 else erf_tz.index[zero_crossings[0]]
-        # Define interpolation with first range
-        interp = linear_interp(erf_tz[:index_peak].index, erf_tz.loc[:index_peak].values)
-        # Define temperature values to interpolate
-        xx = np.round(
-            np.linspace(temp_lim, erf_tz.index[0], int((erf_tz.index[0] - temp_lim)/0.1)+1), 1
-        )
-        
-    yy = interp(xx)
-    xx_multiindex = pd.MultiIndex.from_product([[tz], xx])
-    erf_extrap.loc[xx_multiindex, disease] = yy
-
-
-
-def extrapolate_erf(erf):
-    
-    """
-    If extrapolation is indicated, this function extrapolates the ERF curves to a defined range
-    using log-linear interpolation based on the last segment of the curves.
-    It identifies local extremes to determine the segments for extrapolation.
-    Returns a new dataframe with original and extrapolated values.
-    Parameters:
-    - erf: DataFrame with original ERF data
-    Returns:
-    - erf_extrap: DataFrame with original and extrapolated ERF data
-    """
-    
-    # Set extapolation range
-    temp_max = 50 
-    temp_min = -22
-    
-    # Round index level 1 to one decimal
-    erf.index = pd.MultiIndex.from_arrays([erf.index.get_level_values(0), 
-                                           erf.index.get_level_values(1).round(1)])
-
-    # Define new dataframe to store original and extrapolated values
-    erf_extrap = pd.DataFrame(index=pd.MultiIndex.from_product([range(6,29), np.round(np.arange(temp_min, temp_max+0.1, 0.1),1)],
-                                                                names=["annual_temperature", "daily_temperature"]), 
-                              columns=erf.columns)
-    
-    # Asign original values
-    erf_extrap.loc[erf.index, erf.columns] = erf
-    
-    # Iterate over temperature zones and disease
-    for tz in erf_extrap.index.levels[0]:
-        for disease in erf.columns:
-            
-            # Select relevant column
-            erf_tz = erf.loc[tz, disease].dropna()
-            
-            # Take derivative of selected series to find local extremes
-            dy = np.gradient(erf_tz, erf_tz.index)
-            zero_crossings = np.where(np.diff(np.sign(dy)) != 0)[0]
-            
-            if erf_tz.index[-1] < temp_max:
-                extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_max, "hot")
-                
-            if erf_tz.index[0] > temp_min:
-                extrapolate_hot_cold(erf_tz, tz, erf_extrap, disease, zero_crossings, temp_min, "cold")
-            
-    return erf_extrap  
-
-
-
-def read_erf_data(wdir, all_diseases=True):
-    
-    """
-    Read the raw Exposure Response Functions of relevant diseases from the specified path.
-    
-    Returns:
-    - erf: Dictionary containing the ERF dataframes. Relevant diseases only
-    
-    """
-    if all_diseases:
-        disease_list = ["ckd", "cvd_cmp", "cvd_htn", "cvd_ihd", "cvd_stroke", "diabetes", "inj_animal", "inj_disaster", "inj_drowning", 
-                "inj_homicide", "inj_mech", "inj_othunintent", "inj_suicide", "inj_trans_other", "inj_trans_road", "resp_copd", "lri"]   
-    else:
-        disease_list = ["ckd", "cvd_cmp", "cvd_htn", "cvd_ihd", "cvd_stroke", "diabetes", "lri", "resp_copd"] 
-    
-    erf_dict = {}
-
-    for disease in disease_list:
-        erf_disease = pd.read_csv(f"{wdir}/data/exposure_response_functions/ERF/{disease}_curve_samples.csv", 
-                                  index_col=[0,1])
-        erf_disease.index = pd.MultiIndex.from_arrays([erf_disease.index.get_level_values(0),
-                                                       erf_disease.index.get_level_values(1).round(1)])
-        erf_dict[disease] = erf_disease
-        
-    return erf_dict, disease_list
-
-
-
-def get_erf_dataframe(wdir, draw_type, extrap_erf=False):
-    
-    """
-    Get a single erf draw according to the arguments of the function, the function either:
-    - Mean: Calculates the mean of all draws 
-    - random_draw: Selects a random draw between the 1000 available
-    - draw: Select a specific draw for all diseases (useful for propagation of uncertainty runs)
-    
-    The function:
-    1. Selects a draw or calculates the mean per disease and puts them in a single dataframe
-    2. Uses the np.exp function to convert original ln(RR) to RR
-    3. Renames temperature zone columns
-    4. Produces two dics corresponding to the max and min daily temperatures in each 
-    temperature zone available in the files. This serves to clip later on the daily T data
-    and could potentially change in the future if the ERFs are extrapolated.
-    5. Put dataframe entries in float64 format
-    6. Fills any NaN values
-    
-    Returns: 
-    1. Dataframe with temperature_zone, daily_temperature as Multiindex, and 
-    the diseases in the columns
-    2. Dicionaries with max and min daily temperatures per temperature zone
-    """
-        
-    erf_dict, disease_list = read_erf_data(wdir, all_diseases=True)
-    
-    # Choose disease with the largest daily temperature range to create the base dataframe
-    
-    # erf = pd.DataFrame(index=erf_dict["ckd"].index)
-    erf = pd.DataFrame(index = pd.MultiIndex.from_arrays([erf_dict["ckd"].index.get_level_values(0), 
-                                                          erf_dict["ckd"].index.get_level_values(1).round(1)]))
-
-    # Fill the dataframe with the selected draw or the mean of all draws
-    for disease in disease_list:
-        if draw_type == "mean":
-            erf[disease] = erf_dict[disease].mean(axis=1)
-
-        elif draw_type == "random":
-            draw = random.randint(0,999)
-            erf[disease] = erf_dict[disease][f"draw_{draw}"]  
-            
-        elif isinstance(draw_type, int):
-            erf[disease] = erf_dict[disease][f"draw_{draw_type}"]
-     
-    # Extrapolate ERF 
-
-    if extrap_erf == True:
-        print("Extrapolating ERFs...")
-        erf = extrapolate_erf(erf) 
-         
-    else:
-        pass     
-    
-    # Convert log(rr) to rr   
-    erf = erf.astype(float)   
-    erf = erf.apply(lambda x: np.exp(x))
-    
-    # Rename for posterior merging
-    erf.rename_axis(index={"annual_temperature":"temperature_zone"}, inplace=True)  
-    
-    # Convert MultiIndex levels into columns
-    erf_reset = erf.reset_index()
-    
-    # Perform groupby operation using the columns
-    min_dict = erf_reset.groupby("temperature_zone")["daily_temperature"].min().to_dict()
-    max_dict = erf_reset.groupby("temperature_zone")["daily_temperature"].max().to_dict()
-        
-    # Round daily temperature values and set float64 format to posterior merging
-    erf.index = pd.MultiIndex.from_frame(erf.index.to_frame(index=False).assign(
-        **{erf.index.names[1]: lambda x: np.round(x[erf.index.names[1]].astype(float), 1)}))
-    
-    # Fill dataframe columns to remove NaNs in diseases that have a smaller tmeperature range
-    # This "flattens" the curves !!!
-    erf = erf.groupby("temperature_zone").bfill().ffill()
-
-    # Keep only temperature zones as index
-    erf = erf.reset_index().set_index("temperature_zone")
-    
-    print("[1.3] Exposure Response Functions dataframe generated.")
-            
-    return erf, disease_list, min_dict, max_dict
 
 
 

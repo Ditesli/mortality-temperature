@@ -7,7 +7,7 @@ from . import temperature as tmp
 
 
 
-def get_all_population_data(wdir, return_pop=False):
+def get_all_population_data(wdir, scenario, return_pop=False):
     
     '''
     Create a dataset with population data for all SSP scenarios 
@@ -18,7 +18,7 @@ def get_all_population_data(wdir, return_pop=False):
 
     # Concatenate population data for all SSP scenarios
     pop_all_ssp = xr.concat(
-        [LoadPopulationMap(wdir, ssp, years=range(2000, 2101)) for ssp in SSPs],
+        [LoadPopulationMap(wdir, scenario, ssp, years=range(2000, 2101)) for ssp in SSPs],
         dim='ssp'
     )
 
@@ -36,7 +36,7 @@ def get_all_population_data(wdir, return_pop=False):
 
 
 
-def LoadPopulationMap(wdir, ssp, years):
+def LoadPopulationMap(wdir, scenario, ssp, years):
     
     '''
     Read scenario-dependent population data, interpolate it to yearly data, 
@@ -47,11 +47,11 @@ def LoadPopulationMap(wdir, ssp, years):
     wdir_up = os.path.dirname(wdir)
     pop = xr.open_dataset(f'{wdir_up}/data/image_population/{ssp}/GPOP.nc')
     
-    # if re.search(r"SSP[1-5]_ERA5", scenario):
+    if re.search(r"ERA5", scenario):
         # Reduce resolution to 15 min to match ERA5 data
-    pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
-    # else:
-    #     pop_coarse = pop.coarsen(latitude=6, longitude=6, boundary='pad').sum(skipna=True)
+        pop_coarse = pop.coarsen(latitude=3, longitude=3, boundary='pad').sum(skipna=True)
+    else:
+        pop_coarse = pop.coarsen(latitude=6, longitude=6, boundary='pad').sum(skipna=True)
     
     # Select years if provided
     if years:
@@ -78,9 +78,8 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario):
     - regions_range: range or list with number of regions
     '''
 
-    if re.search(r"SSP[1-5]_ERA5", scenario):
+    if re.search(r"ERA5", scenario):
         temp_grid = tmp.DailyTemperatureERA5(temp_dir, 2000, "mean", pop_ssp=None, to_array=False)
-        
     else:
         temp_grid,_ = tmp.OpenMontlhyTemperatures(temp_dir, "mean")
         
@@ -89,7 +88,7 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario):
     
         # Read in IMAGE region data and interpolate to match files resolution
         regions = (
-            xr.open_dataset(wdir+'data/region_classification/GREG_30MIN.nc')
+            xr.open_dataset(wdir+'/data/region_classification/GREG_30MIN.nc')
             .mean(dim="time") # Mean over time dimension
             .interp(longitude=temp_grid.longitude,  # Match temperature data resolution 
                     latitude=temp_grid.latitude, 
@@ -104,7 +103,7 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario):
         
         # Read in GBD LEVEL 3 region data: countries and territories
         regions = (
-            xr.open_dataset(wdir+'data/GBD_locations/GBD_locations_level3.nc')
+            xr.open_dataset(wdir+'/data/GBD_locations/GBD_locations_level3.nc')
             .interp(longitude=temp_grid.longitude, 
                                      latitude=temp_grid.latitude, 
                                      method='nearest')
