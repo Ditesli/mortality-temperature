@@ -624,16 +624,23 @@ def PostprocessResults(sets, fls):
         
     print("[3] Model run complete. Saving results...")
     
+    if sets.region_class == "IMAGE26":
+        fls.paf.index = fls.paf.index.map(pop.image_index)
+    
+    # Leave only years in columns
+    fls.paf = fls.paf.stack([1,2]).reorder_levels([1,2,0]).sort_index()
+    fls.paf.index.names = ["disease", "t_type", "region"]
+    
     erf_part = "_1erf" if sets.single_erf else ""
     extrap_part = "_extrap" if sets.extrap_erf else ""
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
     
     # Create project folder if it doesn"t exist
-    out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
+    out_path = Path(sets.wdir) / "output" / f"{sets.project.upper()}" 
     out_path.mkdir(parents=True, exist_ok=True)
             
     # Save the results and temperature statistics
-    fls.paf.to_csv(out_path +
-                   f"PAF_{sets.project}_{sets.scenario}_{sets.regions}{years_part}{extrap_part}{erf_part}.csv")  
+    fls.paf.to_csv(out_path /
+                   f"PAF_{sets.project.upper()}_{sets.scenario}_{sets.regions}{years_part}{extrap_part}{erf_part}.csv")  
     
     print("Model ran succesfully!")
