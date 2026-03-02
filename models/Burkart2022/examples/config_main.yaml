@@ -1,12 +1,11 @@
-
-""" Paths to main directory and temeprature files """
+# Paths to main directory and temeprature files
 
 wdir: "X:/user/liprandicn/mt-comparison/burkart2022"
 temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
 # "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/SSP2_M/netcdf/"
 
 
-""" Scenario settings """
+# Scenario settings
 
 project: "default"
 scenario: "SSP2_ERA5" 
@@ -15,7 +14,7 @@ end_year: 2100
 region_class: "IMAGE26"
 
 
-""" Exposure Response Function Settings """
+# Exposure Response Function Settings
 
 # Using single mean ERF for all zones (True) or all ERFs (False)
 single_erf: False
