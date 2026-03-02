@@ -1,10 +1,10 @@
-""" Paths to main directory and temeprature files """
+# Paths to main directory and temeprature files
 
 wdir: 
 temp_dir: 
 
 
-""" Scenario settings """
+# Scenario settings 
 
 project: 
 scenario:   
@@ -13,7 +13,7 @@ end_year:
 region_class:
 
 
-""" Exposure Response Function Settings """
+# Exposure Response Function Settings 
 
 # Using single mean ERF for all zones (True) or all ERFs (False)
 single_erf:
