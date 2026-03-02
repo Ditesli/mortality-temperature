@@ -1,20 +1,21 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
+import re
 
 
 
-def load_temperature_type(temp_dir, temp_source, temp_type, year, pop_ssp):
+def LoadDailyTemperatures(temp_dir, scenario, temp_type, year, pop_ssp, std_factor):
     
     """
     Select the temperature data type to use (ERA5 or monthly statistics)
     """
     
-    if temp_source == "ERA5":
+    if re.search(r"SSP[1-5]_ERA5", scenario):
         daily_temp, num_days = DailyTemperatureERA5(temp_dir, year, temp_type, pop_ssp, to_array=True)
         
-    elif temp_source == "MS":
-        daily_temp, num_days = DailyFromMonthlyTemperature(temp_dir, year, temp_type.upper())
+    else:
+        daily_temp, num_days = DailyFromMonthlyTemperature(temp_dir, year, temp_type.upper(), std_factor)
         
     return daily_temp, num_days
 
@@ -157,7 +158,8 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     )
     
     # Generate monthly dates (15th OR 16th of each month)
-    monthly_dates = pd.date_range(start=f"15/12/{years[0]-1}", end=f"15/2/{years[-1]+1}", freq="ME") - pd.DateOffset(days=15)
+    monthly_dates = pd.date_range(start=f"15/12/{years[0]-1}", 
+                                  end=f"15/2/{years[-1]+1}", freq="ME") - pd.DateOffset(days=15)
     
     # Change NM data to monthly data and rename variable
     dec_years_jan = (
@@ -218,18 +220,18 @@ def OpenMontlhyTemperatures(temp_dir, temp_type):
     """
     
     # Read temperature mean and std files of from scenario 
-    if temp_type == "MEAN":
-        temp_mean = xr.open_dataset(temp_dir+f"GTMP_30MIN.nc")
+    if temp_type.upper() == "MEAN":
+        temp_mean = xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
     else: 
-        temp_mean = xr.open_dataset(temp_dir+f"GTMP_{temp_type}_30MIN.nc")
-    temp_std = xr.open_dataset(temp_dir+f"GTMP_STD_30MIN.nc")
+        temp_mean = xr.open_dataset(temp_dir+f"/GTMP_{temp_type}_30MIN.nc")
+    temp_std = xr.open_dataset(temp_dir+f"/GTMP_STD_30MIN.nc")
     
     # Select temperature variable depending on type
-    if temp_type == "MEAN":
+    if temp_type.upper() == "MEAN":
         temp_mean = temp_mean[f"GTMP_30MIN"]
         temp_std = temp_std[f"GTMP_STD_30MIN"]
     
-    if temp_type == "MAX":
+    if temp_type.upper() == "MAX":
         temp_mean = temp_mean[f"GTMP_MAX_30MIN"]
         temp_std = temp_std[f"GTMPMAX_STD_30MIN"]
     

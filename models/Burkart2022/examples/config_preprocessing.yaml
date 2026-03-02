@@ -1,0 +1,5 @@
+# Path to main working directory
+wdir: "X:/user/liprandicn/mt-comparison/burkart2022"
+
+# Path to ERA5 t2m data and land-sea mask
+path_era5: "X:/user/liprandicn/DATA/ERA5"
