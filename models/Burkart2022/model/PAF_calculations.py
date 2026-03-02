@@ -73,6 +73,7 @@ class ModelSettings:
     })
     
     def __post_init__(self):
+        
         # Include last year 
         if isinstance(self.years, range):
             self.years = range(self.years.start, self.years.stop + 1)
@@ -80,13 +81,12 @@ class ModelSettings:
         # Reduce range years if working with ERA5 data
         ERA5_START_YEAR = 2000
         ERA5_END_YEAR = 2025
+
         if re.search(r"ERA5", self.scenario):
-            return [
+            self.years = [
                 y for y in self.years
                 if ERA5_START_YEAR <= y <= ERA5_END_YEAR
             ]
-        else:
-            return self.years
 
 
 
