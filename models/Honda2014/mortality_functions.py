@@ -108,7 +108,23 @@ class LoadInputData:
     
     """
     Container for all input data required to run the model.
-
+    
+    Attributes
+    ----------
+    pop_ssp: np.ndarray
+        2D array with population per grid cell aligned with daily temperature resolution.
+    regions: np.ndarray
+        2D array with region locations per grid cell aligned with daily temperature resolution.
+    regions_range: np.ndarray
+        1D array with location indices.
+    opt_temp: np.ndarray
+        2D array with optimal temperatures as defined by Honda et al.
+    erf: pd.DataFrame
+        DataFrame with ERFs
+    min_val:
+    max_val:
+    paf: pd.DataFrame
+        Dataframe to store Population Attributable Fraction results.
     """
     
     pop_ssp: xr.DataArray
@@ -124,11 +140,8 @@ class LoadInputData:
     def from_files(cls, sets):
         
         '''
-        Load all the necessary files to run the main model, including:
-        - Population data netcdf file for the selected SSP scenario
-        - IMAGE regions netcdf file or GBD level 3 regions netcdf file
-        - Optimal temperatures netcdf file
-        - Risk function dataframe from Honda et al. (2014)
+        Load all input files required for PAF calculations. 
+        Data is located in the wdir/data folder.
         '''
         
         print('[1] Loading main files...')

@@ -135,7 +135,7 @@ class LoadInputData:
     regions: np.ndarray
         2D array with region locations per grid cell aligned with daily temperature resolution.
     regions_range: np.ndarray
-        1D array with location indices,
+        1D array with location indices.
     pop_ssp: np.ndarray
         2D array with population per grid cell aligned with daily temperature resolution.
     min_dict: dict
