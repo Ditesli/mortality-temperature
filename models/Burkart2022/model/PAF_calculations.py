@@ -73,8 +73,20 @@ class ModelSettings:
     })
     
     def __post_init__(self):
+        # Include last year 
         if isinstance(self.years, range):
             self.years = range(self.years.start, self.years.stop + 1)
+        
+        # Reduce range years if working with ERA5 data
+        ERA5_START_YEAR = 2000
+        ERA5_END_YEAR = 2025
+        if re.search(r"ERA5", self.scenario):
+            return [
+                y for y in self.years
+                if ERA5_START_YEAR <= y <= ERA5_END_YEAR
+            ]
+        else:
+            return self.years
 
 
 
@@ -161,20 +173,21 @@ class LoadInputData:
         
         temperature_zones = LoadTemperatureZones(sets)
         
-        print(f"[1.2] Loading region classification for {sets.regions} regions...")
-        regions, regions_range = pop.LoadRegionClassificationMap(
-            wdir=sets.wdir,
-            temp_dir=sets.temp_dir, 
-            region_class=sets.regions,
-            scenario=sets.scenario)
-        
-        print("[1.3] Loading SSP population data...")
+        print("[1.2] Loading SSP population data...")
         ssp = re.search(r"SSP\d", sets.scenario).group()
         pop_ssp = pop.LoadPopulationMap(
             wdir=sets.wdir,
             scenario=sets.scenario, 
             ssp=ssp, 
             years=sets.years)
+        
+        print(f"[1.3] Loading region classification for {sets.regions} regions...")
+        regions, regions_range = pop.LoadRegionClassificationMap(
+            wdir=sets.wdir,
+            temp_dir=sets.temp_dir, 
+            region_class=sets.regions,
+            scenario=sets.scenario,
+            pop_ssp=pop_ssp)
         
         erf, min_dict, max_dict = LoadExposureResponseFunctions(sets)
         tmrel = LoadTMRELsMap(sets, 2010) # Default years: 2010
@@ -415,7 +428,7 @@ def ShiftRRfromTMREL(erf, pop_ssp, tmrel, temperature_zones, diseases):
     TMREL for each temperature zone, shifting the curves so that RR=1 at TMREL.
     """
             
-    print("[1.4] Shifting Relative Risks (RRs) relative to TMRELs...")
+    print("[1.6] Shifting Relative Risks (RRs) relative to TMRELs...")
     
     
     def divide_by_tmrel(group, diseases):
@@ -491,7 +504,7 @@ def CalculatePAFYear(sets, fls, year):
     # Select population for the corresponding year
     pop_year = fls.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values
 
-    print("[2.2] Calculating Population Attributable Fractions...")
+    print(f"[2.2] Calculating Population Attributable Fractions for year {year}...")
     for region in fls.regions_range:
         CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp)
     

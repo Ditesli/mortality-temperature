@@ -61,7 +61,7 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     
     
     
-def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario):
+def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_ssp):
     
     '''
     Load the region classification selected (IMAGE26 or country level) and return as numpy array 
@@ -79,7 +79,7 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario):
     '''
 
     if re.search(r"ERA5", scenario):
-        temp_grid = tmp.DailyTemperatureERA5(temp_dir, 2000, "mean", pop_ssp=None, to_array=False)
+        temp_grid,_ = tmp.DailyTemperatureERA5(temp_dir, 2000, "mean", pop_ssp, to_array=False)
     else:
         temp_grid,_ = tmp.OpenMontlhyTemperatures(temp_dir, "mean")
         
