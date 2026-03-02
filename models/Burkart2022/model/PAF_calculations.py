@@ -3,6 +3,7 @@ import numpy as np
 import scipy as sp
 import xarray as xr
 import re, sys, os, random
+from pathlib import Path
 from dataclasses import dataclass, field
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
@@ -98,7 +99,7 @@ class PAFModel:
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
-                fls=self.sets,
+                fls=self.fls,
                 year=year
                 )
             
@@ -133,7 +134,7 @@ class LoadInputData:
         2D array with TMRELs per grid cell aligned with daily temperature resolution.
     df_erf_tmrel: pd.DataFrame
         Dataframe with unique combinations of temperature zones and TMRELs per location.
-    paf_final: pd.DataFrame
+    paf: pd.DataFrame
         Dataframe to store Population Attributable Fraction results.
     """
     
@@ -145,37 +146,49 @@ class LoadInputData:
     max_dict: dict
     tmrel: np.ndarray
     df_erf_tmrel: pd.DataFrame
-    paf_final: pd.DataFrame
+    paf: pd.DataFrame
 
 
     @classmethod
     def from_files(cls, sets):
         
         """
-        Read and load all input files required for PAF calculations. Data is located in 
-        the wdir/data folder.  
+        Load all input files required for PAF calculations. 
+        Data is located in the wdir/data folder.  
         """
         
-        print("[1] Loading files for calculations...")
+        print("[1] Loading input files...")
         
         temperature_zones = LoadTemperatureZones(sets)
         
-        print(f"[1.2] Loading region classification ({sets.regions}) map...")
-        regions, regions_range = pop.LoadRegionClassificationMap(sets.wdir, sets.temp_dir, sets.regions, sets.scenario)
+        print(f"[1.2] Loading region classification for {sets.regions} regions...")
+        regions, regions_range = pop.LoadRegionClassificationMap(
+            wdir=sets.wdir,
+            temp_dir=sets.temp_dir, 
+            region_class=sets.regions,
+            scenario=sets.scenario)
         
         print("[1.3] Loading SSP population data...")
         ssp = re.search(r"SSP\d", sets.scenario).group()
-        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, sets.years)
+        pop_ssp = pop.LoadPopulationMap(
+            wdir=sets.wdir,
+            scenario=sets.scenario, 
+            ssp=ssp, 
+            years=sets.years)
         
-        df_erf, min_dict, max_dict = LoadExposureResponseFunctions(sets)
+        erf, min_dict, max_dict = LoadExposureResponseFunctions(sets)
         tmrel = LoadTMRELsMap(sets, 2010) # Default years: 2010
-        df_erf_tmrel = ShiftRRfromTMREL(df_erf, pop_ssp, tmrel, temperature_zones, sets.diseases)
+        df_erf_tmrel = ShiftRRfromTMREL(erf=erf, 
+                                        pop_ssp=pop_ssp,
+                                        tmrel=tmrel, 
+                                        temperature_zones=temperature_zones,
+                                        diseases=sets.diseases)
         
         if sets.single_erf == True:
             df_erf_tmrel = AverageToSingleERF(df_erf_tmrel)
             
         print("[1.5] Creating final dataframe to store results...")
-        paf_final = pd.DataFrame(
+        paf = pd.DataFrame(
             index=regions_range, 
             columns=pd.MultiIndex.from_product([sets.years, sets.diseases, ["cold", "heat", "all"]])
             )  
@@ -190,7 +203,7 @@ class LoadInputData:
             max_dict=max_dict,           
             tmrel=tmrel,
             df_erf_tmrel=df_erf_tmrel,
-            paf_final=paf_final
+            paf=paf
         )
     
 
@@ -198,7 +211,7 @@ class LoadInputData:
 def LoadTemperatureZones(sets):
     
     """
-    Import ERA5 temperature zones and convert to numpy array
+    Import ERA5 temperature zones nc file and convert to numpy array
     """
     
     print("[1.1] Loading temperature zones as numpy array...")
@@ -210,7 +223,6 @@ def LoadTemperatureZones(sets):
     )
     
     if not re.search(r"SSP[1-5]_ERA5", sets.scenario):
-            
         # Reshape array to 4D blocks of 2x2
         arr_reshaped = era5_tz.reshape(360, 2, 720, 2)
         # Calculate mode over the 2x2 blocks to reduce resolution
@@ -264,11 +276,9 @@ def LoadExposureResponseFunctions(sets):
     # Extrapolate ERF 
     if sets.extrap_erf == True:
         print("[1.3.1] Extrapolating ERFs...")
-        erf = ExtrapolateERF(erf)     
-    else:
-        pass     
-    
-    
+        erf = ExtrapolateERF(erf)        
+      
+      
     erf = (
         erf
         .astype(float).apply(lambda x: np.exp(x)) # Convert log(rr) to rr   
@@ -397,7 +407,7 @@ def LoadTMRELsMap(sets, year):
 
 
 
-def ShiftRRfromTMREL(df_erf, pop_ssp, tmrel, temperature_zones, diseases):
+def ShiftRRfromTMREL(erf, pop_ssp, tmrel, temperature_zones, diseases):
     
     """
     Every temperature zone gets assings all the possible TMREL (with positive POP). 
@@ -432,7 +442,7 @@ def ShiftRRfromTMREL(df_erf, pop_ssp, tmrel, temperature_zones, diseases):
     df_erf_tmrel = (
         pd.DataFrame({"temperature_zone": tz_valid_pop, "tmrel": np.round(tmrel_valid_pop,1)})
         .drop_duplicates()
-        .merge(df_erf, on=["temperature_zone"], how="right") # Merge with ERF data
+        .merge(erf, on=["temperature_zone"], how="right") # Merge with ERF data
         .set_index("temperature_zone")  # Set temperature_zone as index
         .groupby("temperature_zone", group_keys=False).apply( # For each tz, divide RR by TMREL
             lambda group: divide_by_tmrel(group, list(diseases.keys())))
@@ -470,108 +480,67 @@ def AverageToSingleERF(df):
         
 def CalculatePAFYear(sets, fls, year):
     
-    print(f"Calculating Population Attributable Fraction for year {year}...") 
-    
-    daily_temp, num_days = tmp.load_temperature_type(sets.temp_dir, sets.scenario, "mean", year, fls.pop_ssp)
+    print(f"[2.1] Loading daily temperature data for year {year}...") 
+    daily_temp, num_days = tmp.LoadDailyTemperatures(temp_dir=sets.temp_dir,
+                                                     scenario=sets.scenario,
+                                                     temp_type="mean",
+                                                     year=year, 
+                                                     pop_ssp=fls.pop_ssp,
+                                                     std_factor=1)
 
     # Select population for the corresponding year
-    pop_ssp_year = fls.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values
+    pop_year = fls.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values
 
-    # Set a mask of pixels for each region
-    for region in sets.regions_range:
+    print("[2.2] Calculating Population Attributable Fractions...")
+    for region in fls.regions_range:
+        CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp)
+    
+    
+    
+def CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp):
+    
+    """
+    Get the Population Atributable Fraction per region and year by:
+    1. Creating a dataframe with population weighted factors per temperature zones and daily temperatures
+    2. Merging the dataframe with the ERF shifted by the TMREL to assign RR values
+    3. Separating the dataframe into cold and heat attributable deaths
+    4. Calculating the PAF per temperature type and storing it in the final dataframe
+    """
+    
+    # Get population mask within selected region
+    region_mask = (pop_year > 0.) & (fls.regions == region)
+    
+    # Generate dataframe with population weighted factors per region and rest of variables
+    df_region = CreatePopulationDF(sets, fls, region_mask, pop_year, daily_temp, num_days)
+    
+     # Merge the ERF with the grouped data to assign Relative Risk values,
+    if sets.single_erf == True: # Excluding temperature_zones
+        df_all = df_region.merge(fls.df_erf_tmrel, on=["daily_temperature", "tmrel"], how="left")  
+    else:
+        df_all = df_region.merge(fls.df_erf_tmrel, on=["temperature_zone", "daily_temperature", "tmrel"], how="left")
+
+    # Make two new dataframes separating the attributable deaths from heat and cold
+    df_cold = df_all[df_all["daily_temperature"] < df_all["tmrel"]].copy()
+    df_heat = df_all[df_all["daily_temperature"] > df_all["tmrel"]].copy()
+    
+    diseases = list(sets.diseases.keys())
+    # Calculating PAFs per temperature types
+    for df, temp_type in zip([df_heat, df_cold, df_all], ["heat", "cold", "all"]):
         
-        get_regional_paf(pop_ssp_year, sets.regions, region, year, num_days, fls.temperature_zones, 
-                            daily_temp, fls.tmrel, fls.df_erf_tmrel, fls.paf_final, sets.diseases, fls.min_dict, 
-                            fls.max_dict, sets.single_erf)
-
-
-
-def rr_to_paf(df, rr_year, diseases, year, region, temp_type):
-    
-    """
-    Convert the Relative Risk into the Population Atributable Fraction following
-    Burkart et al.
-    """
-    
-    # Convert the RR to PAF
-    df[[f"{col}" for col in diseases]] = np.where(df[diseases] < 1, 
-                                                  df["population"].values[:, None] * (df[diseases] - 1),
-                                                  df["population"].values[:, None] * (1 - 1 / df[diseases]))
-    
-    # Aggregate PAFs
-    df_aggregated = df.sum(axis=0)
-    
-    # Locate aggregated PAF in annual dataframe
-    rr_year.loc[region, (year, diseases, temp_type)] = [df_aggregated[f"{d}"] for d in diseases]
-    
-    
-
-def get_temp_array_from_mask(daily_temp, valid_mask, pop_array, num_days):
-    
-    """
-    Creates a 1-D array from the daily temperature data by masking first cells with
-    population and the flattening
-    """
-    
-    # Create an empty array to store the daily temperatures
-    dayTemp_array = np.empty(len(pop_array), dtype=np.float32) 
-    index = 0
-    
-    # Iterate over the number of days in the year
-    for day in range(num_days):
+        # Convert the RR to PAF following GBD method
+        df[[f"{col}" for col in sets.diseases]] = (
+            np.where(df[diseases] < 1, 
+                    df["population"].values[:, None] * (df[diseases] - 1),
+                    df["population"].values[:, None] * (1 - 1 / df[diseases]))
+        )
+        # Aggregate PAFs regionally
+        df_aggregated = df.sum(axis=0)
+        # Locate aggregated PAF in annual dataframe
+        fls.paf.loc[region, (year, diseases, temp_type)] = [df_aggregated[f"{d}"] for d in diseases]
+            
         
-        # Get the daily temperature
-        dayTemp_np = daily_temp[:,:,day]
-        
-        # Mask the values to get only the ones with POP data
-        dayTemp_values = dayTemp_np[valid_mask]
-        
-        # Append the values to the array
-        dayTemp_array[index:index+len(dayTemp_values)] = dayTemp_values
-        index += len(dayTemp_values) # or len(pop_array)
-        
-    return dayTemp_array
-    
-    
-    
-def get_array_from_mask(data, valid_mask, num_days):
-    
-    """ 
-    Converts GREG, yearly population and temperature zone xarrays into 1-D numpy arrays 
-    by keeping only the entries where there is population data (data is more than 0)
-    """
-    
-    # Convert xarray to numpy and get the values for the valid mask
-    data_masked = data[valid_mask]
-    # Repeat the same values for the number of days in a year
-    data_array = np.concatenate([data_masked] * num_days)
-    
-    return data_array
-    
-    
-    
-def get_data_masked_per_region(valid_mask, num_days, pop, era5_tz, daily_temp, tmrel): 
-    
-    """
-    Use the mask for the population data to mask the population temperature zone, tmrel map and 
-    daily temperature data. The first three maps are repreated 365/366 times depending the 
-    number of days in the specific year. This process creates 1-D arrays for the data representing
-    the different combinations.
-    """
-    
-    # Get arrays for the data using the functions defined above
-    pop_array = get_array_from_mask(pop, valid_mask, num_days)
-    meanTemp_array = get_array_from_mask(era5_tz, valid_mask, num_days)
-    dayTemp_array = get_temp_array_from_mask(daily_temp, valid_mask, pop_array, num_days)
-    tmrel_array = get_array_from_mask(tmrel, valid_mask, num_days)
-    
-    # print(f"Data masked")
-    
-    return pop_array, meanTemp_array, dayTemp_array, tmrel_array
-    
-    
 
-def create_population_df(mask, pop_ssp_year, temperature_zones, daily_temp, tmrel, num_days, min_dict, max_dict, single_erf=False):
+def CreatePopulationDF(sets, fls, mask, pop_year, daily_temp, num_days):
     
     """
     Create a dataframe that includes data on temperature zone, daily temperature, population and tmrel
@@ -582,86 +551,60 @@ def create_population_df(mask, pop_ssp_year, temperature_zones, daily_temp, tmre
     This dataframe will be used to merge with the ERF and calculate the RR and PAF.    
     """
     
-    pop_array, t_zones_array, daily_t_array, tmrel_array = get_data_masked_per_region(mask, 
-                                                                                    num_days, 
-                                                                                    pop_ssp_year, 
-                                                                                    temperature_zones, 
-                                                                                    daily_temp, 
-                                                                                    tmrel)
-
-    #Change array type for posterior merging
-    daily_temperatures_array = np.array(daily_t_array, dtype=np.float64)
+    # Get 1D arrays where POP>0 using the regional mask and matching daily temp dimension (num_days)
+    pop_array = np.concatenate([pop_year[mask]]*num_days)
+    tz_array = np.concatenate([fls.temperature_zones[mask]]*num_days)
+    tmrel_array = np.concatenate([fls.tmrel[mask]]*num_days)
     
-    # Create a dataframe that includes data on temperature zone, daily temperature, population and tmrel
-    df_pop = pd.DataFrame({"temperature_zone": t_zones_array, "daily_temperature": np.round(daily_temperatures_array,1),
-                           "population": np.round(pop_array,1), "tmrel":np.round(tmrel_array,1)})
+    # Get 1D array of daily temperature using regional mask
+    dayTemp_array = MaskTemperatureDataRegionally(daily_temp, mask, pop_array, num_days)
+
+    # Create a dataframe with data on temperature zone, daily temperature, population and tmrel
+    df_region = pd.DataFrame({"temperature_zone": tz_array, 
+                           "daily_temperature": np.round(dayTemp_array,1),
+                           "population": np.round(pop_array,1), 
+                           "tmrel": np.round(tmrel_array,1)})
 
     # Truncate min and max Temperature values according to availability in ERF
-    df_pop["daily_temperature"] = df_pop["daily_temperature"].clip(lower=df_pop["temperature_zone"].map(min_dict), 
-                                                                   upper=df_pop["temperature_zone"].map(max_dict))
+    df_region["daily_temperature"] = (
+        df_region["daily_temperature"]
+        .clip(lower=df_region["temperature_zone"].map(fls.min_dict), 
+              upper=df_region["temperature_zone"].map(fls.max_dict))
+    )
     
-    if single_erf == False:
-        # Group per temperature_zone, daily_temperature and tmrel, calculating the fraction of population per each combination
-        df_pop = df_pop.groupby(["temperature_zone", "daily_temperature", "tmrel"], as_index=False).sum()
-    
+    # Calculate the fraction of population per (temperature_zone), daily_temperature and tmrel
+    if sets.single_erf == False:
+        df_region = df_region.groupby(["temperature_zone", "daily_temperature", "tmrel"], as_index=False).sum()
     else:
-        # Group per daily_temperature and tmrel, calculating the fraction of population per each combination
-        df_pop = df_pop.groupby(["daily_temperature", "tmrel"], as_index=False).sum()
+        df_region = df_region.groupby(["daily_temperature", "tmrel"], as_index=False).sum()
         
-    df_pop["population"] /= df_pop["population"].sum()
+    df_region["population"] /= df_region["population"].sum()
     
-    return df_pop
+    return df_region
 
     
-    
-def get_regional_paf(pop_ssp_year, regions, region, year, num_days, temperature_zones, daily_temp, tmrel, 
-                     df_erf_tmrel, rr_year, diseases, min_dict, max_dict, single_erf):
-    
-    """
-    Get the Population Atributable Fraction per region and year by:
-    1. Creating a dataframe with population weighted factors per temperature zone and daily temperature
-    2. Merging the dataframe with the ERF shifted by the TMREL to assign RR values
-    3. Separating the dataframe into cold and heat attributable deaths
-    4. Calculating the PAF and storing it in the final dataframe
-    
-    Parameters:
-    - pop_ssp_year: population data for the specific year
-    - regions: array with IMAGE region classification
-    - region: specific IMAGE region to calculate the PAF
-    - year: specific year to calculate the PAF
-    - num_days: number of days in the specific year
-    - temperature_zones: array with temperature zones classification
-    - daily_temp: array with daily temperature data for the specific year
-    - tmrel: array with TMREL data for the specific year
-    - df_erf_tmrel: dataframe with the ERF data shifted by the TMREL
-    - rr_year: dataframe to store the final RR values per region and year
-    - diseases: list of diseases to calculate the RR
-    - min_dict: dictionary with the minimum temperature values per temperature zone
-    - max_dict: dictionary with the maximum temperature values per temperature zone
-    """
-    
-    # Get mask of 
-    image_region_mask = (pop_ssp_year > 0.) & (regions == region)
-    
-    # Generate dataframe with population weighted factors per 
-    df_pop = create_population_df(image_region_mask, pop_ssp_year, temperature_zones, 
-                                daily_temp, tmrel, num_days, min_dict, max_dict)
-    
-    if single_erf == True:
-        # Merge the ERF with the grouped data to assign rr, excluding the temperature_zone column
-        df_all = pd.merge(df_pop, df_erf_tmrel,  on=["daily_temperature", "tmrel"], how="left")
-        
-    else:
-        # Merge the ERF with the grouped data to assign rr
-        df_all = pd.merge(df_pop, df_erf_tmrel,  on=["temperature_zone", "daily_temperature", "tmrel"], how="left")
 
-    # Make two new dataframes separating the cold and heat attributable deaths
-    df_cold = df_all[df_all["daily_temperature"] < df_all["tmrel"]].copy()
-    df_heat = df_all[df_all["daily_temperature"] > df_all["tmrel"]].copy()
+def MaskTemperatureDataRegionally(daily_temp, valid_mask, pop_array, num_days):
+    
+    """
+    Creates a 1-D array from the daily temperature data by masking first cells with
+    population in a region.
+    """
+    
+    # Create an empty array to store the daily temperatures
+    dayTemp_array = np.empty(len(pop_array), dtype=np.float32) 
+    index = 0
+    
+    # Iterate over the number of days in the year
+    for day in range(num_days):        
+        # Get the daily temperature with POP data
+        dayTemp_np = daily_temp[:,:,day][valid_mask]
+        # Append the values to the array
+        dayTemp_array[index:index+len(dayTemp_np)] = dayTemp_np
+        index += len(dayTemp_np) 
         
-    for df, temp_type in zip([df_heat, df_cold, df_all], ["heat", "cold", "all"]):
-        rr_to_paf(df, rr_year, diseases, year, region, temp_type)
-        
+    return np.array(dayTemp_array, dtype=np.float64)
+    
 
 
 def PostprocessResults(sets, fls):
@@ -671,8 +614,13 @@ def PostprocessResults(sets, fls):
     erf_part = "_1erf" if sets.single_erf else ""
     extrap_part = "_extrap" if sets.extrap_erf else ""
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+    
+    # Create project folder if it doesn"t exist
+    out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
+    out_path.mkdir(parents=True, exist_ok=True)
             
     # Save the results and temperature statistics
-    fls.paf_final.to_csv(f"{sets.wdir}\\output\\PAF_{sets.project}_{sets.scenario}_{sets.regions}_{years_part}{extrap_part}{erf_part}.csv")  
+    fls.paf.to_csv(out_path +
+                   f"PAF_{sets.project}_{sets.scenario}_{sets.regions}{years_part}{extrap_part}{erf_part}.csv")  
     
     print("Model ran succesfully!")

@@ -5,7 +5,7 @@ import re
 
 
 
-def load_temperature_type(temp_dir, scenario, temp_type, year, pop_ssp):
+def LoadDailyTemperatures(temp_dir, scenario, temp_type, year, pop_ssp, std_factor):
     
     """
     Select the temperature data type to use (ERA5 or monthly statistics)
@@ -15,7 +15,7 @@ def load_temperature_type(temp_dir, scenario, temp_type, year, pop_ssp):
         daily_temp, num_days = DailyTemperatureERA5(temp_dir, year, temp_type, pop_ssp, to_array=True)
         
     else:
-        daily_temp, num_days = DailyFromMonthlyTemperature(temp_dir, year, temp_type.upper())
+        daily_temp, num_days = DailyFromMonthlyTemperature(temp_dir, year, temp_type.upper(), std_factor)
         
     return daily_temp, num_days
 
@@ -158,7 +158,8 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     )
     
     # Generate monthly dates (15th OR 16th of each month)
-    monthly_dates = pd.date_range(start=f"15/12/{years[0]-1}", end=f"15/2/{years[-1]+1}", freq="ME") - pd.DateOffset(days=15)
+    monthly_dates = pd.date_range(start=f"15/12/{years[0]-1}", 
+                                  end=f"15/2/{years[-1]+1}", freq="ME") - pd.DateOffset(days=15)
     
     # Change NM data to monthly data and rename variable
     dec_years_jan = (
