@@ -1,0 +1,13 @@
+# Set path to ERA5 data
+temp_dir: 
+# Set output path
+out_dir: 
+
+
+# Define the years range and step size for processing
+start_year:
+end_year: 
+# Define the step size for latitude bands
+step:
+# Define percentile of optimal temperatures
+percentile:
