@@ -9,7 +9,7 @@ temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
 """ Scenario settings """
 
 project: "default"
-scenario: "SSP2-ERA5" 
+scenario: "SSP2_ERA5" 
 start_year: 2000
 end_year: 2100
 region_class: "IMAGE26"
