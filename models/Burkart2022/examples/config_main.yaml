@@ -1,34 +1,25 @@
-"""
-Define scenario settings, ERF settings and file paths
-"""
 
-# Path to main working directory
-wdir: "X:/user/liprandicn/mt-comparison/burkart2022/"
-# temp_dir = "X:/user/liprandicn/Data/ERA5/t2m_daily/"
-temp_dir: "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/SSP2_M/netcdf/"
+""" Paths to main directory and temeprature files """
 
-"""
-Temporal
-"""
+wdir: "X:/user/liprandicn/mt-comparison/burkart2022"
+temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
+# "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/SSP2_M/netcdf/"
 
-# Define temperature data source
-project: "MS" # MS (monthly statistics) or ERA5
-# Define SSP scenario
-scenario:  "SSP2" # SSP1, SSP2, SSP3, SSP5
-# Set years range
+
+""" Scenario settings """
+
+project: "default"
+scenario: "SSP2-ERA5" 
 start_year: 2000
 end_year: 2100
-# Define region classification
-region_class: "IMAGE26" # "IMAGE26" or "countries"
+region_class: "IMAGE26"
 
 
-"""
-Set settings to select ERF
-"""
+""" Exposure Response Function Settings """
 
-# Choose between keeping temperature zones (False) or using single mean ERF for all zones (True)
+# Using single mean ERF for all zones (True) or all ERFs (False)
 single_erf: False
-# Choose between extrapolating ERFs (True) or keeping them as in Burkart 2021 (False)
+# Extrapolate ERFs (True) or keep range as in Burkart 2021 (False)
 extrap_erf: False
-# Choose between calculating mean RR (True), specific or random draw (False). 
-draw_type: "mean"  # "mean", "random" or int (specific draw number)
+# Calculate mean RR ("mean"), specific (int) or random draw ("random")
+draw_type: "mean"
