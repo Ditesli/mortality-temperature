@@ -1,30 +1,21 @@
-"""
-Define scenario settings, ERF settings and file paths
-"""
 
-# Path to main working directory
-wdir = ""
-# temp_dir = "X:/user/liprandicn/Data/ERA5/t2m_daily/"
-temp_dir = ""
+""" Paths to main directory and temeprature files """
+wdir: 
+temp_dir: 
 
 
-# Define temperature data source
-temp_source = "" # MS (monthly statistics) or ERA5
-# Define SSP scenario
-ssp =  "" # SSP1, SSP2, SSP3, SSP5
-# Define years range
-years = range(2000,2020) 
-# Define region classification
-region_class = "" # "IMAGE26" or "countries"
+""" Scenario settings """
+project: 
+scenario:   
+start_year: 
+end_year: 
+region_class:
 
 
-"""
-Set settings to select ERF
-"""
-# Choose between keeping temperature zones (False) or using single mean ERF for all zones (True)
-single_erf = False
-# Choose between extrapolating ERFs (True) or keeping them as in Burkart 2021 (False)
-extrap_erf = False
-
-# Choose between calculating mean RR (True), specific or random draw (False). 
-draw_type = ""  # "mean", "random" or int (specific draw number)
+""" Exposure Response Function Settings """
+# Using single mean ERF for all zones (True) or all ERFs (False)
+single_erf:
+# Extrapolate ERFs (True) or keep range as in Burkart 2021 (False)
+extrap_erf:
+# Calculate mean RR ("mean"), specific (int) or random draw ("random")
+draw_type: 
