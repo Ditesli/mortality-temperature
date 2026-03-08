@@ -77,17 +77,21 @@ class ModelSettings:
         else:
             return self.temp_dir
         
-    def validate_years(self):
+    def __post_init__(self):
+        
+        # Include last year 
+        if isinstance(self.years, range):
+            self.years = range(self.years.start, self.years.stop + 1)
+        
+        # Reduce range years if working with ERA5 data
         ERA5_START_YEAR = 2000
         ERA5_END_YEAR = 2025
 
-        if re.search(r"SSP[1-5]_ERA5", self.scenario):
-            return [
+        if re.search(r"ERA5", self.scenario):
+            self.years = [
                 y for y in self.years
                 if ERA5_START_YEAR <= y <= ERA5_END_YEAR
             ]
-        else:
-            return self.years
             
 
 
