@@ -27,8 +27,8 @@ def CalculateMortality(
 ):
 
     sets = ModelSettings(
-        temp_path=temp_dir,
-        income_path=gdp_dir,
+        temp_dir=temp_dir,
+        gdp_dir=gdp_dir,
         wdir=wdir,
         project=project,
         scenario=scenario,
@@ -46,8 +46,8 @@ def CalculateMortality(
 
 @dataclass
 class ModelSettings:
-    temp_path: str
-    income_path: any
+    temp_dir: str
+    gdp_dir: any
     wdir: str
     project: any
     scenario: str
@@ -60,34 +60,38 @@ class ModelSettings:
     
     def __post_init__(self):
         self.years = self.validate_years()
-        self.temp_path = self.climate_path()
+        self.temp_dir = self.climate_dir()
     
     
-    def climate_path(self) -> str:
+    def climate_dir(self) -> str:
         """
         Set path to climate data depending on the scenario type 
         (IMAGE or other scenarios)
         """
-        if self.temp_path == self.income_path:
+        if self.temp_dir == self.gdp_dir:
             return (
-                f"{self.temp_path}/"
+                f"{self.temp_dir}/"
                 f"{self.project}/3_IMAGE_land/scen/"
                 f"{self.scenario}/netcdf/"
             )
         else:
-            return self.temp_path
+            return self.temp_dir
         
-    def validate_years(self):
+    def __post_init__(self):
+        
+        # Include last year 
+        if isinstance(self.years, range):
+            self.years = range(self.years.start, self.years.stop + 1)
+        
+        # Reduce range years if working with ERA5 data
         ERA5_START_YEAR = 2000
         ERA5_END_YEAR = 2025
 
-        if re.search(r"SSP[1-5]_ERA5", self.scenario):
-            return [
+        if re.search(r"ERA5", self.scenario):
+            self.years = [
                 y for y in self.years
                 if ERA5_START_YEAR <= y <= ERA5_END_YEAR
             ]
-        else:
-            return self.years
             
 
 
@@ -373,7 +377,7 @@ def GridRelationship(sets):
     if re.search(r"ERA5", sets.scenario):
         # Use function located in the utils_common folder to import ERA5 data in the right format
         grid,_ = tmp.DailyTemperatureERA5(
-            era5_dir=sets.temp_path, 
+            era5_dir=sets.temp_dir, 
             year=sets.years[0], 
             temp_type="mean", 
             pop_ssp=None, 
@@ -385,7 +389,7 @@ def GridRelationship(sets):
         
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_path, 
+            temp_dir=sets.temp_dir, 
             years=sets.years[0], 
             temp_type="MEAN", 
             std_factor=1, 
@@ -476,7 +480,7 @@ def ImportGammaCoefficients(wdir):
         2 --> multiply by the covariate loggdppc
     """
     
-    with open(wdir+"data/carleton_sm/Agespec_interaction_response.csvv") as f:
+    with open(wdir+"/data/carleton_sm/Agespec_interaction_response.csvv") as f:
         
         # Extract relevant lines
         for i, line in enumerate(f, start=1):
@@ -484,7 +488,7 @@ def ImportGammaCoefficients(wdir):
             if i == 21:
                 # Extract 1, climtas, loggdppc
                 covar_names = [x for x in line.strip().split(", ")]
-                # Convert to indices and convert to array
+                # Convert to indices and to array
                 covar_map = {"1":0, "climtas":1, "loggdppc":2}
                 covar_idx = np.array([covar_map[str(x)] for x in covar_names])
                 
@@ -541,12 +545,12 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
         
         # Read 'present-day' population data
         pop_historical = (
-            pd.read_csv(f"{sets.wdir}/data/population/pop_historical/POP_historical_{age_group}.csv")
+            pd.read_csv(sets.wdir+f"/data/population/pop_historical/POP_historical_{age_group}.csv")
             .set_index("hierid")
         )
 
         pop_ssp = (
-            xr.open_dataset(sets.wdir+f"data/carleton_sm/econ_vars/{ssp.upper()}.nc4")[age_name]
+            xr.open_dataset(sets.wdir+f"/data/carleton_sm/econ_vars/{ssp.upper()}.nc4")[age_name]
             .sel(model="low") # Select any GDP model
             .to_dataframe() # Convert to dataframe
             .drop(columns=['ssp', 'model'])
@@ -693,7 +697,7 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
 
         # Open covariates for "present day" (no adaptation) and reindex wrt ir dataframe
         covariates_t0 = (
-             pd.read_csv(sets.wdir+"data/carleton_sm/main_specification/mortality-allpreds.csv")
+             pd.read_csv(sets.wdir+"/data/carleton_sm/main_specification/mortality-allpreds.csv")
             .rename(columns={"region":"hierid"})
             .set_index("hierid")
             .reindex(fls.ir.values)
@@ -716,9 +720,9 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
         else:
             # Load "present-day" climatology
             if counterfactual:
-                climtas = ImportClimtas(sets.temp_path, None, fls.spatial_relation, present_day=True)
+                climtas = ImportClimtas(sets.temp_dir, None, fls.spatial_relation, present_day=True)
             else:
-                climtas = ImportClimtas(sets.temp_path, year, fls.spatial_relation, present_day=False)
+                climtas = ImportClimtas(sets.temp_dir, year, fls.spatial_relation, present_day=False)
                 
         # log(GDPpc) ---------------------------    
         
@@ -752,7 +756,7 @@ def ImportHistoricalLogGDPpc(wdir, ir, year, country_shares):
     
     # Read GDPpc
     gdppc = (
-        pd.read_csv(wdir + "data/income_data/historical_gdppc/WB_WDI_NY_GDP_PCAP_KD.csv")
+        pd.read_csv(wdir + "/data/income_data/historical_gdppc/WB_WDI_NY_GDP_PCAP_KD.csv")
         [["REF_AREA", "TIME_PERIOD", "OBS_VALUE"]] # Relevan columns
         .sort_values(["REF_AREA", "TIME_PERIOD"])
         .assign( # Calculate 13 year rolling mean of log(GDPpc) per country
@@ -906,7 +910,7 @@ def ReadOUTFiles(sets):
 
     # Read GDPpc data path from specific scenario.
     path_clim = (
-        sets.income_path + "/" 
+        sets.gdp_dir + "/" 
         + sets.project + "/2_TIMER/outputlib/TIMER_3_4/" 
         + sets.project + "/"
         + sets.scenario + "/indicators/Economy/"
@@ -942,7 +946,7 @@ def ImportClimtasERA5(wdir, year, ir):
 
 
 
-def ImportClimtas(temp_path, year, spatial_relation, present_day):
+def ImportClimtas(temp_dir, year, spatial_relation, present_day):
     
     """
     Import climate data from montlhy statistics files. The code calculates the 30-year running
@@ -958,7 +962,7 @@ def ImportClimtas(temp_path, year, spatial_relation, present_day):
     
     # Read monthly mean of daily mean temperature data
     climtas_ir = (
-        xr.open_dataset(temp_path+f"GTMP_30MIN.nc")
+        xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
         ["GTMP_30MIN"]
         .mean(dim="NM") # Annual temperature
         .rolling(time=30, min_periods=1) 
@@ -1101,13 +1105,13 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
     if "ERA5" in sets.scenario:
         
         # Open daily temperature data from ERA5
-        daily_temperature = ERA5Temperature2IR(sets.temp_path, year, spatial_relation)
+        daily_temperature = ERA5Temperature2IR(sets.temp_dir, year, spatial_relation)
         
     else:
                 
         # Read daily temperature data generated from monthly statistics
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_path, 
+            temp_dir=sets.temp_dir, 
             years=year, 
             temp_type="MEAN", 
             std_factor=1,
@@ -1156,7 +1160,7 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
 
 
 
-def ERA5Temperature2IR(temp_path, year, spatial_relation):
+def ERA5Temperature2IR(temp_dir, year, spatial_relation):
     
     """
     Import gridded daily temperature data of one year from ERA5 and convert it
@@ -1166,7 +1170,7 @@ def ERA5Temperature2IR(temp_path, year, spatial_relation):
     
     # Read ERA5 daily temperature data for a specific year
     daily_temperature, _ = tmp.DailyTemperatureERA5(
-        era5_dir=temp_path,
+        era5_dir=temp_dir,
         year=year, 
         temp_type="mean", 
         pop_ssp=None, 
@@ -1351,7 +1355,7 @@ def ImportPresentDayTemperatures(sets, base_years, ir, spatial_relation):
         for year in base_years:
             
             era5_t0 = pd.read_csv(sets.wdir+
-                                  f"data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
+                                  f"/data/climate_data/era5/present_day_temperatures/ERA5_T0_{year}.csv")
             # Store in dictionary as numpy arrays
             t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
             
@@ -1359,7 +1363,7 @@ def ImportPresentDayTemperatures(sets, base_years, ir, spatial_relation):
     else: 
         
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_path, 
+            temp_dir=sets.temp_dir, 
             years=base_years,
             temp_type="MEAN",
             std_factor=1, 
@@ -1553,7 +1557,7 @@ def ExportOUTFiles(results, sets):
     
     # Save .OUT file in output folder
     output_dir = (
-        sets.income_path + "/" 
+        sets.gdp_dir + "/" 
         + sets.project 
         + "/7_Reporting_Tool/data_wip/" 
         + sets.project + "/" 
@@ -1599,13 +1603,16 @@ def PostprocessResults(sets, fls):
         project = f"{sets.project}"
     else:
         project = ""
-    if sets.region != "IMAGE26":
-        region_name = f"_{sets.region}"
+    if sets.regions != "IMAGE26":
+        region_name = f"_{sets.regions}"
     else:
         region_name = ""
         
+    output_dir = sets.wdir + "/output/" + f"{sets.project}" 
+    os.makedirs(output_dir, exist_ok=True)  # crea la carpeta si no existe   
+    
     # Save results to CSV                
-    results.to_csv(sets.wdir +
-                   f"output/mortality_{project}_{sets.scenario}{adaptation}{region_name}_{sets.years[0]}-{sets.years[-1]}.csv") 
+    results.to_csv(output_dir +
+                   f"/mortality_{project}_{sets.scenario}{adaptation}{region_name}_{sets.years[0]}-{sets.years[-1]}.csv") 
     
     print("Scenario ran successfully!")
