@@ -1599,13 +1599,16 @@ def PostprocessResults(sets, fls):
         project = f"{sets.project}"
     else:
         project = ""
-    if sets.region != "IMAGE26":
+    if sets.regions != "IMAGE26":
         region_name = f"_{sets.region}"
     else:
         region_name = ""
         
+    output_dir = sets.wdir + "output/" + f"{sets.project}" 
+    os.makedirs(output_dir, exist_ok=True)  # crea la carpeta si no existe   
+    
     # Save results to CSV                
-    results.to_csv(sets.wdir +
-                   f"output/mortality_{project}_{sets.scenario}{adaptation}{region_name}_{sets.years[0]}-{sets.years[-1]}.csv") 
+    results.to_csv(output_dir +
+                   f"/mortality_{project}_{sets.scenario}{adaptation}{region_name}_{sets.years[0]}-{sets.years[-1]}.csv") 
     
     print("Scenario ran successfully!")
