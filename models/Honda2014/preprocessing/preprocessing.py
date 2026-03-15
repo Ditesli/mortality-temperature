@@ -10,6 +10,7 @@ def load_config():
         return yaml.safe_load(f)
 
         
+
 def main():
     config = load_config()
     utils.calculate_optimal_temperature(
@@ -22,5 +23,7 @@ def main():
     )
         
         
+
+
 if __name__ == "__main__":
     main()
