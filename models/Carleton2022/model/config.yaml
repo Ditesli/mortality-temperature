@@ -1,22 +1,19 @@
 # Working directory (root) where input and output files are stored
-wdir: "X:/user/liprandicn/mt-comparison/carleton2022/"
+wdir: ""
 
 # Temperature data directory
-temp_dir: "X:\\user\\dekkerm\\IMAGE_environments"
+temp_dir: ""
 
 # Income data directory
-gdp_dir: "X:\\user\\dekkerm\\IMAGE_environments"
+gdp_dir: ""
 
 # Set years range
 start_year: 2000
-end_year: 2001
+end_year: 2100
 
 # Define project name and scenario
-project: "IMPACTS"
-scenario: "IMP-SSP5-REF-noGDPIMP-15" #  SSP#_carleton OR SSP#_ERA5 OR IMAGE-scenario-name
+project: ""
+scenario: "" #  SSP#_carleton OR SSP#_ERA5 OR IMAGE-scenario-name
 
-# Set adaptation ON or OFF
-adaptation: True
-
-reporting_tool: True
-regions: "IMAGE26"
+# Set adaptation True or False
+adaptation: 
