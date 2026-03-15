@@ -3,19 +3,25 @@ import xarray as xr
 
 
 
-def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.ndarray, step: int,
-                                  temp_type: str, percentile: float) -> None:
+def calculate_optimal_temperature(
+      temp_dir: str, 
+      out_dir:str,  
+      years: np.ndarray, 
+      step: int,
+      temp_type: str,
+      percentile: float
+      ) -> None:
     
     """
     Calculate the optimal temperature defined in Honda et al., (2014) as the 
     83.6th percentile of daily mean temperature from ERA5 reanalysis data.
 
     Parameters:
-    - data_path: str
+    - temp_path: str
           Path to the directory containing the ERA5 data files at daily temporal resolution
           and spatial resolution of 0.25 degrees (720x1440 dimension). Files are renamed 
           following the format: 'era5_t2m_mean_day_<start_year>_<final_year>.nc'
-    - final_path: str
+    - out_dir: str
           Path to the directory where the results will be saved.
     - years: np.ndarray
           Array of years for which to calculate percentiles, usually a 30 year period.
@@ -46,7 +52,7 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
             
             # Load the dataset for the specific year and latitude
             data_name = f'era5_t2m_{temp_type}_day_{year}.nc'
-            with xr.open_dataset(data_path + data_name) as data:
+            with xr.open_dataset(temp_dir + data_name) as data:
                 data = data['t2m'].isel(latitude=slice(lat, lat + step))
                 temporal_lat_data.append(data.load())
             
@@ -57,19 +63,14 @@ def calculate_optimal_temperature(data_path: str, final_path:str,  years: np.nda
         percentile_band = temporal_data.quantile(percentile, dim='valid_time')
         percentile_bands.append(percentile_band)
         
-    percentile_final = xr.concat(percentile_bands, dim='latitude')
-    percentile_final.name = f't2m_p{np.round(percentile*100,0)}'
-    
-    # Convert from Kelvin to Celsius
-    percentile_final -= 273.15
-    
-    # Shift longitude coordinates to -180 - 180 range
-    percentile_final = percentile_final.assign_coords(longitude=((percentile_final.coords['longitude'] + 180) % 360 - 180)).sortby("longitude")
-    
-    # Drop quantile coordinate
-    percentile_final = percentile_final.drop_vars('quantile')
-    
-    # Round to one decimal place
-    percentile_final = percentile_final.round(1)
-    
-    percentile_final.to_netcdf(final_path + f'era5_t2m_{temp_type}_{years[0]}-{years[-1]}_p{np.round(percentile*100,0)}.nc')
+    (
+      xr.concat(percentile_bands, dim='latitude')
+     .rename(f't2m_p{np.round(percentile*100,0)}')
+     .assign_coords(longitude=lambda x: ((x.longitude + 180) % 360 - 180))
+     .sortby("longitude") # Shift longitude coordinates to -180 - 180 range
+     .drop_vars('quantile') # Drop quantile coordinate
+     .pipe(lambda x: x - 273.15) # Convert to Celsius
+     .round(1)
+     .to_netcdf(out_dir + 
+                     f'era5_t2m_{temp_type}_{years[0]}-{years[-1]}_p{np.round(percentile*100,0)}.nc')
+    )
