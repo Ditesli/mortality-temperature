@@ -30,5 +30,5 @@ for scenario in ["IMP-SSP2-REF-noGDPIMP-15", "IMP-SSP3-REF-noGDPIMP-15", "IMP-SS
         scenario=scenario,
         regions="IMAGE26",
         adaptation=True,
-        reporting_tool=True
+        reporting_too=True
     )
