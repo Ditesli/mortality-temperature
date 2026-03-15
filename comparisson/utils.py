@@ -1,12 +1,61 @@
 import pandas as pd
+import numpy as np
+
 
 # Full list of diseases
-diseases = {'ckd':'Chronic kidney disease', 'cvd_cmp':'Cardiomyopathy and myocarditis', 'cvd_htn':'Hypertensive heart disease', 
-            'cvd_ihd':'Ischemic heart disease', 'cvd_stroke':'Stroke', 'diabetes':'Diabetes mellitus',
-            'inj_animal':'Animal contact', 'inj_disaster':'Exposure to forces of nature', 'inj_drowning':'Drowning', 
-            'inj_homicide':'Interpersonal violence', 'inj_mech':'Exposure to mechanical forces', 
-            'inj_othunintent':'Other unintentional injuries', 'inj_suicide':'Self-harm', 'inj_trans_other':'Other transport injuries', 
-            'inj_trans_road':'Road injuries', 'resp_copd':'Chronic obstructive pulmonary disease', 'lri':'Lower respiratory infections'}
+diseases = {
+    'ckd':'Chronic kidney disease', 
+    'cvd_cmp':'Cardiomyopathy and myocarditis', 
+    'cvd_htn':'Hypertensive heart disease', 
+    'cvd_ihd':'Ischemic heart disease', 
+    'cvd_stroke':'Stroke', 
+    'diabetes':'Diabetes mellitus',
+    'inj_animal':'Animal contact', 
+    'inj_disaster':'Exposure to forces of nature', 
+    'inj_drowning':'Drowning', 
+    'inj_homicide':'Interpersonal violence', 
+    'inj_mech':'Exposure to mechanical forces', 
+    'inj_othunintent':'Other unintentional injuries', 
+    'inj_suicide':'Self-harm', 
+    'inj_trans_other':'Other transport injuries', 
+    'inj_trans_road':'Road injuries', 
+    'resp_copd':'Chronic obstructive pulmonary disease', 
+    'lri':'Lower respiratory infections'
+    }
+
+
+
+def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, disease):
+    
+    df = pd.read_csv(wdir + filename + ".csv")
+
+    # Initialize filter as True to not filter anything initially
+    filter = pd.Series(True, index=df.index)
+
+    # Apply age_group condition only if the column exists
+    if "age_group" in df.columns:
+        filter &= df["age_group"].str.lower().str.contains(age_group.lower())
+        
+    # Apply age_group condition only if the column exists
+    if "disease" in df.columns:
+        filter &= df["disease"].str.lower().str.contains(disease.lower())
+
+    # Condition for t_type
+    filter &= df["t_type"].str.lower() == temp_type.lower()
+
+    # Condition for region
+    filter &= df["region"] == region
+
+    # Condition for units
+    filter &= df["units"].str.lower().str.contains(unit.lower())
+
+    # Apply filter and select columns starting from the 5th column
+    df = df[filter][[str(y) for y in years if str(y) in df.columns]]
+    
+    # Convert column names to int
+    df.columns = df.columns.astype(int)
+    
+    return df
 
 
 
