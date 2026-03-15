@@ -1599,8 +1599,8 @@ def PostprocessResults(sets, fls):
         project = f"{sets.project}"
     else:
         project = ""
-    if sets.region != "IMAGE26":
-        region_name = f"_{sets.region}"
+    if sets.regions != "IMAGE26":
+        region_name = f"_{sets.regions}"
     else:
         region_name = ""
         
