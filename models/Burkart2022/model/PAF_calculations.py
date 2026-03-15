@@ -639,7 +639,7 @@ def PostprocessResults(sets, fls):
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
     
     # Create project folder if it doesn"t exist
-    out_path = Path(sets.wdir) / "output" / f"{sets.project.upper()}" 
+    out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
     out_path.mkdir(parents=True, exist_ok=True)
             
     # Save the results and temperature statistics
@@ -694,7 +694,6 @@ def PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part):
             names=["t_type"]
         )
 
-        # Opcional: si quieres que el índice sea exactamente como paf original
         result = result.reorder_levels(paf.index.names).sort_index()
 
         region_class = pd.read_csv(wdir_up+"/data/region_classification.csv").drop_duplicates(subset="gbd_location_id", keep='first')
@@ -726,5 +725,3 @@ def PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part):
         
     final3.to_csv(out_path /
                    f"mortality_{sets.project}_{sets.scenario}_{sets.regions}{years_part}{extrap_part}{erf_part}.csv") 
-    
-PAF2Mortality(None,None,None,None,None,None,None) 
