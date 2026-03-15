@@ -17,7 +17,7 @@ def calculate_optimal_temperature(
     83.6th percentile of daily mean temperature from ERA5 reanalysis data.
 
     Parameters:
-    - temp_path: str
+    - temp_dir: str
           Path to the directory containing the ERA5 data files at daily temporal resolution
           and spatial resolution of 0.25 degrees (720x1440 dimension). Files are renamed 
           following the format: 'era5_t2m_mean_day_<start_year>_<final_year>.nc'
@@ -58,7 +58,6 @@ def calculate_optimal_temperature(
             
         # Concatenate the data for the current latitudes across all years
         temporal_data = xr.concat(temporal_lat_data, dim='valid_time')
-        
         # Calculate the percentile for the latitude band and append it to the list
         percentile_band = temporal_data.quantile(percentile, dim='valid_time')
         percentile_bands.append(percentile_band)

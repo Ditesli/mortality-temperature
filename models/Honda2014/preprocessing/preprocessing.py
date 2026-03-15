@@ -9,6 +9,7 @@ def load_config():
     with config_path.open() as f:
         return yaml.safe_load(f)
 
+        
 
 def main():
     config = load_config()
@@ -20,6 +21,8 @@ def main():
         temp_type="max",
         percentile=config["percentile"]
     )
+        
+        
 
 
 if __name__ == "__main__":

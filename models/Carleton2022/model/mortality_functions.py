@@ -4,6 +4,8 @@ import xarray as xr
 import geopandas as gpd
 from dataclasses import dataclass, field
 from shapely.geometry import Polygon
+from openpyxl import load_workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 import re, sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
@@ -1589,6 +1591,49 @@ def ExportOUTFiles(results, sets):
     # Guardar el archivo
     with open(output_file, "w") as f:
         f.write(formatted_out)
+        
+        
+        
+def Append2ReportingTool(results, sets):
+    
+    map_age = {
+        "young": "Age 0-4",
+        "older": "Age 5-64",
+        "oldest": "Age +65"
+    }
+    
+    # DataFrame to store data
+    results=results.reset_index()
+    df_rt = pd.DataFrame(index=results.index)
+    df_rt["Model"] = "IMAGE"
+    df_rt["Scenario"] = sets.scenario
+    df_rt["Region"] = results["IMAGE26"]
+    df_rt["Variable"] = (
+        "Health|Mortality|Non-Optimal Temperatures|"
+        + np.where(results["t_type"] != "All", results["t_type"] + "|", "")
+        + results["age_group"].map(map_age).fillna("")
+        + np.where(results["units"] == "Relative Mortality", " [per 100,000 people]", "")
+        ).str.rstrip("|")
+    df_rt["Unit"] = np.where(results["units"] == "Relative Mortality", "-", "thousand people")
+    
+    rt_path = f"{sets.income_path}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
+    wb = load_workbook(rt_path)
+    rt_data = wb["data"]
+    
+    # Years reported
+    years = [int(cell.value) for cell in rt_data[1][5:] if cell.value is not None]
+    df_rt[[col for col in years if col in results.columns]]=results[[col for col in years if col in results.columns]]
+    
+    for row in dataframe_to_rows(df_rt, index=False, header=False):
+        rt_data.append(row)
+        
+    output_dir = (
+        sets.wdir + 
+        f"output/{sets.project}/RT" 
+    )
+    os.makedirs(output_dir, exist_ok=True)
+    wb.save(f"{output_dir}/{sets.scenario}.xlsx")
+    
 
 
 
@@ -1613,7 +1658,10 @@ def PostprocessResults(sets, fls):
     
     if sets.reporting_tool == True:
         # Export files in .OUT format
-        ExportOUTFiles(results_image, sets)
+        # ExportOUTFiles(results, sets)
+        Append2ReportingTool(results, sets)
+
+    results = results.reset_index().rename(columns={sets.regions: "region"})
     
     if sets.adaptation == True:
         adaptation = ""

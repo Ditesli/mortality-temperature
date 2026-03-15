@@ -15,5 +15,5 @@ end_year: 2100
 project: ""
 scenario: "" #  SSP#_carleton OR SSP#_ERA5 OR IMAGE-scenario-name
 
-# Set adaptation ON or OFF
-adaptation: True
+# Set adaptation True or False
+adaptation: 

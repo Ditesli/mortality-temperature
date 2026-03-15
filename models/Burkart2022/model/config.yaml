@@ -20,4 +20,4 @@ single_erf:
 # Extrapolate ERFs (True) or keep range as in Burkart 2021 (False)
 extrap_erf:
 # Calculate mean RR ("mean"), specific (int) or random draw ("random")
-draw_type: 
+draw_type:

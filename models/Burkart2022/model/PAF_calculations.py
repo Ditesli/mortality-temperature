@@ -135,7 +135,7 @@ class LoadInputData:
     regions: np.ndarray
         2D array with region locations per grid cell aligned with daily temperature resolution.
     regions_range: np.ndarray
-        1D array with location indices,
+        1D array with location indices.
     pop_ssp: np.ndarray
         2D array with population per grid cell aligned with daily temperature resolution.
     min_dict: dict
@@ -624,6 +624,16 @@ def PostprocessResults(sets, fls):
         
     print("[3] Model run complete. Saving results...")
     
+    if sets.regions == "IMAGE26":
+        fls.paf.index = fls.paf.index.map(pop.image_index)
+    
+    # Leave only years in columns
+    paf = fls.paf.stack([1,2]).reorder_levels([1,2,0]).sort_index()
+    paf.index.names = ["disease", "t_type", "region"]
+    
+    # Substract counterfactual mortality
+    paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
+    
     erf_part = "_1erf" if sets.single_erf else ""
     extrap_part = "_extrap" if sets.extrap_erf else ""
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
@@ -633,7 +643,85 @@ def PostprocessResults(sets, fls):
     out_path.mkdir(parents=True, exist_ok=True)
             
     # Save the results and temperature statistics
-    fls.paf.to_csv(out_path +
+    paf.to_csv(out_path /
                    f"PAF_{sets.project}_{sets.scenario}_{sets.regions}{years_part}{extrap_part}{erf_part}.csv")  
     
+    PAF2Mortality(sets, fls, out_path, erf_part, extrap_part, years_part)
+    
     print("Model ran succesfully!")
+    
+    
+
+
+def PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part):
+    
+    print(["3.2 Calculating attributable mortality and saving results..."])
+    
+    if re.search(r"ERA5", sets.scenario):
+        
+        # Load GBD mortalit records
+        wdir_up = os.path.dirname(sets.wdir)
+        gbd_mor = pd.read_csv(f'{wdir_up}/data/mortality/GBD_mortality/IHME-GBD_2021_DATA.csv')
+
+        gbd_mor = (
+            gbd_mor[
+                (gbd_mor["cause_name"].isin(list(sets.diseases.values()))) &
+                (gbd_mor["sex_name"]=="Both") & 
+                (gbd_mor["year"].isin(sets.years)) &
+                (gbd_mor['age_name'].isin(['65-69 years', '70-74 years', '75-79 years', '85+ years'])) & 
+                (gbd_mor["location_name"] != "Global")]
+            [['location_id', 'location_name', 'cause_name', 'year', 'val']]
+            .groupby(['location_id', 'location_name', "cause_name", 'year'])
+            .sum()
+            .reset_index()
+            .pivot(index=['location_id', 'location_name', "cause_name"],
+                    columns='year',
+                    values='val')
+            .reset_index()
+            .set_index(["cause_name", "location_id"])
+            .rename(index={v: k for k, v in sets.diseases.items()}, level=0) # Invert dict to map
+            .rename_axis(index={"cause_name": "disease", "location_id": "region"})
+        )
+
+        # Reorder levels
+        paf_reordered = paf.reorder_levels(order=[1,0,2])
+        t_types = ["heat", "cold", "all"]
+
+        # Multiply per gbd mortality
+        result = pd.concat(
+            [paf_reordered.loc[tt] * gbd_mor.drop(columns="location_name") for tt in t_types],
+            keys=t_types,
+            names=["t_type"]
+        )
+
+        result = result.reorder_levels(paf.index.names).sort_index()
+
+        region_class = pd.read_csv(wdir_up+"/data/region_classification.csv").drop_duplicates(subset="gbd_location_id", keep='first')
+
+        result=(
+            result
+            .reset_index()
+            .merge(gbd_mor.reset_index()[["location_name", "region"]], left_on="region", right_on="region", how="left")
+            .merge(region_class[["gbd_level3", "IMAGE26"]], left_on="location_name", right_on="gbd_level3", how="left")
+            .drop(columns=["region", "location_name", "gbd_level3"])
+            .groupby(["t_type", "disease", "IMAGE26"])
+            .sum()
+            .reset_index()
+            .rename(columns={"IMAGE26":"region"})
+            )
+
+        world = result.groupby(["disease", "t_type"]).sum()
+        world["region"] = "World"
+
+        final = pd.concat([result, world.reset_index()], ignore_index=True).assign(units='Total Mortality')
+        final2 = final.groupby(["units","t_type", "region"]).sum()
+        final2["disease"] = "All causes"
+        final3 = pd.concat([final, final2.reset_index()], ignore_index=True)
+
+        final3.insert(0,"units", final3.pop("units"))
+        
+    else:
+        print["Cause-specific mortality projections not available yet :("]
+        
+    final3.to_csv(out_path /
+                   f"mortality_{sets.project}_{sets.scenario}_{sets.regions}{years_part}{extrap_part}{erf_part}.csv") 
