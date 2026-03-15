@@ -62,7 +62,8 @@ def calculate_optimal_temperature(
         percentile_band = temporal_data.quantile(percentile, dim='valid_time')
         percentile_bands.append(percentile_band)
         
-    (xr.concat(percentile_bands, dim='latitude')
+    (
+      xr.concat(percentile_bands, dim='latitude')
      .rename(f't2m_p{np.round(percentile*100,0)}')
      .assign_coords(longitude=lambda x: ((x.longitude + 180) % 360 - 180))
      .sortby("longitude") # Shift longitude coordinates to -180 - 180 range
