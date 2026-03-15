@@ -1,0 +1,14 @@
+# Settings to run the Carleton default scenario SSP5_H
+
+wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
+temp_dir: "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/SSP5_H/netcdf"
+gdp_dir: None
+
+start_year: 2000
+end_year: 2100
+
+project: default
+scenario: "SSP5_H_Carleton"
+adaptation: True
+
+reporting_tool: False
