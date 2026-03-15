@@ -6,11 +6,14 @@ import re, os
 from . import temperature as tmp
 
 
-image_index = {1:"CAN", 2:"USA", 3:"MEX", 4:"RCAM", 5:"BRA", 6:"RSAM", # America
-         7:"NAF", 8:"WAF", 9:"EAF", 10:"SAF", # Africa
-         11:"WEU", 12:"CEU", 13:"TUR", 14:"UKR", # Europe
-         15:"SEAS", 16:"RUS", 17:"ME", 18:"INDIA", 19:"KOR", 20:"CHN", 21:"SEAS", 22:"INDO", 23:"JAP", # Asia
-         24:"OCE", 25:"RSAS", 26:"RSAF"} # Oceania + other
+image_index = {
+    1:"CAN", 2:"USA", 3:"MEX", 4:"RCAM", 5:"BRA", 6:"RSAM", # America
+    7:"NAF", 8:"WAF", 9:"EAF", 10:"SAF", # Africa
+    11:"WEU", 12:"CEU", 13:"TUR", 14:"UKR", # Europe
+    15:"SEAS", 16:"RUS", 17:"ME", 18:"INDIA", 19:"KOR", 20:"CHN", 21:"SEAS", 22:"INDO", 23:"JAP", # Asia
+    24:"OCE", 25:"RSAS", 26:"RSAF" # Oceania + other
+    } 
+
 
 
 def get_all_population_data(wdir, scenario, return_pop=False):
