@@ -1,0 +1,21 @@
+# Paths to main directory and temeprature files
+
+wdir: "X:/user/liprandicn/mt-comparison/burkart2022"
+temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
+
+# Scenario settings
+
+project: "default"
+scenario: "SSP2_ERA5" 
+start_year: 2000
+end_year: 2025
+
+
+# Exposure Response Function Settings
+
+# Using single mean ERF for all zones (True) or all ERFs (False)
+single_erf: False
+# Extrapolate ERFs (True) or keep range as in Burkart 2021 (False)
+extrap_erf: False
+# Calculate mean RR ("mean"), specific (int) or random draw ("random")
+draw_type: "mean"
