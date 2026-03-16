@@ -1,29 +1,28 @@
 ### Data paths
 
 # Define path to main directory
-wdir: 'X:/user/liprandicn/mt-comparison/honda2014'
+wdir:
 # Temperature data directory
-temp_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
-# 'X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/'
+temp_dir: 
 
 ### Scenario settings
 
 # Define temperature data source
-project: 'default' # MS (monthly statistics) or ERA5
+project:
 # Define SSP scenario
-scenario:  'SSP2_ERA5' # SSP1, SSP2, SSP3, SSP5
+scenario:  
 # Define years range
-start_year: 2000
-end_year: 2025 
+start_year:
+end_year: 
 # Define region classification
-region_class: 'countries' # 'IMAGE26' or 'countries'
+region_class: 
 
 
 ### Set settings to extrapolate risk function
 
 # Choose between extrapolating risk function (True) or keeping it as in Honda 2014 (False)
-extrap_erf: False
-# Set extapolation range, keep risk as cold temperatures as constant
-temp_max: 40 #int or None
+extrap_erf:
+# Set extapolation range, keep risk from cold temperatures as constant
+temp_max:
 # Set optimal temperature range 
-optimal_range: '1980-2010'  # 1980-2010 or 1990-2020
+optimal_range:
