@@ -4,7 +4,6 @@
 wdir: 'X:/user/liprandicn/mt-comparison/honda2014'
 # Temperature data directory
 temp_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
-# 'X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/IMAGE_Daily_Indicators/SSP2/netcdf/'
 
 ### Scenario settings
 
@@ -15,8 +14,6 @@ scenario:  'SSP2_ERA5' # SSP1, SSP2, SSP3, SSP5
 # Define years range
 start_year: 2000
 end_year: 2025
-# Define region classification
-region_class: 'countries' # 'IMAGE26' or 'countries'
 
 
 ### Set settings to extrapolate risk function
