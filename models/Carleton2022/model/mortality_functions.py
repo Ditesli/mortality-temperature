@@ -415,7 +415,7 @@ def GridRelationship(sets):
         "longitude": lon2d.ravel(),
         "latitude": lat2d.ravel(),
         "geometry": [
-            CreateSquare(lon, lat, np.abs(np.mean(np.diff(lon_vals))),  np.abs(np.mean(np.diff(lat_vals))))
+            CreateSquare(lon, lat, np.abs(np.mean(np.diff(lon_vals))), np.abs(np.mean(np.diff(lat_vals))))
             for lon, lat in zip(lon2d.ravel(), lat2d.ravel())
         ]
     })
@@ -1603,8 +1603,10 @@ def Append2ReportingTool(results, sets):
     }
     
     # DataFrame to store data
-    results=results.reset_index()
+    results = results.reset_index()
+    
     df_rt = pd.DataFrame(index=results.index)
+    
     df_rt["Model"] = "IMAGE"
     df_rt["Scenario"] = sets.scenario
     df_rt["Region"] = results["IMAGE26"]
