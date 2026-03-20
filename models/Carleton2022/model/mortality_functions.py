@@ -288,7 +288,7 @@ class BaselineERFsInputs:
             )
         
         # Generate a single time 'present day' ERFs (no adaptation)
-        erfs_t0, tmin_t0=GenerateERFAll(
+        erfs_t0, tmin_t0 = GenerateERFAll(
             sets=sets, 
             fls=fls,
             year=None, 
@@ -300,14 +300,14 @@ class BaselineERFsInputs:
         print("[1.5] Loading 'present-day' temperature data...")
         
         # Import present day temperatures
-        daily_temp_t0=ImportPresentDayTemperatures(
+        daily_temp_t0 = ImportPresentDayTemperatures(
             sets=sets, 
             base_years=range(2001,2011), 
             ir=fls.ir, 
             spatial_relation=fls.spatial_relation
             )
         
-        #  Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
+        # Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
         
         if sets.adaptation:
                 
@@ -453,7 +453,7 @@ def FinalDataframe(sets, region_class):
     results_image = (
         pd.DataFrame(
             index=pd.MultiIndex.from_product([age_groups, temperature_types, mortality_types, regions_image],
-                                         names=["age_group", "t_type", "units", "Region"]), 
+                                         names=["age_group", "t_type", "units", "region"]), 
             columns=sets.years
         ).sort_index()
     )
@@ -461,7 +461,7 @@ def FinalDataframe(sets, region_class):
     results_iso3 = (
         pd.DataFrame(
             index=pd.MultiIndex.from_product([age_groups, temperature_types, mortality_types, regions_iso3],
-                                         names=["age_group", "t_type", "units", "Region"]), 
+                                         names=["age_group", "t_type", "units", "region"]), 
             columns=sets.years
         ).sort_index()
     )
@@ -1320,7 +1320,7 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     
     # Generate ERFs used when there is income growth and adaptation
     if sets.adaptation==True:    
-        erfs_t, _=GenerateERFAll(
+        erfs_t, _ = GenerateERFAll(
             sets=sets,
             fls=fls,
             year=year,
@@ -1331,7 +1331,7 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     
     # Use pre-calculated ERFs with no adaptation or income growth
     else: 
-        erfs_t = fls.erfs_t0, 
+        erfs_t = baseline.erfs_t0
         
     # ------------------- Calculate annual mortality ------------------
     
@@ -1357,7 +1357,7 @@ def ImportPresentDayTemperatures(sets, base_years, ir, spatial_relation):
     ERA5 data or climate data from prescribed scenario. The output is a dictionary of numpy 
     arrays with the daily temperature per impact region and year.
     """
-    
+     
     # ------------------ ERA5 ------------------
     if re.search(r"SSP[1-5]_ERA5", sets.scenario):
         
@@ -1503,7 +1503,7 @@ def AddMortalityAllAges(fls, sets, results, regions):
         .groupby(regions) # Group by ISO3 OR IMAGE26
         .sum()   # Sum population per region
         .loc[:, lambda df: df.columns.isin([y for y in sets.years])]
-        .rename_axis(index={regions:"Region"})
+        .rename_axis(index={regions:"region"})
     )
     
     # Calculate total mortality and relative mortality for all-ages groups 
@@ -1654,21 +1654,17 @@ def PostprocessResults(sets, fls):
     # Calculate total mortality and relative mortality for all-ages group
     results_image = AddMortalityAllAges(fls, sets, fls.results_image, "IMAGE26")
     results_iso3 = AddMortalityAllAges(fls, sets, fls.results_iso3, "ISO3")
-    results_iso3 = results_iso3.rename(index=lambda x: f"{x}_ISO3", level=-1)
-    
-    results = pd.concat([results_image, results_iso3], axis=0)
     
     if sets.reporting_tool == True:
         # Export files in .OUT format
         # ExportOUTFiles(results, sets)
-        Append2ReportingTool(results, sets)
+        Append2ReportingTool(results_image, sets)
 
-    results = results.reset_index().rename(columns={sets.regions: "region"})
     
     if sets.adaptation == True:
         adaptation = ""
     else:
-        adaptation = "_noadapt"
+        adaptation = "_NoAdap"
     if sets.project is not None:
         project = f"{sets.project}"
     else:
@@ -1678,7 +1674,9 @@ def PostprocessResults(sets, fls):
     os.makedirs(output_dir, exist_ok=True)   
     
     # Save results to CSV                
-    results.to_csv(output_dir +
-                   f"/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+    results_image.to_csv(output_dir +
+                   f"/mortality_{project}_{sets.scenario}_IMAGE{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+    results_iso3.to_csv(output_dir +
+                   f"/mortality_{project}_{sets.scenario}_ISO3{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
     
     print("Scenario ran successfully!")
