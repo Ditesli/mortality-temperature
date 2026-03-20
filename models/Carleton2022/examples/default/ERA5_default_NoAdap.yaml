@@ -1,0 +1,14 @@
+# Settings to run the Carleton default scenario SSP1_M
+
+wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
+temp_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
+gdp_dir: None
+
+start_year: 2000
+end_year: 2025
+
+project: default
+scenario: "SSP2_ERA5"
+adaptation: False
+
+reporting_tool: False

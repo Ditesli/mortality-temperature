@@ -1,25 +1,19 @@
 # Working directory (root) where input and output files are stored
-wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
+wdir: ""
 
 # Temperature data directory
-temp_dir: "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/SSP2_M/netcdf"
-#"X:/user/dekkerm/IMAGE_environments"
-#"X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/SSP2_M/netcdf/"
-# "X:/user/liprandicn/Data/ERA5/t2m_daily/" # ERA5 directory
+temp_dir: ""
 
 # Income data directory
-gdp_dir: None # Use default GDP scenarios
+gdp_dir: ""
 
 # Set years range
-start_year: 2000
-end_year: 2100
+start_year:
+end_year: 
 
 # Define project name and scenario
-project: default
-scenario: "SSP1_Carleton" #  SSP#_carleton OR SSP#_ERA5 OR IMAGE-scenario-name
+project: ""
+scenario: "" #  SSP#_carleton OR SSP#_ERA5 OR IMAGE-scenario-name
 
-# Set adaptation ON or OFF
-adaptation: True
-
-# Store in Reporting Tool
-reporting_tool: False # No .OUT files to store
+# Set adaptation True or False
+adaptation: 

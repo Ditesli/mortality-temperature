@@ -1,0 +1,28 @@
+### Data paths
+
+# Define path to main directory
+wdir:
+# Temperature data directory
+temp_dir: 
+
+### Scenario settings
+
+# Define temperature data source
+project:
+# Define SSP scenario
+scenario:  
+# Define years range
+start_year:
+end_year: 
+# Define region classification
+region_class: 
+
+
+### Set settings to extrapolate risk function
+
+# Choose between extrapolating risk function (True) or keeping it as in Honda 2014 (False)
+extrap_erf:
+# Set extapolation range, keep risk from cold temperatures as constant
+temp_max:
+# Set optimal temperature range 
+optimal_range:

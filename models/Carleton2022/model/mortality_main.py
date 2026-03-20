@@ -7,7 +7,7 @@ config_file = Path(__file__).parent / "config.yaml"
 with open(config_file) as f:
     config = yaml.safe_load(f)
     
-
+    
 mf.CalculateMortality(
     wdir=config["wdir"], # Working directory
     years=range(config["start_year"], config["end_year"]), # Years range

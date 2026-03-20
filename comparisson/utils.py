@@ -1,12 +1,160 @@
 import pandas as pd
+import numpy as np
+
 
 # Full list of diseases
-diseases = {'ckd':'Chronic kidney disease', 'cvd_cmp':'Cardiomyopathy and myocarditis', 'cvd_htn':'Hypertensive heart disease', 
-            'cvd_ihd':'Ischemic heart disease', 'cvd_stroke':'Stroke', 'diabetes':'Diabetes mellitus',
-            'inj_animal':'Animal contact', 'inj_disaster':'Exposure to forces of nature', 'inj_drowning':'Drowning', 
-            'inj_homicide':'Interpersonal violence', 'inj_mech':'Exposure to mechanical forces', 
-            'inj_othunintent':'Other unintentional injuries', 'inj_suicide':'Self-harm', 'inj_trans_other':'Other transport injuries', 
-            'inj_trans_road':'Road injuries', 'resp_copd':'Chronic obstructive pulmonary disease', 'lri':'Lower respiratory infections'}
+diseases = {
+    'ckd':'Chronic kidney disease', 
+    'cvd_cmp':'Cardiomyopathy and myocarditis', 
+    'cvd_htn':'Hypertensive heart disease', 
+    'cvd_ihd':'Ischemic heart disease', 
+    'cvd_stroke':'Stroke', 
+    'diabetes':'Diabetes mellitus',
+    'inj_animal':'Animal contact', 
+    'inj_disaster':'Exposure to forces of nature', 
+    'inj_drowning':'Drowning', 
+    'inj_homicide':'Interpersonal violence', 
+    'inj_mech':'Exposure to mechanical forces', 
+    'inj_othunintent':'Other unintentional injuries', 
+    'inj_suicide':'Self-harm', 
+    'inj_trans_other':'Other transport injuries', 
+    'inj_trans_road':'Road injuries', 
+    'resp_copd':'Chronic obstructive pulmonary disease', 
+    'lri':'Lower respiratory infections'
+    }
+
+
+
+def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cause):
+    
+    """
+    Load mortality from ANY calculation method as time series and constrained to 
+    the parameters:
+    - years: Years range
+    - region: IMAGE region or "World"
+    - temp_type: "Heat", "Cold", "All"
+    - unit: "relative" (Relative mortality) or "total" (total mortality)
+    - age_group: "young", "older", "oldest" (only valid for Carleton)
+    - cause: cause of death (only valid for Burkart method)
+    """
+    
+    df = pd.read_csv(wdir + filename + ".csv")
+
+    # Initialize filter as True to not filter anything initially
+    filter = pd.Series(True, index=df.index)
+
+    # Apply age_group condition only if the column exists
+    if "age_group" in df.columns:
+        filter &= df["age_group"].str.lower().str.contains(age_group.lower())
+        
+    # Apply age_group condition only if the column exists
+    if "cause" in df.columns:
+        filter &= df["cause"].str.lower().str.contains(cause.lower())
+
+    # Condition for t_type
+    filter &= df["t_type"].str.lower() == temp_type.lower()
+
+    # Condition for region
+    filter &= df["region"] == region
+
+    # Condition for units
+    if "units" in df.columns:
+        filter &= df["units"].str.lower().str.contains(unit.lower())
+
+    # Apply filter and select columns starting from the 5th column
+    df = df[filter][[str(y) for y in years if str(y) in df.columns]]
+    
+    # Convert column names to int
+    df.columns = df.columns.astype(int)
+    
+    return df
+
+
+
+def WeightsAndCountsForKDE(tmrel, era5_tz, pop_ssp_year, tz):
+    
+    """
+    Function to get counts and weights parameters for a Kernel Density Estimation
+    """
+    
+    # Boolean mask for grid cells in the current temperature zone
+    mask = era5_tz.t2m.values == tz
+
+    # Extract TMREL values at those grid points (across all draws)
+    values = tmrel.tmrel.values[mask, :].reshape(-1)
+
+    # Repeat population weights for each draw
+    pop_weights = np.repeat(pop_ssp_year.GPOP.values[mask], tmrel.dims['draw'])
+
+    # Filter out NaNs
+    valid = ~np.isnan(values) & ~np.isnan(pop_weights)
+    values = values[valid]
+    pop_weights = pop_weights[valid]
+
+    # Normalize population weights
+    pop_weights = pop_weights / pop_weights.sum()
+
+    counts = values
+    weights = pop_weights
+    
+    return counts, weights
+
+
+
+def StylizeAxes(ax, *, 
+                xscale=None,
+                yscale=None,
+                ylim=None,
+                xlim=None,
+                title=None,
+                xlabel=None,
+                ylabel=None,
+                xticks=None,
+                xtickslabels=False,
+                xtickslabels_kwargs=None,
+                yticks=None,
+                ytickslabels=False,
+                ytickslabels_kwargs=None,
+                facecolor=None,
+                grid=False,
+                grid_kwargs=None,
+                legend=False,
+                legend_kwargs=None):  
+    
+    if xscale is not None:
+        ax.set_xscale(xscale)
+    if yscale is not None:
+        ax.set_yscale(yscale)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if title is not None:
+        ax.set_title(title)
+    if xlabel is not None:
+        ax.set_xlabel(xlabel)
+    if ylabel is not None:
+        ax.set_ylabel(ylabel)
+
+    if xticks is not None:
+        ax.set_xticks(xticks) 
+    if xtickslabels is not False:
+        ax.set_xticklabels(xtickslabels, **(xtickslabels_kwargs or {}))
+
+    if yticks is not None:
+        ax.set_yticks(yticks) 
+    if ytickslabels is not False:
+        ax.set_yticklabels(ytickslabels, **(ytickslabels_kwargs or {}))
+
+    if facecolor is not None:
+        ax.set_facecolor(facecolor)
+    if grid:
+        ax.grid(**(grid_kwargs or {}))
+    if legend:
+        ax.legend(**(legend_kwargs or {}))
+    
+    return ax
+
 
 
 
