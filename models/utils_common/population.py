@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy import stats
+import geopandas as gpd
+from rasterio.features import rasterize
 import re, os
 from . import temperature as tmp
 
@@ -71,7 +73,7 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     
     
     
-def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_ssp):
+def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_map):
     
     '''
     Load the region classification selected (IMAGE26 or country level) and return as numpy array 
@@ -89,7 +91,7 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_ssp)
     '''
 
     if re.search(r"ERA5", scenario):
-        temp_grid,_ = tmp.DailyTemperatureERA5(temp_dir, 2000, "mean", pop_ssp, to_array=False)
+        temp_grid,_ = tmp.DailyTemperatureERA5(temp_dir, 2000, "mean", pop_map, to_array=False)
     else:
         temp_grid,_ = tmp.OpenMontlhyTemperatures(temp_dir, "mean")
         
@@ -127,3 +129,107 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_ssp)
     regions = np.maximum(regions, 0)  
         
     return regions, regions_range
+
+
+
+def IMAGEPopulation2Regions(shp_dir, shp_name, pop_dir, ssp, years):
+    
+    """
+    Calculate total population per region (impact region or country) for a 
+    specific year from IMAGE land population data files. 
+
+    This function assigns raster pixels from the IMAGE land population data to impact regions,
+    sums the population values within each region, and adds the results as a new column to
+    the input GeoDataFrame.
+
+    Parameters
+    ----------
+    pop :  xarray
+        IMAGE Land population nc4 file. Usually 5min resolution.
+    regions_shp : geopandas.GeoDataFrame
+        GeoDataFrame containing impact region polygons.
+    year : int
+        Year for which the population is being calculated (e.g., 2000, 2010).
+
+    Returns
+    -------
+    regions_df : pd.DataFrame
+        oDataFrame with columns for the impact region, ISO3 and the corresponding population 
+        per year.
+    """
+    
+    # Read in regions shapefile
+    regions_shp = gpd.read_file(shp_dir+shp_name+".shp")
+    
+    # Read IMAGE SSP population nc file
+    pop_image = xr.open_dataset(pop_dir+f"/image_population/{ssp.upper()}/GPOP.nc")
+    
+    # Ensure CRS is set to EPSG:4326 and align with regions
+    pop_image = pop_image.rio.write_crs("EPSG:4326", inplace=False)
+    regions_shp = regions_shp.to_crs(pop_image.rio.crs)
+
+    # Select relevant years including "present-day" years (2000-2010)
+    pop_image = pop_image.sel(time=pd.to_datetime([f"{y}-01-01" for y in years]))
+    
+    minlength = len(regions_shp) + 1
+
+    # Prepare tuples of (geometry, region_id) for rasterization
+    shapes_and_ids = [(geom, idx) for idx, geom in enumerate(regions_shp.geometry, start=1)]
+        
+    # Rasterize region polygons once
+    out_shape = pop_image.isel(time=0).GPOP.shape
+
+    # Get raster transform 
+    raster_affine = pop_image.rio.transform()    
+
+    pixel_owner = rasterize(
+        shapes_and_ids,
+        out_shape=out_shape,
+        transform=raster_affine,
+        fill=0,          # 0 = without region
+        all_touched=False,
+        dtype="int32"
+    )
+
+    year_data = {}
+    
+    for i, year in enumerate(years):
+        
+        raster_data = pop_image.isel(time=i).GPOP.values
+        
+        # Mask valid data (NaN = nodata)
+        valid_pop_mask = ~np.isnan(raster_data)
+
+        # Sum population per region using np.bincount in pixels without NaN
+        sums = np.bincount(
+            pixel_owner[valid_pop_mask], 
+            weights=raster_data[valid_pop_mask], 
+            minlength=minlength
+        )[1:]  
+
+        # Add results to regions_shp GeoDataFrame
+        year_data[str(year)] = sums
+        
+    regions_df = pd.concat(
+        [regions_shp, pd.DataFrame(year_data, index=regions_shp.index)],
+        axis=1
+    )
+    
+    # Impact regions shapefile case
+    if shp_name=="impact_region":
+        # Add ISO3 column
+        regions_df["ISO3"] = regions_df["hierid"].str[:3]
+         # Only return regions names and population columns
+        return regions_df[["hierid", "ISO3"] + [c for c in regions_df.columns if str(c).isdigit()]]
+    
+    # GBD shapefile case
+    else:
+        # Convert ID to integers
+        regions_df["loc_id"]=regions_df["loc_id"].astype(int)
+        regions_df = regions_df[regions_df["loc_id"]!=-1]
+        # Get only relevant columns
+        regions_df = regions_df[["loc_id", "loc_name"] + [c for c in regions_df.columns if str(c).isdigit()]]
+        # Sum population of same region
+        regions_df = regions_df.groupby(["loc_name", "loc_id"]).sum().add_suffix("_pop").reset_index()
+        # Only return region names, ids and population columns
+        return regions_df
