@@ -9,6 +9,7 @@ dependencies:
   - netCDF4
   - openpyxl
   - rasterio
+  - cartopy
   - plotly
   - matplotlib
   - ipykernel
