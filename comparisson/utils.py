@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 
 
-# Full list of diseases
-diseases = {
+# Full list of causes
+causes = {
     'ckd':'Chronic kidney disease', 
     'cvd_cmp':'Cardiomyopathy and myocarditis', 
     'cvd_htn':'Hypertensive heart disease', 
@@ -19,6 +19,17 @@ diseases = {
     'inj_suicide':'Self-harm', 
     'inj_trans_other':'Other transport injuries', 
     'inj_trans_road':'Road injuries', 
+    'resp_copd':'Chronic obstructive pulmonary disease', 
+    'lri':'Lower respiratory infections'
+    }
+
+relevant_causes = {
+    'ckd':'Chronic kidney disease', 
+    'cvd_cmp':'Cardiomyopathy and myocarditis', 
+    'cvd_htn':'Hypertensive heart disease', 
+    'cvd_ihd':'Ischemic heart disease', 
+    'cvd_stroke':'Stroke',
+    'diabetes':'Diabetes mellitus',
     'resp_copd':'Chronic obstructive pulmonary disease', 
     'lri':'Lower respiratory infections'
     }
