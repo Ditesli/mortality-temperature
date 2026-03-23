@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 # Full list of causes
@@ -165,6 +166,55 @@ def StylizeAxes(ax, *,
         ax.legend(**(legend_kwargs or {}))
     
     return ax
+
+
+def StylizePlot(*, 
+                xscale=None,
+                yscale=None,
+                ylim=None,
+                xlim=None,
+                title=None,
+                xlabel=None,
+                ylabel=None,
+                legend=True, 
+                legend_kwargs=None, 
+                grid=False,
+                grid_kwargs=None,
+                suptitle=None, 
+                suptitle_kwargs=None, 
+                xticks_kwargs=None,
+                yticks_kwargs=None,
+                tight_layout=None,
+                show=True):
+    if xscale:
+        plt.xscale(xscale)
+    if yscale:
+        plt.yscale(yscale)
+    if ylim:
+        plt.ylim(ylim)
+    if xlim:
+        plt.xlim(xlim)
+    if title:
+        plt.title(title)
+    if xlabel:
+        plt.xlabel(xlabel)
+    if ylabel:
+        plt.ylabel(ylabel)    
+    if legend:
+        plt.legend(**(legend_kwargs or {}))
+    if grid:
+        plt.grid(**(grid_kwargs or {}))
+    if suptitle:
+        plt.suptitle(suptitle, **(suptitle_kwargs or {}))
+    if xticks_kwargs:
+        plt.xticks(**xticks_kwargs)
+    if yticks_kwargs:
+        plt.yticks(**yticks_kwargs)
+    if tight_layout:
+        plt.tight_layout()
+    if show:
+        plt.show()
+        
 
 
 
