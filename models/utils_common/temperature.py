@@ -5,14 +5,14 @@ import re
 
 
 
-def LoadDailyTemperatures(temp_dir, scenario, temp_type, year, pop_ssp, std_factor):
+def LoadDailyTemperatures(temp_dir, scenario, temp_type, year, pop_map, std_factor):
     
     """
     Select the temperature data type to use (ERA5 or monthly statistics)
     """
     
     if re.search(r"SSP[1-5]_ERA5", scenario):
-        daily_temp, num_days = DailyTemperatureERA5(temp_dir, year, temp_type, pop_ssp, to_array=True)
+        daily_temp, num_days = DailyTemperatureERA5(temp_dir, year, temp_type, pop_map, to_array=True)
         
     else:
         daily_temp, num_days = DailyFromMonthlyTemperature(temp_dir, year, temp_type.upper(), std_factor)
@@ -21,7 +21,7 @@ def LoadDailyTemperatures(temp_dir, scenario, temp_type, year, pop_ssp, std_fact
 
 
 
-def DailyTemperatureERA5(era5_dir, year, temp_type, pop_ssp=None, to_array=False):
+def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False):
     
     """
     Read daily ERA5 temperature data for a specific year, shift longitude coordinates,
@@ -29,7 +29,7 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_ssp=None, to_array=False
     Parameters:
     - era5_dir: directory where ERA5 daily temperature data is stored
     - year: year to read
-    - pop_ssp: population data xarray dataset to match grid
+    - pop_map: population data xarray dataset to match grid
     - to_array: boolean, if True return numpy array, if False return xarray dataset
     Returns:
     - daily_temp: daily temperature data for the year, either as numpy array or xarray dataset
@@ -51,9 +51,9 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_ssp=None, to_array=False
     # Convert to Celsius 
     era5_daily -= 273.15
     
-    if pop_ssp is not None:
+    if pop_map is not None:
         # Match grid with population data. Nearest neighbor interpolation
-        era5_daily = era5_daily.interp(latitude=np.clip(pop_ssp.latitude, 
+        era5_daily = era5_daily.interp(latitude=np.clip(pop_map.latitude, 
                                                         era5_daily.latitude.min().item(), 
                                                         era5_daily.latitude.max().item()), 
                                     method="nearest")
