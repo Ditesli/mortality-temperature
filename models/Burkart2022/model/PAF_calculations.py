@@ -818,8 +818,8 @@ def PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part, a
             .reset_index()
         )
         
-        result_allcauses.insert(0, "unit", "Total Mortality")
-        res.insert(0, "unit", "Relative Mortality")
+        result_allcauses.insert(0, "units", "Total Mortality")
+        res.insert(0, "units", "Relative Mortality")
         
         result_allcauses = pd.concat([result_allcauses, res], ignore_index=True)
         
@@ -882,8 +882,8 @@ def PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part, a
         )
         
         image_allcauses_copy = image_allcauses.copy()
-        image_allcauses_copy.insert(0, "unit", "Total Mortality")
-        res.insert(0, "unit", "Relative Mortality")
+        image_allcauses_copy.insert(0, "units", "Total Mortality")
+        res.insert(0, "units", "Relative Mortality")
         
         image_allcauses_copy = pd.concat([image_allcauses_copy, res], ignore_index=True)        
 
