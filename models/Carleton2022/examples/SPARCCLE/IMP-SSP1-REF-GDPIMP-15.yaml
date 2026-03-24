@@ -1,0 +1,14 @@
+# Settings to run the SPARCCLE default scenario IMP-SSP2-REF-GDPIMP-15
+
+wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
+temp_dir: "X:/user/dekkerm/IMAGE_environments"
+gdp_dir: "X:/user/dekkerm/IMAGE_environments" 
+
+start_year: 2000
+end_year: 2100
+
+project: IMPACTS
+scenario: "IMP-SSP1-REF-GDPIMP-15"
+adaptation: True
+
+reporting_tool: True
