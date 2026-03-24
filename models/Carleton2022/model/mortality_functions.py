@@ -212,7 +212,7 @@ class LoadInputData:
         
         print("[1] Loading input files and defining parameters...")    
         
-        print(f"[1.2] Loading region classification...")
+        print(f"[1.1] Loading region classification...")
         region_class = pd.read_csv(f"{sets.wdir}/data/regions/region_classification.csv")
         region_class = region_class[["hierid", "ISO3", "IMAGE26"]]
         
@@ -352,7 +352,7 @@ def GridRelationship(sets):
     of the dataframes with the same order as the spatial relationship dataframe. 
     """
     
-    print("[1.1] Creating spatial relationship between temperature grid and impact regions...")
+    print("[1.2] Creating spatial relationship between temperature grid and impact regions...")
     
     # Define function that creates grid cells
     def CreateSquare(lon, lat, lon_size, lat_size): 
@@ -384,10 +384,11 @@ def GridRelationship(sets):
     
     # --------- If Monthly Statistics (MS) data ----------  
     else:
-        
+        # Directory to IMAGE Land output
+        temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
+            temp_dir=temperature_directory, 
             years=sets.years[0], 
             temp_type="MEAN", 
             std_factor=1, 
@@ -727,11 +728,12 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
             
         # Load climatology of selected year and scenario
         else:
+            temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
             # Load "present-day" climatology
             if counterfactual:
-                climtas = ImportClimtas(sets.temp_dir, None, fls.spatial_relation, present_day=True)
+                climtas = ImportClimtas(temperature_directory, None, fls.spatial_relation, present_day=True)
             else:
-                climtas = ImportClimtas(sets.temp_dir, year, fls.spatial_relation, present_day=False)
+                climtas = ImportClimtas(temperature_directory, year, fls.spatial_relation, present_day=False)
                 
         # log(GDPpc) ---------------------------    
         
@@ -1119,8 +1121,9 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
     else:
                 
         # Read daily temperature data generated from monthly statistics
+        temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
+            temp_dir=temperature_directory, 
             years=year, 
             temp_type="MEAN", 
             std_factor=1,
@@ -1372,8 +1375,9 @@ def ImportPresentDayTemperatures(sets, base_years, ir, spatial_relation):
     # -------------- Scenario data --------------
     else: 
         
+        temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
+            temp_dir=temperature_directory, 
             years=base_years,
             temp_type="MEAN",
             std_factor=1, 
@@ -1609,7 +1613,7 @@ def Append2ReportingTool(results, sets):
     
     df_rt["Model"] = "IMAGE"
     df_rt["Scenario"] = sets.scenario
-    df_rt["Region"] = results["IMAGE26"]
+    df_rt["Region"] = results["region"]
     df_rt["Variable"] = (
         "Health|Mortality|Non-Optimal Temperatures|"
         + np.where(results["t_type"] != "All", results["t_type"] + "|", "")
@@ -1617,8 +1621,8 @@ def Append2ReportingTool(results, sets):
         + np.where(results["units"] == "Relative Mortality", " [per 100,000 people]", "")
         ).str.rstrip("|")
     df_rt["Unit"] = np.where(results["units"] == "Relative Mortality", "-", "thousand people")
-    
-    rt_path = f"{sets.income_path}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
+
+    rt_path = f"{sets.gdp_dir}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
     wb = load_workbook(rt_path)
     rt_data = wb["data"]
     
@@ -1629,12 +1633,12 @@ def Append2ReportingTool(results, sets):
     for row in dataframe_to_rows(df_rt, index=False, header=False):
         rt_data.append(row)
         
-    output_dir = (
-        sets.wdir + 
-        f"output/{sets.project}/RT" 
-    )
-    os.makedirs(output_dir, exist_ok=True)
-    wb.save(f"{output_dir}/{sets.scenario}.xlsx")
+    # output_dir = (
+    #     sets.wdir + 
+    #     f"output/{sets.project}/RT" 
+    # )
+    # os.makedirs(output_dir, exist_ok=True)
+    wb.save(sets.gdp_dir+"/"+sets.project+"/7_Reporting_Tool/outxlsx/including_health_impacts/"+sets.scenario+".xlsx")
     
 
 
