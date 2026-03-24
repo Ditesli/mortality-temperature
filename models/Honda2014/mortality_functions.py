@@ -17,7 +17,6 @@ def CalculatePAF(
     project: str,
     scenario: str,
     years: list,
-    regions: str,
     optimal_range: str,
     extrap_erf: bool,
     temp_max: any
@@ -29,7 +28,6 @@ def CalculatePAF(
         project=project,
         scenario=scenario,
         years=years,
-        regions=regions,
         optimal_range=optimal_range,
         extrap_erf=extrap_erf,
         temp_max=temp_max
@@ -48,7 +46,6 @@ class ModelSettings:
     project: str
     scenario: str
     years: list
-    regions: str 
     optimal_range: str
     extrap_erf: bool
     temp_max: any
@@ -150,15 +147,15 @@ class LoadInputData:
         ssp = re.search(r"SSP\d", sets.scenario).group()
         pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, sets.years)
         
-        print(f"[1.2] Loading region classification for {sets.regions} regions...")
+        print(f"[1.2] Loading region classification...")
         regions, regions_range = pop.LoadRegionClassificationMap(
             sets.wdir, 
             temp_dir=sets.temp_dir,
-            region_class=sets.regions, 
+            region_class="countries", 
             scenario=sets.scenario,
             pop_ssp=pop_ssp)
 
-        # Load Exposure Response Function files for the relevant diseases
+        # Load Exposure Response Function file
         erf, min_val, max_val = LoadERF(sets.wdir, sets.extrap_erf, sets.temp_max)
         
         # Load file with optimal temperatures for 1980-2010
@@ -190,7 +187,7 @@ def LoadERF(wdir, extrap_erf=False, temp_max=None):
     
     print('[1.3] Loading Exposure Response Function...')
         
-    risk_function = (pd.read_csv(wdir+'/data/risk_function/dummy/interpolated_dataset.csv')
+    risk_function = (pd.read_csv(wdir+'/data/risk_function/interpolated_dataset.csv')
         .astype(float))
     
     # Extrapolate risk_function
@@ -285,18 +282,20 @@ def CalculatePAFYear(sets, fls, year):
     - temp_min: minimum temperature to extrapolate to 
     '''
     
-    print(f'[2.1] Loading {year} daily temperatures...')
-    daily_temp, num_days = tmp.LoadDailyTemperatures(temp_dir=sets.temp_dir,
-                                                     scenario=sets.scenario,
-                                                     temp_type="max",
-                                                     year=year, 
-                                                     pop_ssp=fls.pop_ssp,
-                                                     std_factor=1)
+    print(f'[2.1] Loading {year} daily maximum temperatures...')
+    daily_temp, num_days = tmp.LoadDailyTemperatures(
+        temp_dir=sets.temp_dir,
+        scenario=sets.scenario,
+        temp_type="max",
+        year=year, 
+        pop_ssp=fls.pop_ssp,
+        std_factor=1
+        )
 
     # Select population for the corresponding year and convert to numpy array with non-negative values
     pop_year = np.clip(fls.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
     
-    print(f'[2.2] Calculating Population Attributable Fraction for {year}') 
+    print(f'[2.2] Calculating Population Attributable Fraction for {year}...') 
 
     # Calculate baseline temperature
     baseline_temp = daily_temp - fls.opt_temp[...,np.newaxis]
@@ -325,11 +324,11 @@ def CalculatePAFYear(sets, fls, year):
     
     # Calculate regional PAFs
     for mode in ['All', 'Heat', 'Cold']:
-        fls.paf.loc[mode,year] = WeightAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_baseline_temp)
+        fls.paf.loc[mode,year] = WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_baseline_temp)
 
     
 
-def WeightAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_base_temp):
+def WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_base_temp):
     
     '''
     Calculate weighted average of PAFs per region
@@ -366,97 +365,139 @@ def PostprocessResults(sets, fls):
     
     # Substracting counterfactual mortality
     paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
+    paf.index.names = ["t_type", "region"]
     
     print("[3.1] Saving PAF results...")
-    
+
     extrap_part = "_extrap" if sets.extrap_erf else ""
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
-    
+
     # Create project folder if it doesn"t exist
     out_path = Path(sets.wdir) / "output" / f"{sets.project.upper()}" 
     out_path.mkdir(parents=True, exist_ok=True)
             
     # Save the results and temperature statistics
     paf.to_csv(out_path / 
-                   f'PAF_{sets.project}_{sets.scenario}_{sets.region}{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv')  
-    
+                    f'PAF_{sets.project}_{sets.scenario}_ISO3{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv')  
+
     print(["3.2 Calculating attributable mortality and saving results"])
-    
-    PAF2Mortality(sets, fls, out_path, years_part, extrap_part)
+
+    PAF2Mortality(sets, paf, out_path, years_part, extrap_part)
 
     print("Model ran succesfully!")
     
     
 
-def PAF2Mortality(sets, fls, paf, out_path, years_part, extrap_part):
+def PAF2Mortality(sets, paf, out_path, years_part, extrap_part):
     
-    print(["3.2 Calculating attributable mortality and saving results..."])
+    print("3.2 Calculating attributable mortality and saving results...")
     
     if re.search(r"ERA5", sets.scenario):
         
         # Load GBD mortality records
         wdir_up = os.path.dirname(sets.wdir)
-        gbd_mor = pd.read_csv(f'{wdir_up}/data/mortality/GBD_mortality/IHME-GBD_2021_DATA.csv')
+        gbd_mor = pd.read_csv(f'{wdir_up}/data/GBD_mortality/IHME-GBD_2022_DATA.csv')
+        
+        mask = (
+            (gbd_mor['cause_name'] == 'All causes') &
+            (gbd_mor['sex_name'] == 'Both') &
+            (gbd_mor['year'].isin(sets.years)) &
+            (gbd_mor['age_name'].isin(['65-69 years', '70-74 years', '75-79 years', "80-84 years", '85+ years'])) &
+            (gbd_mor['location_name'] != 'Global')
+        )
         
         # Reformat mortality
         gbd_mor = (
-            gbd_mor
-            [['location_id', 'location_name', 'cause_name', 'year', 'val']] # upper,lower
-            [
-                (gbd_mor['cause_name'] == 'All causes') &
-                (gbd_mor['sex_name'] == 'Both') &
-                (gbd_mor['year'].isin(range(2000, 2022))) &
-                (gbd_mor['age_name'].isin(['65-69 years', '70-74 years', '75-79 years', '85+ years'])) &
-                (gbd_mor['location_name'] != 'Global')
-            ]
-            .groupby(['location_id', 'location_name', 'year'])
-            .sum()
-            .reset_index()
-            .drop(columns='cause_name')
-            .assign(year=lambda x: x['year'].astype(int))
-            .pivot(index=['location_id', 'location_name'],
+            gbd_mor.loc[mask, ['location_id','location_name','year','val']]
+            .groupby(['location_id', 'location_name', 'year'], as_index=False)
+            .sum() # Sum all age groups 
+            .pivot(index=['location_id', 'location_name'], # Move years to columns
                 columns='year',
                 values='val')
             .reset_index()
-            .set_index("location_id")
+            .rename(columns={"location_id":"region"})
+            .set_index("region")
         )
         
-        mortality = (
-            paf
-            .mul(gbd_mor.drop(columns='location_name'), level=1)
-            .reset_index()
+        
+        # ----------- Mortality for ISO3 countries ------------
+        
+        t_types = ["Heat", "Cold", "All"]
+        
+        # Multiply per gbd mortality
+        result = pd.concat(
+            [paf.loc[tt] * gbd_mor.drop(columns="location_name") for tt in t_types],
+            keys=t_types,
+            names=["t_type"]
+        )
+        
+        result = (
+            result
+            .reset_index() # Reset
             .merge(
-                gbd_mor[['location_name']],
-                left_on="level_1",
-                right_index=True,
-                how='left'
+                gbd_mor
+                .groupby(["location_name", "region"])
+                .first().reset_index()
+                [["location_name", "region"]], # Merge with GBD mortality data
+                left_on="region", 
+                right_on="region", 
+                how="left"
+                )
+            .drop(columns={"region"}) # Discard region number from GBD
+            .rename(columns={"location_name":"region"}) # Leave only country name
             )
-            .rename(columns={"level_0":"t_type", "level_1":"region_id", "location_name":"region"})
-            .assign(units='Total Mortality')  
-            .pipe(lambda d: d[['units', *d.columns.drop('units')]])
-            .pipe(lambda d: d[[*d.columns[:2], 'region', *[c for c in d.columns if c not in ('region', *d.columns[:2])]]])
-        )
         
-        region_class = pd.read_csv(wdir_up+"/data/region_classification.csv").drop_duplicates(subset="gbd_location_id", keep='first')
-        image_mor = (
-            mortality
+        result.to_csv(out_path / 
+                   f'Mortality_{sets.project}_{sets.scenario}_ISO3{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv')  
+        
+    
+        # --------------- Mortality for IMAGE regions --------------
+        
+        region_class = pd.read_csv(
+            wdir_up + 
+            "/data/region_classification.csv").drop_duplicates(subset="gbd_location_id", keep='first')
+
+        image_results = (
+            result
             .merge(region_class[["gbd_level3", "IMAGE26"]], left_on="region", right_on="gbd_level3", how="left")
-            .groupby(["units", "t_type", "IMAGE26"]).sum()
-            .drop(columns=["region", "region_id","gbd_level3"])
-            .reset_index().rename(columns={"IMAGE26":"region"})
+            .drop(columns=["region", "gbd_level3"])
+            .groupby(["t_type", "IMAGE26"])
+            .sum()
+            .reset_index()
+            .rename(columns={"IMAGE26":"region"})
         )
         
-        world = image_mor.groupby(["units", "t_type"]).sum()
-        world["region"] = "World"
-        final = pd.concat([image_mor, world.reset_index()], ignore_index=True)
+        world_results = image_results.groupby("t_type").sum()
+        world_results["region"] = "World"
+        image_world_results = pd.concat([image_results, world_results.reset_index()], ignore_index=True)
         
+        image_world_results.to_csv(out_path / 
+                   f'Mortality_{sets.project}_{sets.scenario}_IMAGE26{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv')  
+    
         
+        # -------------- PAF for IMAGE regions --------------
+        
+        gbd_mor_image = (
+            gbd_mor
+            .reset_index()
+            .merge(region_class[["gbd_level3", "IMAGE26"]], left_on="location_name", right_on="gbd_level3", how="left")
+            .drop(columns=["region", "location_name", "gbd_level3"])
+            .rename(columns={"IMAGE26": "region"})
+            .groupby(["region"])
+            .sum()
+        )
+        
+        image_results = image_results.set_index(["t_type", "region"])
+        
+        image_paf = pd.concat(
+            [image_results.loc[tt] / gbd_mor_image.replace(0, np.nan) for tt in t_types],
+            keys=t_types,
+            names=["t_type"]
+        )
+        
+        image_paf.to_csv(out_path / 
+                   f'PAF_{sets.project}_{sets.scenario}_IMAGE26{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv')  
+    
+    
     else:
         print["Cause-specific mortality projections not available yet :("]
-        
-    final.to_csv(out_path / 
-                   f'mortality_{sets.project}_{sets.scenario}_IMAGE26{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv') 
-    
-    
-    
-PAF2Mortality(None, None, None, None,None, None)
