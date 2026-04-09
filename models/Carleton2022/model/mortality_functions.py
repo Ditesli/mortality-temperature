@@ -1600,10 +1600,15 @@ def ExportOUTFiles(results, sets):
         
 def Append2ReportingTool(results, sets):
     
+    # Convert total mortality to thousands of deaths to match the format of the reporting tool
+    results.loc[results.xs("Total Mortality", level=2, drop_level=False).index, :] = (
+        results.xs("Total Mortality", level=2, drop_level=False) / 1000
+    )
+    
     map_age = {
-        "young": "Age 0-4",
-        "older": "Age 5-64",
-        "oldest": "Age +65"
+        "young": "|Age 0-4",
+        "older": "|Age 5-64",
+        "oldest": "|Age 65+"
     }
     
     # DataFrame to store data
@@ -1615,12 +1620,12 @@ def Append2ReportingTool(results, sets):
     df_rt["Scenario"] = sets.scenario
     df_rt["Region"] = results["region"]
     df_rt["Variable"] = (
-        "Health|Mortality|Non-Optimal Temperatures|"
-        + np.where(results["t_type"] != "All", results["t_type"] + "|", "")
+        "Health|Mortality|Non-Optimal Temperatures"
+        + np.where(results["t_type"] != "All", "|" + results["t_type"], "")
         + results["age_group"].map(map_age).fillna("")
         + np.where(results["units"] == "Relative Mortality", " [per 100,000 people]", "")
         ).str.rstrip("|")
-    df_rt["Unit"] = np.where(results["units"] == "Relative Mortality", "-", "thousand people")
+    df_rt["Unit"] = np.where(results["units"] == "Relative Mortality", "-", "thousand")
 
     rt_path = f"{sets.gdp_dir}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
     wb = load_workbook(rt_path)
