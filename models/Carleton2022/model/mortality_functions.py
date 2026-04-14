@@ -1683,13 +1683,15 @@ def PostprocessResults(sets, fls):
     else:
         project = ""
         
-    output_dir = sets.wdir + "/output/" + f"{sets.project}" 
-    os.makedirs(output_dir, exist_ok=True)   
+    output_iso3_dir = sets.wdir + "/output/" + f"{sets.project}" + "/ISO3" 
+    os.makedirs(output_iso3_dir, exist_ok=True)   
+    output_image_dir = sets.wdir + "/output/" + f"{sets.project}" + "/IMAGE" 
+    os.makedirs(output_image_dir, exist_ok=True) 
     
     # Save results to CSV                
-    results_image.to_csv(output_dir +
+    results_image.to_csv(output_image_dir +
                    f"/mortality_{project}_{sets.scenario}_IMAGE{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
-    results_iso3.to_csv(output_dir +
+    results_iso3.to_csv(output_iso3_dir +
                    f"/mortality_{project}_{sets.scenario}_ISO3{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
     
     print("Scenario ran successfully!")
