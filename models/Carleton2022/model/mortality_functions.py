@@ -1605,17 +1605,21 @@ def Append2ReportingTool(results, sets):
         results.xs("Total Mortality", level=2, drop_level=False) / 1000
     )
     
+    # Calculate 5-year rolling mean to smooth the results, avoiding aliasing effects
+    results = results.T.rolling(window=5, center=True, min_periods=1).mean().T
+    
+    # Dictionary to map age groups to the format of the reporting tool
     map_age = {
         "young": "|Age 0-4",
         "older": "|Age 5-64",
         "oldest": "|Age 65+"
     }
-    
+
     # DataFrame to store data
     results = results.reset_index()
     
     df_rt = pd.DataFrame(index=results.index)
-    
+
     df_rt["Model"] = "IMAGE"
     df_rt["Scenario"] = sets.scenario
     df_rt["Region"] = results["region"]
@@ -1630,7 +1634,7 @@ def Append2ReportingTool(results, sets):
     rt_path = f"{sets.gdp_dir}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
     wb = load_workbook(rt_path)
     rt_data = wb["data"]
-    
+
     # Years reported
     years = [int(cell.value) for cell in rt_data[1][5:] if cell.value is not None]
     df_rt[[col for col in years if col in results.columns]]=results[[col for col in years if col in results.columns]]
