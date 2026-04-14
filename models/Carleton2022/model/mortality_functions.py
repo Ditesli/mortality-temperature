@@ -1634,8 +1634,8 @@ def PostprocessResults(sets, fls):
     
     # Save results to CSV                
     results_image.to_csv(output_image_dir +
-                   f"/mortality_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
     results_iso3.to_csv(output_iso3_dir +
-                   f"/mortality_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
+                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
     
     print("Scenario ran successfully!")
