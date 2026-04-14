@@ -1539,62 +1539,6 @@ def AddMortalityAllAges(fls, sets, results, regions):
             )
 
     return results
-
-
-def ExportOUTFiles(results, sets):
-    
-    """
-    Export results in .OUT format to be used as input for TIMER. The function will generate 
-    one .OUT file for all the results of the different age groups, types of mortality, and regions. 
-    The .OUT file will be stored in the data_wip of the corresponding project and scenario.
-    """
-
-    _DIM_IMAGE_REGIONS = ["CAN", "USA", "MEX", "RCAM", "BRA",
-                        "RSAM", "NAF", "WAF", "EAF", "SAF",
-                        "WEU", "CEU", "TUR", "UKR", "STAN",
-                        "RUS", "ME", "INDIA", "KOR", "CHN",
-                        "SEAS", "INDO", "JAP", "OCE", "RSAS",
-                        "RSAF", "World"]
-    
-    # Reorder variables and regions
-    results = results.reorder_levels(order=[3,2,1,0]).sort_index()
-    results = results[results.index.get_level_values(0) != "GRL"]
-    results = results.reindex(pd.MultiIndex.from_product(
-        [
-            _DIM_IMAGE_REGIONS,
-            ["Total Mortality", "Relative Mortality"],
-            ["All", "Heat", "Cold"],
-            ["all population", "young", "older", "oldest"]
-        ],
-        names = results.index.names
-    ))
-    
-    # Set yo .OUT format
-    formatted_out = (
-        "real main.hlt.MOR_TEMP[27,24](t) = [\n"
-        + ",\n".join(
-            str(x)
-            for year in results.columns
-            for x in [year] + results[year].values.flatten().tolist()
-        )
-        + "\n];"
-    )
-    
-    # Save .OUT file in output folder
-    output_dir = (
-        sets.gdp_dir + "/" 
-        + sets.project 
-        + "/7_Reporting_Tool/data_wip/" 
-        + sets.project + "/" 
-        + sets.scenario 
-        + "/H2RT" 
-    )
-    os.makedirs(output_dir, exist_ok=True)  # crea la carpeta si no existe
-    output_file = os.path.join(output_dir, "MOR_TEMP.OUT")
-
-    # Guardar el archivo
-    with open(output_file, "w") as f:
-        f.write(formatted_out)
         
         
         
