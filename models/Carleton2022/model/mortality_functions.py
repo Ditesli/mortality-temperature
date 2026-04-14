@@ -1551,7 +1551,7 @@ def Append2ReportingTool(results, sets):
     
     # Calculate 5-year rolling mean to smooth the results, avoiding aliasing effects
     results = results.T.rolling(window=5, center=True, min_periods=1).mean().T
-    
+
     # Dictionary to map age groups to the format of the reporting tool
     map_age = {
         "young": "|Age 0-4",
@@ -1561,7 +1561,7 @@ def Append2ReportingTool(results, sets):
 
     # DataFrame to store data
     results = results.reset_index()
-    
+
     df_rt = pd.DataFrame(index=results.index)
 
     df_rt["Model"] = "IMAGE"
@@ -1634,8 +1634,8 @@ def PostprocessResults(sets, fls):
     
     # Save results to CSV                
     results_image.to_csv(output_image_dir +
-                   f"/mortality_{project}_{sets.scenario}_IMAGE{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+                   f"/mortality_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
     results_iso3.to_csv(output_iso3_dir +
-                   f"/mortality_{project}_{sets.scenario}_ISO3{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
+                   f"/mortality_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
     
     print("Scenario ran successfully!")
