@@ -13,7 +13,9 @@ def main():
     config = load_config()
     wdir = config["wdir"]
 
+    utils.ERA5TemperaturePercentiles(wdir, config["path_era5"], years=range(1990,2020))
     utils.ERA5TemperaturePercentiles(wdir, config["path_era5"], years=range(1980,2010))
+    utils.ERA5TemperaturePercentiles(wdir, config["path_era5"], years=range(1970,2000))
     
         
 if __name__ == "__main__":

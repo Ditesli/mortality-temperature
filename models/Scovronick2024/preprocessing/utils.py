@@ -15,13 +15,22 @@ def ERA5TemperaturePercentiles(wdir, era5_dir, years):
     from ERA5 temperature data.
     """
     
+    print(f"Calculating ERA5 temperature percentiles for range {years[0]}-{years[-1]}...")
+    
+    # Load in ERF from Scovronick to get the percentiles to calculate
     erf = pyreadr.read_r(wdir + "/data/Scovronick_SM/Fig2_20Nov2025.Rdata")
     percentiles = erf["cvd"]["Percentile"].values/100
     
-    percentile_final = CalculateBandPercentiles(era5_dir, years, percentiles, step=20)
-    # Save the final percentiles as a NetCDF file
+    # Calculate the percentiles, processing in latitude bands to optimize memory usage
+    percentile_final = CalculateBandPercentiles(era5_dir, years, percentiles, step=25)
+    
+    # Convert Kelvin to Celsius
+    percentile_final -= 273.15
+    
+    print("Saving percentiles to NetCDF file...")
     percentile_final.to_netcdf(
         wdir + f"/data/Temperature_Percentiles/ERA5_Tmean_Percentiles_{years[0]}-{years[-1]+1}.nc")
+    
     
     
 def CalculateBandPercentiles(data_path: str, years: np.ndarray, percentiles: np.ndarray, step: int):
@@ -91,9 +100,3 @@ def CalculateBandPercentiles(data_path: str, years: np.ndarray, percentiles: np.
     percentile_final = xr.concat(percentile_bands, dim='latitude')
     
     return percentile_final
-    
-    
-
-
-
-
