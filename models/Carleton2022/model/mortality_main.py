@@ -2,7 +2,7 @@ import mortality_functions as mf
 import yaml
 from pathlib import Path
 
-config_file = Path(__file__).parent.parent / "examples" / "SPARCCLE" / "IMP-SSP2-REF-GDPIMP-CP-base.yaml"
+config_file = Path(__file__).parent.parent / "examples" / "modes-historical" / "ERA5_NoAdap_1970-2025.yaml"
 with open(config_file) as f:
     config = yaml.safe_load(f)
     
