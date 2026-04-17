@@ -378,7 +378,7 @@ def GridRelationship(sets):
             era5_dir=sets.temp_dir, 
             year=sets.years[0], 
             temp_type="mean", 
-            pop_ssp=None, 
+            pop_map=None, 
             to_array=False
             )
     
@@ -521,16 +521,10 @@ def ImportPopulationData(sets, ir):
     
     # Include ALWAYS population data from 2000 to 2010 (used in the subtrahend part)
     year = sorted(set(sets.years).union(range(2000, 2011)))
-        
-    # Import population data based on scenario type
-    if 'carleton' in sets.scenario.lower() or re.search(r"SSP[1-5]_ERA5", sets.scenario):
-        # Import population data from the paper
-        population = ImportDefaultPopulationData(sets, ssp, year, ir)
-        
-    else:
-        # Import IMAGE population data nc4 file and calculate population per impact region
-        population = ImportIMAGEPopulationData(sets, ssp, year, ir)
     
+    # ALWAYS import IMAGE population data to have data from 1970
+    population = ImportIMAGEPopulationData(sets, ssp, year, ir)
+
     return population
 
 
@@ -1185,7 +1179,7 @@ def ERA5Temperature2IR(temp_dir, year, spatial_relation):
         era5_dir=temp_dir,
         year=year, 
         temp_type="mean", 
-        pop_ssp=None, 
+        pop_map=None, 
         to_array=False)
     
     daily_temperature = daily_temperature.t2m
