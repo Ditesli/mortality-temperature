@@ -11,4 +11,4 @@ regions_class: "X:/user/liprandicn/mt-comparison/data"
 landscan_path: "X:/user/liprandicn/DATA/POPULATION/LandScan_Global/"
 
 # Path to population projections from IMAGE nc files
-pop_dir: "X:/user/liprandicn/DATA/POPULATION"
+pop_dir: "X:/user/liprandicn/mt-comparison/data"
