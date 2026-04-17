@@ -82,15 +82,6 @@ class ModelSettings:
         if isinstance(self.years, range):
             self.years = range(self.years.start, self.years.stop + 1)
         
-        # Reduce range years if working with ERA5 data
-        ERA5_START_YEAR = 2000
-        ERA5_END_YEAR = 2025
-
-        if re.search(r"ERA5", self.scenario):
-            self.years = [
-                y for y in self.years
-                if ERA5_START_YEAR <= y <= ERA5_END_YEAR
-            ]
             
 
 
@@ -590,7 +581,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
     
     for age_group in sets.age_groups:
         pop_ssp_group = (
-            pd.read_csv(f"{sets.wdir}/data/population/pop_ssp/pop_{ssp.lower()}_{age_group}.csv")
+            pd.read_csv(f"{sets.wdir}/data/population/pop_historical/POP_historical_{age_group}_image.csv")
             .pipe(lambda df: df.filter(
                 ["hierid"] +
                 [c for c in df.columns if c.isdigit() and int(c) in years]
@@ -1562,7 +1553,7 @@ def PostprocessResults(sets, fls):
     if sets.adaptation == True:
         adaptation = ""
     else:
-        adaptation = "_NoAdap"
+        adaptation = "NoAdap"
     if sets.project is not None:
         project = f"{sets.project}"
     else:
