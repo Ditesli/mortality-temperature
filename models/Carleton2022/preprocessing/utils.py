@@ -7,8 +7,8 @@ import rasterio
 from rasterio.features import rasterize
 import country_converter as coco
 import sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-import mortality_functions as mf
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import model.mortality_functions as mf
 
 
 
@@ -108,7 +108,7 @@ def PopulationHistorical(
     impact_regions_pop = (
         impact_regions
         .drop(columns=["gadmid", "color", "AREA", "PERIMETER", "geometry"])
-        .melt(id_vars=["hierid", "ISO",], var_name="Time", value_name="Value")
+        .melt(id_vars=["hierid", "ISO"], var_name="Time", value_name="Value")
         .merge(population_shares, on=["ISO", "Time"], how="left")
     )
     
@@ -234,10 +234,15 @@ def ProcessUNPopulation5years(
     
     # Read UN population data file
     un_population = (
-        pd.read_csv(wdir+"population/unpopulation_dataportal.csv")
+        pd.read_csv(wdir+"/un_population/unpopulation_dataportal.csv")
         [["Iso3", "Time", "Age", "Value"]] # Keep relevant columns
     )
-    un_population.loc[un_population["Age"].isin(["5-14", "15-64"]), "Age"] = "5-64"
+    
+    older = [f"{i}-{i+4}" for i in range(5, 65, 5)]
+    oldest = [f"{i}-{i+4}" for i in range(65, 100, 5)] + ["100+"]
+
+    un_population.loc[un_population["Age"].isin(older), "Age"] = "5-64"
+    un_population.loc[un_population["Age"].isin(oldest), "Age"] = "65+"
 
     # Calculate total population per country and year
     population_total = un_population.groupby(["Iso3","Time"]).sum().drop(columns="Age")
@@ -348,7 +353,7 @@ def IMAGEPopulation2ImpactRegion(wdir, pop_dir, ssp, years):
     impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
     
     # Read IMAGE SSP population nc file
-    pop_image = xr.open_dataset(pop_dir+f"/IMAGE_POP/{ssp.upper()}/GPOP.nc")
+    pop_image = xr.open_dataset(pop_dir+f"/image_population/{ssp.upper()}/GPOP.nc")
     
     # Ensure CRS is set to EPSG:4326 and align with impact regions
     pop_image = pop_image.rio.write_crs("EPSG:4326", inplace=False)
@@ -621,3 +626,31 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     climatologies_df.insert(0, "hierid", ir)
     climatologies_df.to_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
                             index=False)
+    
+    
+    
+def PopulationHistoricalIMAGE(wdir, pop_dir, years):
+    
+    ssp = "SSP2"
+    
+    # Agregate raster IMAGE total population per impact region and year
+    total_population_ir = IMAGEPopulation2ImpactRegion(wdir=wdir, pop_dir=pop_dir, ssp=ssp, years=years)
+    
+    # Load population data projections per age group to disagregate IMAGE data
+    population_shares = ProcessUNPopulation5years(pop_dir)
+    
+    for age_group in ["young", "older", "oldest"]:
+        age_group_shares = (
+            population_shares[population_shares["Time"]>=1970][["ISO", "Time", f"share_{age_group}"]]
+            .rename(columns={"ISO": "ISO3"})
+            .pivot(index="ISO3", columns="Time", values=f"share_{age_group}")
+            .rename(columns=str)
+        )
+        
+        age_group_pop = total_population_ir.set_index(["ISO3", "hierid"]) * age_group_shares
+        (
+            age_group_pop
+            .reset_index()
+            .drop(columns="ISO3")
+            .to_csv(wdir+f"data/population/pop_historical/pop_historical_{age_group}_image.csv", index=False)
+        )
