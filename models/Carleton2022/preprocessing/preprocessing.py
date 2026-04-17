@@ -4,7 +4,7 @@ import yaml
 
 
 def load_config():
-    config_path = Path(__file__).parent / "config.yaml"
+    config_path = Path(__file__).parent.parent / "examples" / "config_preprocessing.yaml"
     with config_path.open() as f:
         return yaml.safe_load(f)
       
@@ -21,6 +21,7 @@ def main():
         lambda: utils.PopulationProjections(wdir, config["pop_dir"]),
         lambda: utils.DailyTemperaturesERA5PresentDay(wdir, config["era5_dir"]),
         lambda: utils.ClimatologiesERA5(wdir, config["era5_dir"], range(2000, 2026)),
+        lambda: utils.PopulationHistoricalIMAGE(wdir, config["pop_dir"], range(1970, 2026))
     ]
 
     for task in tasks:
