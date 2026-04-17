@@ -34,13 +34,7 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
     Returns:
     - daily_temp: daily temperature data for the year, either as numpy array or xarray dataset
     - num_days: number of days in the year (365 or 366)
-    """
-    
-    if year < 1980 or year > 2025:
-        raise ValueError(
-            f"ERA5 data for year {year} is not available "
-            f"(valid range: 1980–2025)."
-      )        
+    """     
     
     # Read file and shift longitude coordinates
     era5_daily = xr.open_dataset(era5_dir+f"/era5_t2m_{temp_type}_day_{year}.nc")
