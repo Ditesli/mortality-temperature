@@ -15,5 +15,5 @@ mf.CalculateMortality(
     project=config["project"], # Project name
     scenario=config["scenario"], # Scenario name
     adaptation=config["adaptation"], # Adaptation on or off
-    reporting_tool=config["reporting_tool"], # Report on or off
+    counterfactual=config["counterfactual"], # Report on or off
 )

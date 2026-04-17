@@ -24,7 +24,7 @@ def CalculateMortality(
     project: str,
     scenario: str,
     adaptation: bool,
-    reporting_tool: bool
+    counterfactual: bool
 ):
 
     sets = ModelSettings(
@@ -35,7 +35,7 @@ def CalculateMortality(
         scenario=scenario,
         years=years,
         adaptation=adaptation,
-        reporting_tool=reporting_tool
+        counterfactual=counterfactual
     )
 
     model = MortalityModel(sets=sets)
@@ -53,7 +53,7 @@ class ModelSettings:
     scenario: str
     years: list
     adaptation: bool
-    reporting_tool: bool
+    counterfactual: bool
     age_groups: list = field(default_factory=lambda: ["young", "older", "oldest"])
     T: np.ndarray = field(default_factory=lambda: np.arange(-20, 40.1, 0.1).round(1))
     
@@ -1256,34 +1256,41 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
     print(f"[2.3] Calculating counterfactual mortality for year {year}...")
 
     # Calculate counterfactual mortality (second term of equations 2' or 2a' from the paper)
-    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+    if sets.counterfactual==True:
+    
+        if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+            
+            BASE_YEARS = range(2001, 2011)
+            mor_all_dic, mor_heat_dic, mor_cold_dic = {}, {}, {}
+            
+            for pd_year in BASE_YEARS:
+                mor_all_dic[pd_year], mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
+                    sets=sets, 
+                    year=pd_year,
+                    daily_temp=baseline.daily_temp_t0[pd_year],  
+                    fls=fls,
+                    baseline=baseline,
+                    counterfactual=True
+                    )    
+                
+            mor_all_sub = {group: np.mean([mor_all_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+            mor_heat_sub = {group: np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+            mor_cold_sub = {group: np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
         
-        BASE_YEARS = range(2001, 2011)
-        mor_all_dic, mor_heat_dic, mor_cold_dic = {}, {}, {}
-        
-        for pd_year in BASE_YEARS:
-            mor_all_dic[pd_year], mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
+        else:
+            mor_all_sub, mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
                 sets=sets, 
-                year=pd_year,
-                daily_temp=baseline.daily_temp_t0[pd_year],  
+                year=year,
+                daily_temp=baseline.daily_temp_t0,  
                 fls=fls,
                 baseline=baseline,
                 counterfactual=True
-                )    
+                )
             
-        mor_all_sub = {group: np.mean([mor_all_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-        mor_heat_sub = {group: np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-        mor_cold_sub = {group: np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-    
-    else:
-        mor_all_sub, mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
-            sets=sets, 
-            year=year,
-            daily_temp=baseline.daily_temp_t0,  
-            fls=fls,
-            baseline=baseline,
-            counterfactual=True
-            )
+    else: 
+        mor_all_sub = {group: np.zeros_like(mor_all_min[group]) for group in sets.age_groups}
+        mor_heat_sub = {group: np.zeros_like(mor_heat_min[group]) for group in sets.age_groups}
+        mor_cold_sub = {group: np.zeros_like(mor_cold_min[group]) for group in sets.age_groups}
 
     print("[2.4] Aggregating results to regions...")
     
@@ -1539,60 +1546,6 @@ def AddMortalityAllAges(fls, sets, results, regions):
             )
 
     return results
-        
-        
-        
-def Append2ReportingTool(results, sets):
-    
-    # Convert total mortality to thousands of deaths to match the format of the reporting tool
-    results.loc[results.xs("Total Mortality", level=2, drop_level=False).index, :] = (
-        results.xs("Total Mortality", level=2, drop_level=False) / 1000
-    )
-    
-    # Calculate 5-year rolling mean to smooth the results, avoiding aliasing effects
-    results = results.T.rolling(window=5, center=True, min_periods=1).mean().T
-
-    # Dictionary to map age groups to the format of the reporting tool
-    map_age = {
-        "young": "|Age 0-4",
-        "older": "|Age 5-64",
-        "oldest": "|Age 65+"
-    }
-
-    # DataFrame to store data
-    results = results.reset_index()
-
-    df_rt = pd.DataFrame(index=results.index)
-
-    df_rt["Model"] = "IMAGE"
-    df_rt["Scenario"] = sets.scenario
-    df_rt["Region"] = results["region"]
-    df_rt["Variable"] = (
-        "Health|Mortality|Non-Optimal Temperatures"
-        + np.where(results["t_type"] != "All", "|" + results["t_type"], "")
-        + results["age_group"].map(map_age).fillna("")
-        + np.where(results["units"] == "Relative Mortality", " [per 100,000 people]", "")
-        ).str.rstrip("|")
-    df_rt["Unit"] = np.where(results["units"] == "Relative Mortality", "-", "thousand")
-
-    rt_path = f"{sets.gdp_dir}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
-    wb = load_workbook(rt_path)
-    rt_data = wb["data"]
-
-    # Years reported
-    years = [int(cell.value) for cell in rt_data[1][5:] if cell.value is not None]
-    df_rt[[col for col in years if col in results.columns]]=results[[col for col in years if col in results.columns]]
-    
-    for row in dataframe_to_rows(df_rt, index=False, header=False):
-        rt_data.append(row)
-        
-    # output_dir = (
-    #     sets.wdir + 
-    #     f"output/{sets.project}/RT" 
-    # )
-    # os.makedirs(output_dir, exist_ok=True)
-    wb.save(sets.gdp_dir+"/"+sets.project+"/7_Reporting_Tool/outxlsx/including_health_impacts/"+sets.scenario+".xlsx")
-    
 
 
 
@@ -1611,12 +1564,6 @@ def PostprocessResults(sets, fls):
     # Calculate total mortality and relative mortality for all-ages group
     results_image = AddMortalityAllAges(fls, sets, fls.results_image, "IMAGE26")
     results_iso3 = AddMortalityAllAges(fls, sets, fls.results_iso3, "ISO3")
-    
-    if sets.reporting_tool == True:
-        # Export files in .OUT format
-        # ExportOUTFiles(results, sets)
-        Append2ReportingTool(results_image, sets)
-
     
     if sets.adaptation == True:
         adaptation = ""
