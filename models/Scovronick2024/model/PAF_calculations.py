@@ -158,6 +158,7 @@ class LoadInputData:
     pop_map: np.ndarray
     pop_region: pd.DataFrame
     erf: pd.DataFrame
+    pmap: xr.Dataset
     paf: pd.DataFrame
 
 
@@ -171,7 +172,7 @@ class LoadInputData:
         
         print("[1] Loading input files...")
         
-        print("[1.2] Loading SSP population data...")
+        print("[1.1] Loading SSP population data...")
         ssp = re.search(r"SSP\d", sets.scenario).group()
         pop_map = pop.LoadPopulationMap(
             wdir=sets.wdir,
@@ -180,7 +181,7 @@ class LoadInputData:
             years=sets.years
             )
         
-        print(f"[1.3] Calculating population per impact region for SSP: {ssp}...")
+        print(f"[1.2] Calculating population per impact region for SSP: {ssp}...")
         pop_region = pop.IMAGEPopulation2Regions(
             shp_dir=sets.wdir+"/data/GBD_locations/gbd_shapefiles/", 
             shp_name="GBD_shapefile",
@@ -188,7 +189,7 @@ class LoadInputData:
             ssp="SSP2",
             years=sets.years)   
         
-        print(f"[1.4] Loading region classification...")
+        print(f"[1.3] Loading region classification...")
         regions, regions_range = pop.LoadRegionClassificationMap(
             wdir=sets.wdir,
             temp_dir=sets.temp_dir, 
@@ -199,8 +200,11 @@ class LoadInputData:
         
         # Load Exposure Response Functions (ERF; 1 draw or mean) and set dicts of min and max temp.
         erf = LoadExposureResponseFunctions(sets)
+        
+        # Load percentiles map
+        percentiles_map = LoadPercentilesMap(sets, range(1980,2011))
             
-        print("[1.8] Creating final dataframe to store results...")
+        print("[1.6] Creating final dataframe to store results...")
         paf = pd.DataFrame(
             index=regions_range, 
             columns=pd.MultiIndex.from_product([sets.years, sets.causes, ["cold", "heat", "all"]])
@@ -213,6 +217,7 @@ class LoadInputData:
             pop_map=pop_map,
             pop_region=pop_region,
             erf=erf,
+            pmap=percentiles_map,
             paf=paf
         )
    
@@ -220,9 +225,31 @@ class LoadInputData:
 
 def LoadExposureResponseFunctions(sets):
     
-    erf = pyreadr.read_r(sets.wdir + "/data/Fig2_20Nov2025.Rdata")
+    erf = pyreadr.read_r(
+        sets.wdir +
+        "/data/Scovronick_SM/Fig2_20Nov2025.Rdata"
+        )
+    
+    # Convert to numpy array for optimized calculations
+    erf = np.stack(
+        [erf["all"].values[:,1:], 
+         erf["cvd"].values[:,1:], 
+         erf["rsp"].values[:,1:], 
+         erf["ncrc"].values[:,1:]], 
+        axis=0
+        ).swapaxes(1,2)
     
     return erf
+
+
+def LoadPercentilesMap(sets, years):
+    
+    percentiles_map = xr.open_dataset(
+        sets.wdir + 
+        f"/data/Percentiles_Maps/ERA5_Tmean_Percentiles_{years[0]}-{years[-1]}.nc"
+        )
+    
+    return percentiles_map
 
 
 
@@ -240,9 +267,9 @@ def CalculatePAFYear(sets, fls, year):
     pop_year = fls.pop_map.sel(time=f"{year}").mean("time").GPOP.values
 
     print(f"[2.2] Calculating Population Attributable Fractions for year {year}...")
+    
     for region in fls.regions_range:
         CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp)
-        
         
         
     
@@ -258,3 +285,23 @@ def CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp
     
     # Get population mask within selected region
     region_mask = (pop_year > 0.) & (fls.regions == region)
+    
+    # Mask the percentiles map and daily temperature data to the selected region
+    pmap = fls.pmap.t2m.values[:, region_mask]
+    temp = daily_temp[region_mask]
+    
+    # Map the corresponding indices of the pmap to the temperature data to assign the corresponding percentile    
+    p_indices = np.argmin(
+        np.abs(pmap[:, :, np.newaxis] - temp[np.newaxis, :, :]), 
+        axis=0
+    )
+    
+    # CALCULATE PAF first?
+    
+    
+    rr = fls.erf[:, :, p_indices].mean(axis=3) # !!!!!!!!!!! Is this correct?
+
+    pop_region = fls.pop_map.mean(dim="time").GPOP.values[region_mask]
+    
+    print(region_mask)
+
