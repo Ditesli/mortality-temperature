@@ -12,4 +12,4 @@ scenario: "SSP2_ERA5"
 adaptation: False
 
 counterfactual: False
-monthly: False
+monthly: True
