@@ -2,7 +2,7 @@ import mortality_functions as mf
 import yaml
 from pathlib import Path
 
-config_file = Path(__file__).parent.parent / "examples" / "modes-historical" / "ERA5_NoAdap_1970-2025.yaml"
+config_file = Path(__file__).parent.parent / "examples" / "modes-historical" / "example.yaml"
 with open(config_file) as f:
     config = yaml.safe_load(f)
     
@@ -16,4 +16,5 @@ mf.CalculateMortality(
     scenario=config["scenario"], # Scenario name
     adaptation=config["adaptation"], # Adaptation on or off
     counterfactual=config["counterfactual"], # Report on or off
+    monthly=config["monthly"] # Monthly or annual mortality
 )

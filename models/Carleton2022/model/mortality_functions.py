@@ -24,7 +24,8 @@ def CalculateMortality(
     project: str,
     scenario: str,
     adaptation: bool,
-    counterfactual: bool
+    counterfactual: bool,
+    monthly: bool
 ):
 
     sets = ModelSettings(
@@ -35,7 +36,8 @@ def CalculateMortality(
         scenario=scenario,
         years=years,
         adaptation=adaptation,
-        counterfactual=counterfactual
+        counterfactual=counterfactual,
+        monthly=monthly
     )
 
     model = MortalityModel(sets=sets)
@@ -54,6 +56,7 @@ class ModelSettings:
     years: list
     adaptation: bool
     counterfactual: bool
+    monthly: bool
     age_groups: list = field(default_factory=lambda: ["young", "older", "oldest"])
     T: np.ndarray = field(default_factory=lambda: np.arange(-20, 40.1, 0.1).round(1))
     
@@ -442,11 +445,17 @@ def FinalDataframe(sets, region_class):
     mortality_types = ["Total Mortality", "Relative Mortality"]
     
     # Create results multiindex dataframe
+    
+    if sets.monthly:
+        dates = [f"{y}-{m:02d}" for y in sets.years for m in range(1, 13)]
+    else:
+        dates = sets.years
+    
     results_image = (
         pd.DataFrame(
             index=pd.MultiIndex.from_product([age_groups, temperature_types, mortality_types, regions_image],
                                          names=["age_group", "t_type", "units", "region"]), 
-            columns=sets.years
+            columns=dates
         ).sort_index()
     )
     
@@ -454,7 +463,7 @@ def FinalDataframe(sets, region_class):
         pd.DataFrame(
             index=pd.MultiIndex.from_product([age_groups, temperature_types, mortality_types, regions_iso3],
                                          names=["age_group", "t_type", "units", "region"]), 
-            columns=sets.years
+            columns=dates
         ).sort_index()
     )
     
@@ -1290,9 +1299,12 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
         mortality = [mor_all, mor_heat, mor_cold]
         
         for mode, mor in zip(["All", "Heat", "Cold"], mortality):
-            Mortality2Regions(year, group, mor, fls.results_iso3, "ISO3", mode, fls)  
-            Mortality2Regions(year, group, mor, fls.results_image, "IMAGE26", mode, fls)  
-            
+            if sets.monthly == True:
+                MonthlyMortality2Regions(year, group, mor, fls.results_iso3, "ISO3", mode, fls)  
+                MonthlyMortality2Regions(year, group, mor, fls.results_image, "IMAGE26", mode, fls)  
+            else:
+                Mortality2Regions(year, group, mor, fls.results_iso3, "ISO3", mode, fls)  
+                Mortality2Regions(year, group, mor, fls.results_image, "IMAGE26", mode, fls) 
             
 
 def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfactual):
@@ -1333,13 +1345,23 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     mor_all, mor_heat, mor_cold = {}, {}, {}
     
     for group in sets.age_groups:      
-        mor_all[group], mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
-            daily_temp=daily_temperature, 
-            rows=rows, 
-            erfs=erfs_t, 
-            tmin=baseline.tmin_t0,
-            min_temp=min_temp, 
-            group=group)
+        
+        if sets.monthly == False:
+            mor_all[group], mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
+                daily_temp=daily_temperature, 
+                rows=rows, 
+                erfs=erfs_t, 
+                tmin=baseline.tmin_t0,
+                min_temp=min_temp, 
+                group=group)
+        else: 
+            mor_all[group], mor_heat[group], mor_cold[group] = MonthlyMortalityFromTemperatureIndex(
+                daily_temp=daily_temperature, 
+                rows=rows, 
+                erfs=erfs_t, 
+                tmin=baseline.tmin_t0,
+                min_temp=min_temp, 
+                group=group)
             
     return mor_all, mor_heat, mor_cold
 
@@ -1440,6 +1462,69 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group)
 
 
 
+def MonthlyMortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group):
+    
+    """
+    The code gets the temperature indices for heat (temepratures above tmin) and 
+    cold (temperatures below tmin) to locate the corresponding mortality value from 
+    the ERF array and sums the daily mortality values to the annual level. All 
+    non-optimal temperatures mortality is the sum of heat and cold mortality.
+
+    Parameters:
+    ----------
+    daily_temp : np.ndarray
+        Daily temperature data per impact region for a given year
+        e.g. a daily temperature of -40 will have index 0, daily temperature of 10 will have index 500
+    rows : np.ndarray
+        Rows array for indexing
+    erfs : dic
+        Dictionary of the ERFs (store as numpy arrays) per age group
+    tmin : dic
+        Dictionary of the daily temperature at which the ERF are minimized per age group
+    min_temp : float
+        Minimum temperature from T: -40.0
+    group : str
+        Age group
+    """
+    
+    if len(daily_temp[0]) == 365:
+        dayspermonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    else:
+        dayspermonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    cuts = np.cumsum(dayspermonth)[:-1]
+
+    # Extract tmin values for the given age group
+    tmin = tmin[group][:, None]
+
+    # Calculate mortality for temperatures above tmin
+    daily_mortality_heat = (
+        erfs[group][rows,
+            np.round((np.maximum(daily_temp, tmin) - min_temp) * 10).astype(int)
+        ]
+    )
+
+    monthly_mortality_heat = np.stack([
+        m.sum(axis=1) for m in np.split(daily_mortality_heat, cuts, axis=1)
+    ], axis=1)
+
+    # Calculate mortality for temperatures below tmin
+    daily_mortality_cold = (
+        erfs[group][rows,
+            np.round((np.minimum(daily_temp, tmin) - min_temp) * 10).astype(int)
+        ]
+    )
+
+    monthly_mortality_cold = np.stack([
+        m.sum(axis=1) for m in np.split(daily_mortality_cold, cuts, axis=1)
+    ], axis=1)
+
+    # Sum heat and cold mortality to get all-temperatures mortality
+    monthly_mortality = monthly_mortality_cold + monthly_mortality_heat
+    
+    return monthly_mortality, monthly_mortality_heat, monthly_mortality_cold     
+
+
+
 def Mortality2Regions(year, group, mor, results, regions, mode, fls):
     
     """
@@ -1454,7 +1539,7 @@ def Mortality2Regions(year, group, mor, results, regions, mode, fls):
     # Add mortality and population to df
     regions_df["mor"] = (mor * fls.pop[group][year].values / 1e5)
     regions_df["pop"] = fls.pop[group][year].values
-    
+
     # Group total mortality per selected region definition
     regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
     
@@ -1475,6 +1560,48 @@ def Mortality2Regions(year, group, mor, results, regions, mode, fls):
     if regions == "IMAGE26":
         results.loc[(group, mode, "Total Mortality", "World"), year] = regions_df["mor"].sum()
         results.loc[(group, mode, "Relative Mortality", "World"), year] = (regions_df["mor"].sum() * 1e5 / regions_df["pop"].sum())
+
+
+
+def MonthlyMortality2Regions(year, group, mor, results, regions, mode, fls):
+    
+    """
+    Aggregate spatially the annual relative mortality from the impact region 
+    level to the region classification chosen and locate the results of mortality 
+    from heat, cold and all-type mortality in the final results dataframe.
+    """
+    
+    # Create a copy of region classification dataframe
+    regions_df = fls.region_class[["hierid", regions]]
+
+    # Add mortality and population to df
+    regions_df[[f"mor_{i+1}" for i in range(12)]] = (mor * fls.pop[group][year].values[:,np.newaxis] / 1e5)
+    regions_df["pop"] = fls.pop[group][year].values
+
+    # Group total mortality per selected region definition
+    regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
+
+    # Calculate relative mortality per 100,000 people
+    cols_mor = [f"mor_{i+1}" for i in range(12)]
+    cols_rel_mor = [f"rel_mor_{i+1}" for i in range(12)]
+    regions_df[cols_rel_mor] = regions_df[cols_mor].div(regions_df["pop"], axis=0) * 1e5
+    
+    # Define index based on regions
+    if regions == "IMAGE26":
+        regions_idx = results.loc[(group, mode, "Total Mortality")].index[:-1]
+    else:
+        regions_idx = results.loc[(group, mode, "Total Mortality")].index
+        
+    cols_year = results.columns[results.columns.astype(str).str.contains(str(year))]
+    
+    # Locate results in dataframe
+    results.loc[(group, mode, "Total Mortality", regions_idx), cols_year] = (regions_df[cols_mor].reindex(regions_idx)).values
+    results.loc[(group, mode, "Relative Mortality", regions_idx), cols_year] = (regions_df[cols_rel_mor].reindex(regions_idx)).values
+    
+    # Locate global results in results dataframe
+    if regions == "IMAGE26":
+        results.loc[(group, mode, "Total Mortality", "World"), cols_year] = regions_df[cols_mor].sum().values
+        results.loc[(group, mode, "Relative Mortality", "World"), cols_year] = (regions_df[cols_mor].sum() * 1e5 / regions_df["pop"].sum()).values
 
 
 
@@ -1515,6 +1642,14 @@ def AddMortalityAllAges(fls, sets, results, regions):
             regions_index = results.loc[("all population", mode, "Relative Mortality")].index[:-1]
         else:      
             regions_index = results.loc[("all population", mode, "Relative Mortality")].index
+        
+        # Create new dataframe with monthly population columns by duplicating the annual values
+        if sets.monthly == True:
+            population_all = pd.DataFrame(
+                {month: population_all.loc[:,int(month[:4])] if int(month[:4]) in population_all.columns else None 
+                for month in results.columns},
+                index=population_all.index
+            )
         
         results.loc[("all population", mode, "Relative Mortality", regions_index)] = (
             results.loc[("all population", mode, "Total Mortality", regions_index)]
@@ -1558,6 +1693,10 @@ def PostprocessResults(sets, fls):
         project = f"{sets.project}"
     else:
         project = ""
+    if sets.monthly == True:
+        monthly = "monthly_"
+    else:
+        monthly = ""
         
     output_iso3_dir = sets.wdir + "/output/" + f"{sets.project}" + "/ISO3" 
     os.makedirs(output_iso3_dir, exist_ok=True)   
@@ -1566,8 +1705,8 @@ def PostprocessResults(sets, fls):
     
     # Save results to CSV                
     results_image.to_csv(output_image_dir +
-                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{monthly}{sets.years[0]}-{sets.years[-1]}.csv") 
     results_iso3.to_csv(output_iso3_dir +
-                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
+                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{monthly}{sets.years[0]}-{sets.years[-1]}.csv")
     
     print("Scenario ran successfully!")
