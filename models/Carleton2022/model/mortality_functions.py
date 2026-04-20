@@ -1629,6 +1629,14 @@ def AddMortalityAllAges(fls, sets, results, regions):
         .rename_axis(index={regions:"region"})
     )
     
+    # Create new dataframe with monthly population columns by duplicating the annual values
+    if sets.monthly == True:
+        population_all = pd.DataFrame(
+            {month: population_all.loc[:,int(month[:4])] if int(month[:4]) in population_all.columns else None 
+            for month in results.columns},
+            index=population_all.index
+        )
+    
     # Calculate total mortality and relative mortality for all-ages groups 
     for mode in ["All", "Heat", "Cold"]:
         
@@ -1642,14 +1650,6 @@ def AddMortalityAllAges(fls, sets, results, regions):
             regions_index = results.loc[("all population", mode, "Relative Mortality")].index[:-1]
         else:      
             regions_index = results.loc[("all population", mode, "Relative Mortality")].index
-        
-        # Create new dataframe with monthly population columns by duplicating the annual values
-        if sets.monthly == True:
-            population_all = pd.DataFrame(
-                {month: population_all.loc[:,int(month[:4])] if int(month[:4]) in population_all.columns else None 
-                for month in results.columns},
-                index=population_all.index
-            )
         
         results.loc[("all population", mode, "Relative Mortality", regions_index)] = (
             results.loc[("all population", mode, "Total Mortality", regions_index)]
