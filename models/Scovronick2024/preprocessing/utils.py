@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import pyreadr
+from utils_common import population as pop
 
 
 def ERA5TemperaturePercentiles(wdir, era5_dir, years):
@@ -24,12 +25,25 @@ def ERA5TemperaturePercentiles(wdir, era5_dir, years):
     # Calculate the percentiles, processing in latitude bands to optimize memory usage
     percentile_final = CalculateBandPercentiles(era5_dir, years, percentiles, step=25)
     
+    # Load population data to align grid cells
+    mask_pop = pop.LoadPopulationMap(wdir, "ERA5", "SSP2", years=None)
+    
     # Convert Kelvin to Celsius
-    percentile_final -= 273.15
+    percentile_aligned = (
+        percentile_final
+        .assign_coords(longitude=lambda x: ((x.longitude + 180) % 360 - 180))
+        .sortby("longitude") # Shift coordinates
+        .interp(
+            longitude=mask_pop.longitude, # Align latitudes with mask_pop
+            latitude=mask_pop.latitude, 
+            method="nearest"
+            )
+        - 273.15 # Convert from Kelvin to Celsius
+    )
     
     print("Saving percentiles to NetCDF file...")
-    percentile_final.to_netcdf(
-        wdir + f"/data/Temperature_Percentiles/ERA5_Tmean_Percentiles_{years[0]}-{years[-1]+1}.nc")
+    percentile_aligned.to_netcdf(
+        wdir + f"/data/Percentiles_Maps/ERA5_Tmean_Percentiles_{years[0]}-{years[-1]+1}.nc")
     
     
     
