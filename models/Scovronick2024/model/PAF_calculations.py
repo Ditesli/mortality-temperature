@@ -43,10 +43,10 @@ class ModelSettings:
     years: list
     causes: dict = field(
         default_factory=lambda: {
+        "all":"All causes",
         "cvd":"Cardiovascular diseases", 
-        "rsp":"Respiratory diseases", 
-        "ncrc":"Non-cardiorespiratory diseases", 
-        "all":"All causes", 
+        "ncrc":"Non-cardiorespiratory diseases",
+        "rsp":"Respiratory diseases"         
     })
     
     def __post_init__(self):
@@ -158,6 +158,7 @@ class LoadInputData:
     pop_map: np.ndarray
     pop_region: pd.DataFrame
     erf: pd.DataFrame
+    tmin: np.ndarray
     pmap: xr.Dataset
     paf: pd.DataFrame
 
@@ -199,15 +200,23 @@ class LoadInputData:
             )
         
         # Load Exposure Response Functions (ERF; 1 draw or mean) and set dicts of min and max temp.
-        erf = LoadExposureResponseFunctions(sets)
+        erf, tmin = LoadExposureResponseFunctions(sets)
         
         # Load percentiles map
         percentiles_map = LoadPercentilesMap(sets, range(1980,2011))
             
         print("[1.6] Creating final dataframe to store results...")
         paf = pd.DataFrame(
-            index=regions_range, 
-            columns=pd.MultiIndex.from_product([sets.years, sets.causes, ["cold", "heat", "all"]])
+            index=pd.MultiIndex.from_product([
+                regions_range, 
+                ["all", "cold", "heat"], 
+                sets.causes,
+                ["40_rr", "40_rr_low", "40_rr_high",
+                 "55_rr", "55_rr_low", "55_rr_high",
+                 "70_rr", "70_rr_low", "70_rr_high",
+                 "85_rr", "85_rr_low", "85_rr_high"]
+                ]),
+            columns=sets.years
             )  
         
         
@@ -217,6 +226,7 @@ class LoadInputData:
             pop_map=pop_map,
             pop_region=pop_region,
             erf=erf,
+            tmin=tmin,
             pmap=percentiles_map,
             paf=paf
         )
@@ -225,6 +235,7 @@ class LoadInputData:
 
 def LoadExposureResponseFunctions(sets):
     
+    # Read in ERF functions from Scovromick et al., (2024)
     erf = pyreadr.read_r(
         sets.wdir +
         "/data/Scovronick_SM/Fig2_20Nov2025.Rdata"
@@ -232,14 +243,17 @@ def LoadExposureResponseFunctions(sets):
     
     # Convert to numpy array for optimized calculations
     erf = np.stack(
-        [erf["all"].values[:,1:], 
-         erf["cvd"].values[:,1:], 
-         erf["rsp"].values[:,1:], 
-         erf["ncrc"].values[:,1:]], 
+        [erf[cause].values[:,1:] for cause in sets.causes.keys()], 
         axis=0
         ).swapaxes(1,2)
     
-    return erf
+    # Use the range between 25th and 99th percentile to fin the minimum
+    erf_range = erf[:, :, 34:109]
+    # Get the index with the minimum value to separate hot and cold temperatures
+    tmin = np.argmin(erf_range, axis=2) + 34
+    
+    return erf, tmin
+
 
 
 def LoadPercentilesMap(sets, years):
@@ -256,7 +270,7 @@ def LoadPercentilesMap(sets, years):
 def CalculatePAFYear(sets, fls, year):
     
     print(f"[2.1] Loading daily temperature data for year {year}...") 
-    daily_temp, num_days = tmp.LoadDailyTemperatures(temp_dir=sets.temp_dir,
+    daily_temp, _ = tmp.LoadDailyTemperatures(temp_dir=sets.temp_dir,
                                                      scenario=sets.scenario,
                                                      temp_type="mean",
                                                      year=year, 
@@ -269,22 +283,26 @@ def CalculatePAFYear(sets, fls, year):
     print(f"[2.2] Calculating Population Attributable Fractions for year {year}...")
     
     for region in fls.regions_range:
-        CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp)
+        CalculateRegionalPAF(sets, fls, pop_year, region, year, daily_temp)
         
         
     
-def CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp):
+def CalculateRegionalPAF(sets, fls, pop_year, region, year, daily_temp):
     
     """
     Get the Population Atributable Fraction per region and year by:
-    1. Creating a dataframe with population weighted factors per temperature zones and daily temperatures
-    2. Merging the dataframe with the ERF shifted by the TMREL to assign RR values
-    3. Separating the dataframe into cold and heat attributable deaths
-    4. Calculating the PAF per temperature type and storing it in the final dataframe
+    1. Getting the corresponding indices of the temperature percentiles of every grid cell 
+    and every day using the percentiles_map previously calculated in the preprocessing part.
+    2. Using the indices to get the corresponding Relative Risk from the ERF functions 
+    provided by the authors.
+    3. Separating the dataframe into cold and heat RR.
+    4. Calculating the PAF per temperature type and storing it in the final dataframe.
     """
     
-    # Get population mask within selected region
+    # Get region mask 
     region_mask = (pop_year > 0.) & (fls.regions == region)
+    # Get the population per region by masking the selected region map
+    pop_region = fls.pop_map.mean(dim="time").GPOP.values[region_mask]
     
     # Mask the percentiles map and daily temperature data to the selected region
     pmap = fls.pmap.t2m.values[:, region_mask]
@@ -296,12 +314,31 @@ def CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp
         axis=0
     )
     
-    # CALCULATE PAF first?
+    # Get the corresponding relative risks from the indices
+    rr = fls.erf[:,:,p_indices] - 1 # Substract 1 following Zhao et al., (2021)
     
+    # Mask to separate between rr from heat and rr from cold temperatures
+    mask_cold = p_indices[np.newaxis, np.newaxis, :, :] < fls.tmin[:, :, np.newaxis, np.newaxis]
     
-    rr = fls.erf[:, :, p_indices].mean(axis=3) # !!!!!!!!!!! Is this correct?
+    # Calculate the average RR for heat and cold temperatures by averaging across all days of the year (axis=3)
+    sum_cold = np.sum(np.where(mask_cold, rr, 0), axis=3)
+    sum_hot = np.sum(np.where(~mask_cold, rr, 0), axis=3)
+    
+    count_cold = np.sum(mask_cold.astype(int), axis=3)
+    count_hot = np.sum((~mask_cold).astype(int), axis=3)
+    
+    rr_cold = np.divide(sum_cold, count_cold, out=np.zeros_like(sum_cold), where=count_cold!=0)
+    rr_hot = np.divide(sum_hot, count_hot, out=np.zeros_like(sum_hot), where=count_hot!=0)
+    
+    # Get PAF per region by calculating the population-weighted average of the RR across all cells in the region
+    paf_cold = np.average(rr_cold, axis=2, weights=pop_region)
+    paf_hot = np.average(rr_hot, axis=2, weights=pop_region)
+    paf_all = paf_hot + paf_cold
+    
+    # Append to final dataframe
+    fls.paf.loc[(region, "cold"), year] = paf_cold.flatten()
+    fls.paf.loc[(region, "heat"), year] = paf_hot.flatten()
+    fls.paf.loc[(region, "all"), year] = paf_all.flatten()
 
-    pop_region = fls.pop_map.mean(dim="time").GPOP.values[region_mask]
-    
     print(region_mask)
 
