@@ -159,6 +159,8 @@ class LoadInputData:
     erf: pd.DataFrame
     tmin: np.ndarray
     pmap: xr.Dataset
+    region_dict: dict
+    image_dict: dict
     paf: pd.DataFrame
 
 
@@ -192,8 +194,10 @@ class LoadInputData:
         
         # Load Exposure Response Functions (ERF; 1 draw or mean) and set dicts of min and max temp.
         erf, tmin, pmap = LoadExposureResponseFunctionsAndPercentiles(sets, range(1980,2011))
+        
+        region_dict, image_dict = LoadRegionClassificationDicts(sets.wdir)
             
-        print("[1.4] Creating final dataframe to store results...")
+        print("[1.5] Creating final dataframe to store results...")
         paf = pd.DataFrame(
             index=pd.MultiIndex.from_product([
                 regions_range, 
@@ -215,6 +219,8 @@ class LoadInputData:
             erf=erf,
             tmin=tmin,
             pmap=pmap,
+            region_dict=region_dict,
+            image_dict=image_dict,
             paf=paf
         )
    
@@ -261,6 +267,41 @@ def LoadExposureResponseFunctionsAndPercentiles(sets, years):
         )
     
     return erf, tmin, percentiles_map
+
+
+
+def LoadRegionClassificationDicts(wdir):
+    
+    print("[1.4] Loading region classification dictionaries...")
+    
+    # Move one level up to access all-model data and region classification file
+    wdir_up = os.path.dirname(wdir)
+    
+    # Create dictionaries to map location ids to ISO3 codes
+    region_names = (
+        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        [["gbd_location_id", "ISO3"]]
+        .drop_duplicates()
+        .dropna()
+    )
+    
+    region_dict = dict(zip(
+        region_names["gbd_location_id"].astype(int), 
+        region_names["ISO3"]))
+    
+    # Dictionary to map location ids to IMAGE region names
+    region_names = (
+        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        [["IMAGE26", "ISO3"]]
+        .drop_duplicates()
+        .dropna()
+    )
+    
+    image_dict = dict(zip(  
+        region_names["ISO3"],
+        region_names["IMAGE26"]))
+    
+    return region_dict, image_dict
 
 
 
@@ -351,7 +392,7 @@ def PostprocessResults(sets, fls):
     print("[3] Model run complete. Saving results...")
     
     paf = fls.paf
-    paf.index.names=["region", "t_type", "disease", "age_group"]
+    paf.index.names=["region", "t_type", "cause", "age_group"]
     
     # Create project folder if it doesn"t exist
     out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
@@ -359,13 +400,15 @@ def PostprocessResults(sets, fls):
     
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
     
-    paf.to_csv(
-        out_path /
-        f"PAF_{sets.project}_{sets.scenario}_ISO3{years_part}.csv"
-        ) 
+    # paf.to_csv(
+    #     out_path /
+    #     f"PAF_{sets.project}_{sets.scenario}_ISO3{years_part}.csv"
+    #     ) 
     
-    PAF2Mortality(sets, fls, paf, out_path, years_part, ages="All")
+    print("[3.1] Calculating attributable mortality and saving results...")
+    
     PAF2Mortality(sets, fls, paf, out_path, years_part, ages="oldest")
+    PAF2Mortality(sets, fls, paf, out_path, years_part, ages="All")
     
     print("Model ran succesfully!")
     
@@ -373,19 +416,11 @@ def PostprocessResults(sets, fls):
     
 def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
     
-    print("[3.1] Calculating attributable mortality and saving results...")
-    
-    if ages == "All":
-            min_age = 30
-            age_part = ""
-            
-    elif ages == "oldest":
-        min_age = 65
-        age_part = "_oldest"
-        
-    age_groups = [f"{year}-{year+4} years" for year in range(min_age,85,5)] + ["85+ years"]
+    # Set age part of the file name depending on the age groups included in the analysis
+    age_part = "" if ages == "All" else "_oldest" if ages == "oldest" else age_part
 
-    causes = [
+    # Set causes of death to grab from GBD data
+    gbd_causes = [
         "All causes", 
         "Cardiovascular diseases", 
         "Chronic respiratory diseases", 
@@ -393,7 +428,7 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
         ]
     
     # Import GBD mortality data and population and convert paf to xarrays
-    gbd_mor = LoadGBDmortality(sets, causes, age_groups, "Scovronick", ages)
+    gbd_mor = LoadGBDmortality(sets, gbd_causes, "Scovronick", ages)
     paf = ReformatPAF(sets, fls)
     pop = LoadUNpopulationData(sets, ages)
     
@@ -407,18 +442,9 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
     # Convert xarray to dataframe to save as csv files
     ProcessXarray2csv(sets, paf_mor_pop, "ISO3", out_path, years_part, age_part)
 
-    # Dictionary to map names and location ids
-    region_names = (
-        pd.read_csv(f"{os.path.dirname(sets.wdir)}/data/region_classification.csv")
-        [["ISO3", "IMAGE26"]]
-        .drop_duplicates()
-        .dropna()
-    )
-    image_dict = dict(zip(region_names["ISO3"], region_names["IMAGE26"]))
-
     # Map location ids to IMAGE region names
     paf_mor_pop['ISO3'] = xr.DataArray(
-        [image_dict[id] for id in paf_mor_pop['ISO3'].values], 
+        [sets.image_dict[id] for id in paf_mor_pop['ISO3'].values], 
         coords=paf_mor_pop['ISO3'].coords, 
         dims=paf_mor_pop['ISO3'].dims
         )
@@ -427,10 +453,9 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
     mor_image = paf_mor_pop.groupby("ISO3").sum().drop_vars(["paf", "rel_mor"])
 
     # Calculate global mortality and population
-    mor_world = mor_image.sum(dim='ISO3')
     mor_image = xr.concat([
         mor_image,
-        mor_world.assign_coords(ISO3="World")],
+        mor_image.sum(dim='ISO3').assign_coords(ISO3="World")],
         dim='ISO3')
 
     # Calcualte relative mortality and PAF for IMAGE regions
@@ -521,21 +546,10 @@ def ReformatPAF(sets, fls):
         .set_index(["region", "t_type", "disease", "age_group", "certainty", "year"])
         .rename_axis(index={"region": "ISO3", "disease": "cause_name"})
         .to_xarray()
-        )
-
-    wdir_up = os.path.dirname(sets.wdir)
-    region_names = (
-        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
-        [["gbd_location_id", "ISO3", "IMAGE26"]]
-        .drop_duplicates()
-        .dropna()
     )
-    region_dict = dict(zip(
-        region_names["gbd_location_id"].astype(int), 
-        region_names["ISO3"]))
 
     paf["ISO3"] = xr.DataArray(
-        [region_dict[id] for id in paf['ISO3'].values], 
+        [fls.region_dict[id] for id in paf['ISO3'].values], 
         coords=paf['ISO3'].coords, 
         dims=paf['ISO3'].dims
         ).astype(object)
@@ -585,7 +599,7 @@ def ProcessXarray2csv(sets, data_array, region_type, out_path, years_part, age_p
     
     
     
-def LoadGBDmortality(sets, causes, age_groups, model, ages):
+def LoadGBDmortality(sets, fls, causes, model, ages):
     
     """
     Load GBD mortality data for the selected causes and age groups. 
@@ -595,20 +609,20 @@ def LoadGBDmortality(sets, causes, age_groups, model, ages):
     """
     
     # Load GBD mortality records
-    wdir_up = os.path.dirname(sets.wdir)
-    gbd_mor = pd.read_csv(f"{wdir_up}/data/GBD_mortality/IHME-GBD_2022_DATA.csv")
+    gbd_mor = pd.read_csv(f"{os.path.dirname(sets.wdir)}/data/GBD_mortality/IHME-GBD_2022_DATA.csv")
 
     mask = (
-            gbd_mor["cause_name"].isin(causes) & 
+            gbd_mor["cause_name"].isin(causes) & # Only selected causes of death
             (gbd_mor["sex_name"] == "Both") & # Both sexes
             gbd_mor["year"].isin(sets.years) & # Only years assessed
             (gbd_mor["location_name"] != "Global") # Exclude global mortality
         )
 
+    # Mask and convert to xarray
     gbd_mor = (
         gbd_mor.loc[mask, ["location_id","cause_name","age_name","year","val"]]
-        .rename(columns={"age_name": "age_group", "location_id":"ISO3"})
-        .set_index(["ISO3","cause_name","age_group","year"])
+        .rename(columns={"age_name": "age_group", "location_id":"ISO3", "cause_name":"cause"})
+        .set_index(["ISO3","cause","age_group","year"])
         .to_xarray()
     )
 
@@ -618,46 +632,36 @@ def LoadGBDmortality(sets, causes, age_groups, model, ages):
         rsp_causes = ["Chronic respiratory diseases", "Respiratory infections and tuberculosis"]
         rr_40_group = [f'{year}-{year+4} years' for year in range(30,45,5)]
         rr_55_group = [f'{year}-{year+4} years' for year in range(45,60,5)]
-        rr_70_group = [f'{year}-{year+4} years' for year in range(65,90,5)] if ages == "oldest" else [f'{year}-{year+4} years' for year in range(60,90,5)]
+        rr_70_group = [f'{year}-{year+4} years' for year in range(65,75,5)] if ages == "oldest" else [f'{year}-{year+4} years' for year in range(60,75,5)]
+        rr_85_group = [f"{year}-{year+4} years" for year in range(75,85,5)] + ["85+ years"]
 
-        gbd_mor = AggCoordinateElementsXarray(gbd_mor, "cause_name", rsp_causes, "Respiratory diseases")
+        gbd_mor = AggCoordinateElementsXarray(gbd_mor, "cause", rsp_causes, "Respiratory diseases")
         gbd_mor = AggCoordinateElementsXarray(gbd_mor, "age_group", rr_40_group, "40")
         gbd_mor = AggCoordinateElementsXarray(gbd_mor, "age_group", rr_55_group, "55")
         gbd_mor = AggCoordinateElementsXarray(gbd_mor, "age_group", rr_70_group, "70")
-
-        # Rename the coordinate "85+ years" to "85"
-        gbd_mor['age_group'] = gbd_mor['age_group'].where(gbd_mor['age_group'] != '85+ years', '85')
+        gbd_mor = AggCoordinateElementsXarray(gbd_mor, "age_group", rr_85_group, "85")
         
+        # Remove other age groups that are not included in the analysis
         gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if " " in c]), drop=True)
 
         # Calculate Non-cardiorespiratory causes
         gbd_ncrc = (
-            gbd_mor.sel(cause_name="All causes") 
-            - gbd_mor.sel(cause_name="Cardiovascular diseases")
-            - gbd_mor.sel(cause_name="Respiratory diseases")
-        ).assign_coords(cause_name="Non-cardiorespiratory diseases")
+            gbd_mor.sel(cause="All causes") 
+            - gbd_mor.sel(cause="Cardiovascular diseases")
+            - gbd_mor.sel(cause="Respiratory diseases")
+        ).assign_coords(cause="Non-cardiorespiratory diseases")
 
-        gbd_mor = xr.concat([gbd_mor, gbd_ncrc], dim='cause_name')
+        gbd_mor = xr.concat([gbd_mor, gbd_ncrc], dim='cause')
 
-    # Convert location ids to ISO3 codes
-    wdir_up = os.path.dirname(sets.wdir)
-    region_names = (
-    pd.read_csv(f"{wdir_up}/data/region_classification.csv")
-    [["gbd_location_id", "ISO3", "IMAGE26"]]
-    .drop_duplicates()
-    .dropna()
-    )
-    region_dict = dict(zip(
-    region_names["gbd_location_id"].astype(int), 
-    region_names["ISO3"]))
-
+    # Map location ids to ISO3 codes
     gbd_mor["ISO3"] = xr.DataArray(
-        [region_dict[id] for id in gbd_mor['ISO3'].values], 
+        [fls.region_dict[id] for id in gbd_mor['ISO3'].values], 
         coords=gbd_mor['ISO3'].coords, 
         dims=gbd_mor['ISO3'].dims
     ).astype(object)
     
-    gbd_mor = gbd_mor.sortby("age_group").sortby("ISO3").sortby("cause_name")
+    # Sort by age group, ISO3 and cause
+    gbd_mor = gbd_mor.sortby("age_group").sortby("ISO3").sortby("cause")
     
     return gbd_mor
         
