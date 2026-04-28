@@ -1,0 +1,9 @@
+# Paths to main directory and temeprature files
+wdir: "X:/user/liprandicn/mt-comparison/scovronick2024"
+temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
+
+# Scenario settings
+project: "default"
+scenario: "SSP2_ERA5" 
+start_year: 2000
+end_year: 2025

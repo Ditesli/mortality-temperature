@@ -17,3 +17,4 @@ dependencies:
   - prism
   - pym
   - country_converter
+  - pyreadr
