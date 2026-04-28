@@ -566,7 +566,6 @@ def ReformatPAF(fls):
         .assign(paf=lambda df: df['paf'].astype(float)) 
         .set_index(["ISO3", "t_type", "cause", "age_group", "certainty", "year"])
         .to_xarray()
-        .sortby("age_group").sortby("ISO3").sortby("cause_name")
     )
 
     # Map location ids to ISO3 codes
@@ -575,6 +574,8 @@ def ReformatPAF(fls):
         coords=paf['ISO3'].coords, 
         dims=paf['ISO3'].dims
         ).astype(object)
+    
+    paf = paf.sortby("age_group").sortby("ISO3").sortby("cause_name")
     
     return paf
 
@@ -590,12 +591,10 @@ def LoadUNpopulationData(sets, ages):
     same age groups as the GBD mortality data and the PAF data to be able to merge
     the three datasets and calculate attributable mortality.
     """
-    
-    wdir_up = os.path.dirname(sets.wdir)
 
     # Load UN population data
     un_pop = (
-        pd.read_csv(wdir_up+"/data/un_population/unpopulation_dataportal.csv")
+        pd.read_csv(os.path.dirname(sets.wdir)+"/data/un_population/unpopulation_dataportal.csv")
         [["Iso3", "Time", "Age", "Value"]] # Keep relevant columns
         .rename(columns={"Value": "pop", "Time": "year", "Age": "age_group", "Iso3": "ISO3"})
         .set_index(["ISO3", "year", "age_group"]) 
@@ -606,8 +605,8 @@ def LoadUNpopulationData(sets, ages):
     # Aggregate 5-year age groups into the same age groups as the other xarrays
     rr_40_group = [f'{year}-{year+4}' for year in range(30,45,5)]
     rr_55_group = [f'{year}-{year+4}' for year in range(45,60,5)]
-    rr_70_group = [f'{year}-{year+4}' for year in range(65, 90, 5)] if ages == "oldest" else [f'{year}-{year+4}' for year in range(60, 90, 5)]
-    rr_85_group = [f"{year}-{year+4}" for year in range(80,100,5)] + ["100+"]
+    rr_70_group = [f'{year}-{year+4}' for year in range(65,75,5)] if ages == "oldest" else [f'{year}-{year+4}' for year in range(60, 75, 5)]
+    rr_85_group = [f"{year}-{year+4}" for year in range(75,100,5)] + ["100+"]
 
     un_pop = AggCoordinateElementsXarray(array=un_pop, coord="age_group", old_elems=rr_85_group, new_elem="85")
     un_pop = AggCoordinateElementsXarray(array=un_pop, coord="age_group", old_elems=rr_70_group, new_elem="70")
@@ -618,7 +617,7 @@ def LoadUNpopulationData(sets, ages):
     un_pop = un_pop.where(~un_pop.coords["age_group"].isin([c for c in un_pop.age_group.values if "-" in c]), drop=True)
 
     un_pop['pop'] = un_pop['pop'].where(un_pop['pop'] != 0)
-    
+
     un_pop = un_pop.sortby("age_group").sortby("ISO3")
 
     return un_pop
