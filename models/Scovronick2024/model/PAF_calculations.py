@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
 from utils_common import population as pop
+from utils_common import paf2mortality as p2m
 
 
 
@@ -395,7 +396,7 @@ def PostprocessResults(sets, fls):
     paf.index.names=["region", "t_type", "cause", "age_group"]
     
     # Substract counterfactual mortality
-    # paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
+    paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
     
     # Create project folder if it doesn"t exist
     out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
@@ -403,10 +404,10 @@ def PostprocessResults(sets, fls):
     
     years_part = f"_{sets.years[0]}-{sets.years[-1]}"
     
-    # paf.to_csv(
-    #     out_path /
-    #     f"PAF_{sets.project}_{sets.scenario}_ISO3{years_part}.csv"
-    #     ) 
+    paf.to_csv(
+        out_path /
+        f"PAF_{sets.project}_{sets.scenario}_ISO3{years_part}.csv"
+        ) 
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
@@ -431,22 +432,22 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
         ]
 
     # Import GBD mortality data and population and convert paf to xarrays
-    gbd_mor = LoadGBDmortality(sets, fls, gbd_causes, "Scovronick", ages)
+    gbd_mor = p2m.LoadGBDmortality(sets, fls, gbd_causes, "Scovronick", ages)
     paf = ReformatPAF(fls)
-    pop = LoadUNpopulationData(sets, ages)
+    pop = p2m.LoadUNpopulationData(sets, "Scovronick", ages)
     
     # Merge the three xarrays to have all data in the same format and coordinates
     paf_mor_pop = xr.merge([pop, gbd_mor, paf], join="outer") 
     
     if ages == "oldest":
-        paf_mor_pop = AggCoordElementsXarray(paf_mor_pop, "age_group", ["70", "85"], "oldest", exclude=False)
+        paf_mor_pop = p2m.AggCoordElementsXarray(paf_mor_pop, "age_group", ["70", "85"], "oldest", exclude=False)
 
     # Calculate total mortality and relative mortality
     paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
     paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
 
     # Convert xarray to dataframe to save as csv files
-    ProcessXarray2csv(sets, paf_mor_pop, "ISO3", out_path, years_part, age_part)
+    p2m.ProcessXarray2csv(sets, paf_mor_pop, "ISO3", out_path, years_part, age_part)
 
     # Map location ids to IMAGE region names
     paf_mor_pop['ISO3'] = xr.DataArray(
@@ -469,75 +470,7 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
     mor_image["paf"] = mor_image["mor"] / mor_image["val"]
 
     # Convert xarray to dataframe to save as csv files
-    ProcessXarray2csv(sets, mor_image, "IMAGE", out_path, years_part, age_part)
-    
-    
-
-def LoadGBDmortality(sets, fls, causes, model, ages):
-    
-    """
-    Load GBD mortality data for the selected causes and age groups. 
-    The data is filtered to include only the years included in the model run 
-    and to exclude global mortality data. The data is then converted to
-    an xarray for optimized calculations of relative and total mortality.
-    """
-    
-    # Load GBD mortality records
-    gbd_mor = pd.read_csv(f"{os.path.dirname(sets.wdir)}/data/GBD_mortality/IHME-GBD_2022_DATA.csv")
-
-    mask = (
-            gbd_mor["cause_name"].isin(causes) & # Only selected causes of death
-            (gbd_mor["sex_name"] == "Both") & # Both sexes
-            gbd_mor["year"].isin(sets.years) & # Only years assessed
-            (gbd_mor["location_name"] != "Global") # Exclude global mortality
-        )
-
-    # Mask and convert to xarray
-    gbd_mor = (
-        gbd_mor.loc[mask, ["location_id","cause_name","age_name","year","val"]]
-        .rename(columns={"age_name": "age_group", "location_id":"ISO3", "cause_name":"cause"})
-        .set_index(["ISO3","cause","age_group","year"])
-        .to_xarray()
-    )
-
-    if model == "Scovronick":
-        
-        # Merge respiratory causes of death into a single category
-        rsp_causes = ["Chronic respiratory diseases", "Respiratory infections and tuberculosis"]
-        rr_40_group = [f'{year}-{year+4} years' for year in range(30,45,5)]
-        rr_55_group = [f'{year}-{year+4} years' for year in range(45,60,5)]
-        rr_70_group = [f'{year}-{year+4} years' for year in range(65,75,5)] if ages == "oldest" else [f'{year}-{year+4} years' for year in range(60,75,5)]
-        rr_85_group = [f"{year}-{year+4} years" for year in range(75,85,5)] + ["85+ years"]
-
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "cause", rsp_causes, "Respiratory diseases", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_40_group, "40", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_55_group, "55", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_70_group, "70", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_85_group, "85", exclude=True)
-        
-        # Remove other age groups that are not included in the analysis
-        gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if " " in c]), drop=True)
-
-        # Calculate Non-cardiorespiratory causes
-        gbd_ncrc = (
-            gbd_mor.sel(cause="All causes") 
-            - gbd_mor.sel(cause="Cardiovascular diseases")
-            - gbd_mor.sel(cause="Respiratory diseases")
-        ).assign_coords(cause="Non-cardiorespiratory diseases")
-
-        gbd_mor = xr.concat([gbd_mor, gbd_ncrc], dim='cause')
-
-    # Map location ids to ISO3 codes
-    gbd_mor["ISO3"] = xr.DataArray(
-        [fls.region_dict[id] for id in gbd_mor['ISO3'].values], 
-        coords=gbd_mor['ISO3'].coords, 
-        dims=gbd_mor['ISO3'].dims
-    ).astype(object)
-    
-    # Sort by age group, ISO3 and cause
-    gbd_mor = gbd_mor.sortby("age_group").sortby("ISO3").sortby("cause")
-    
-    return gbd_mor
+    p2m.ProcessXarray2csv(sets, mor_image, "IMAGE", out_path, years_part, age_part)
 
 
 
@@ -584,116 +517,3 @@ def ReformatPAF(fls):
     paf = paf.sortby("age_group").sortby("ISO3").sortby("cause")
     
     return paf
-
-    
-    
-def LoadUNpopulationData(sets, ages):
-    
-    """
-    Load UN population data for the selected years range and age groups.
-    The data is filtered to include only the years included in the model run. 
-    The data is then converted to an xarray for optimized calculations of 
-    relative and total mortality. The 5-year age groups are aggregated into the 
-    same age groups as the GBD mortality data and the PAF data to be able to merge
-    the three datasets and calculate attributable mortality.
-    """
-
-    # Load UN population data
-    un_pop = (
-        pd.read_csv(os.path.dirname(sets.wdir)+"/data/un_population/unpopulation_dataportal.csv")
-        [["Iso3", "Time", "Age", "Value"]] # Keep relevant columns
-        .rename(columns={"Value": "pop", "Time": "year", "Age": "age_group", "Iso3": "ISO3"})
-        .set_index(["ISO3", "year", "age_group"]) 
-        .to_xarray()
-        .sel(year=slice(sets.years[0], sets.years[-1]))
-    )
-
-    # Aggregate 5-year age groups into the same age groups as the other xarrays
-    rr_40_group = [f'{year}-{year+4}' for year in range(30,45,5)]
-    rr_55_group = [f'{year}-{year+4}' for year in range(45,60,5)]
-    rr_70_group = [f'{year}-{year+4}' for year in range(65,75,5)] if ages == "oldest" else [f'{year}-{year+4}' for year in range(60, 75, 5)]
-    rr_85_group = [f"{year}-{year+4}" for year in range(75,100,5)] + ["100+"]
-
-    un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_85_group, new_elem="85", exclude=True)
-    un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_70_group, new_elem="70", exclude=True)
-    un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_55_group, new_elem="55", exclude=True)
-    un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_40_group, new_elem="40", exclude=True)
-
-    # Drop age groups that are not included in the analysis (e.g. 0-4 years, 5-9 years, etc.)
-    un_pop = un_pop.where(~un_pop.coords["age_group"].isin([c for c in un_pop.age_group.values if "-" in c]), drop=True)
-
-    un_pop['pop'] = un_pop['pop'].where(un_pop['pop'] != 0)
-
-    un_pop = un_pop.sortby("age_group").sortby("ISO3")
-
-    return un_pop
-    
-
-
-def ProcessXarray2csv(sets, data_array, region_type, out_path, years_part, age_part):
-    
-    """
-    Convert the xarray with mortality data to a dataframe and save it as a csv file. 
-    The xarray is pivoted to have the years as columns and the other coordinates as rows.
-    The unit of the mortality data is added as a column. The resulting dataframe 
-    is saved as a csv file in the output folder.
-    """
-    
-    def ProcessMortalityData(data_array, unit_name):
-    
-        df = (
-            data_array.to_dataframe()
-            .reset_index()
-            .pivot_table(
-                index=['ISO3', 't_type', 'cause', 'age_group'],
-                columns='year', 
-                values=data_array.name)  # Uses the array name as the value column
-            .reset_index()
-            )
-        df['units'] = unit_name
-        
-        return df
-    
-    mor = ProcessMortalityData(data_array["mor"], 'Total Mortality')
-    rel_mor = ProcessMortalityData(data_array["rel_mor"], 'Relative Mortality')
-    
-    # Concatenate the results and save
-    mor_rel_mor = pd.concat([
-        mor, rel_mor], axis=0)[
-        ['ISO3', 't_type', 'cause', 'age_group', 'units'] 
-        + list(mor.columns[4:-1])
-    ].rename(columns={"ISO3": "region"})
-        
-    mor_rel_mor.to_csv(
-            out_path /
-            f"Mortality_{sets.project}_{sets.scenario}_{region_type}{years_part}{age_part}.csv"
-            ) 
-    
-    
-       
-def AggCoordElementsXarray(array, coord, old_elems, new_elem, exclude):
-
-    """
-    Aggregate elements of a coordinate in an xarray by summing the 
-    values across the specified dimension.
-    """
-
-    agg_xarray = (
-        array
-        .where(array[coord].isin(old_elems), drop=True)
-        .sum(dim=coord)
-        .assign_coords({coord: new_elem})
-    )
-    
-    if exclude==True:
-        xarray = array.where(~array[coord].isin(old_elems), drop=True)
-    else:
-        xarray = array
-                             
-    new_xarray = xr.concat(
-        [xarray, 
-        agg_xarray], 
-        dim=coord
-    )
-    
-    return new_xarray

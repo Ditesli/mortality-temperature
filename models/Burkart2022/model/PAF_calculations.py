@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
 from utils_common import population as pop
-
+from utils_common import paf2mortality as p2m
 
 
 def CalculatePAF(
@@ -199,6 +199,8 @@ class LoadInputData:
     max_dict: dict
     tmrel: np.ndarray
     df_erf_tmrel: pd.DataFrame
+    region_dict: dict
+    image_dict: dict
     paf: pd.DataFrame
 
 
@@ -259,7 +261,9 @@ class LoadInputData:
         if sets.single_erf == True:
             df_erf_tmrel = AverageToSingleERF(df_erf_tmrel)
             
-        print("[1.8] Creating final dataframe to store results...")
+        region_dict, image_dict = LoadRegionClassificationDicts(sets.wdir)
+            
+        print("[1.9] Creating final dataframe to store results...")
         paf = pd.DataFrame(
             index=regions_range, 
             columns=pd.MultiIndex.from_product([sets.years, sets.causes, ["cold", "heat", "all"]])
@@ -276,6 +280,8 @@ class LoadInputData:
             max_dict=max_dict,           
             tmrel=tmrel,
             df_erf_tmrel=df_erf_tmrel,
+            region_dict=region_dict,
+            image_dict=image_dict,
             paf=paf
         )
     
@@ -561,6 +567,41 @@ def AverageToSingleERF(df):
         
     return df_mean
 
+
+
+def LoadRegionClassificationDicts(wdir):
+    
+    print("[1.8] Loading region classification dictionaries...")
+    
+    # Move one level up to access all-model data and region classification file
+    wdir_up = os.path.dirname(wdir)
+    
+    # Create dictionaries to map location ids to ISO3 codes
+    region_names = (
+        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        [["gbd_location_id", "ISO3"]]
+        .drop_duplicates()
+        .dropna()
+    )
+    
+    region_dict = dict(zip(
+        region_names["gbd_location_id"].astype(int), 
+        region_names["ISO3"]))
+    
+    # Dictionary to map location ids to IMAGE region names
+    region_names = (
+        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        [["IMAGE26", "ISO3"]]
+        .drop_duplicates()
+        .dropna()
+    )
+    
+    image_dict = dict(zip(  
+        region_names["ISO3"],
+        region_names["IMAGE26"]))
+    
+    return region_dict, image_dict
+
      
         
 def CalculatePAFYear(sets, fls, year):
@@ -708,210 +749,110 @@ def PostprocessResults(sets, fls):
     # Substract counterfactual mortality
     # paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
     
-    erf_part = "_1erf" if sets.single_erf else ""
-    extrap_part = "_extrap" if sets.extrap_erf else ""
-    years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+    class ScenarioNaming:
+        def __init__(self, sets):
+            self.erf_part = "_1erf" if sets.single_erf else ""
+            self.extrap_part = "_extrap" if sets.extrap_erf else ""
+            self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+            self.out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
+            
+    sn = ScenarioNaming(sets)
     
-    # Create project folder if it doesn"t exist
-    out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
-    out_path.mkdir(parents=True, exist_ok=True)
+    # Create project folder if it doesn't exist
+    sn.out_path.mkdir(parents=True, exist_ok=True)
+    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}{sn.erf_part}.csv"
             
     # Save the results and temperature statistics
-    paf.to_csv(out_path /
-                   f"PAF_{sets.project}_{sets.scenario}_ISO3{years_part}{extrap_part}{erf_part}.csv")  
-    
-    PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part, ages="All")
-    PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part, ages="oldest")
-    
-    print("Model ran succesfully!")
-      
-
-
-def PAF2Mortality(sets, fls, paf, out_path, erf_part, extrap_part, years_part, ages):
+    paf.to_csv(sn.out_path / file_name)  
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
-    if re.search(r"ERA5", sets.scenario):
-        
-        if ages == "All":
-            age_groups = [
-                "<5 years", "5-9 years", "10-14 years", "15-19 years", "20-24 years", 
-                "25-29 years", "30-34 years", "35-39 years", "40-44 years", 
-                "45-49 years", "50-54 years", "55-59 years", "60-64 years", 
-                "65-69 years", "70-74 years", "75-79 years", "80-84 years",
-                "80-85 years", "85+ years"
-                ]
-            age_part = ""
-        elif ages == "oldest":
-            age_groups = ["65-69 years","70-74 years","75-79 years", "80-84 years", "85+ years"]
-            age_part = "_oldest"
+    PAF2Mortality(sets, fls, paf, sn)
+    
+    print("Model ran succesfully!")
+    
+    
 
-        # Load GBD mortality records
-        wdir_up = os.path.dirname(sets.wdir)
-        gbd_mor = pd.read_csv(f"{wdir_up}/data/GBD_mortality/IHME-GBD_2022_DATA.csv")
-
-        mask = (
-            gbd_mor["cause_name"].isin(sets.causes.values()) & 
-            (gbd_mor["sex_name"] == "Both") & # Both sexes
-            gbd_mor["year"].isin(sets.years) & # Only years assessed
-            gbd_mor["age_name"].isin(age_groups) & # Select 5-year age groups
-            (gbd_mor["location_name"] != "Global") # Exclude global mortality
+def PAF2Mortality(sets, fls, paf, mchar):
+    
+    gbd_mor = p2m.LoadGBDmortality(sets, fls, sets.causes.values(), "Burkart")
+    paf = ReformatPAF(sets, fls)
+    pop = p2m.LoadUNpopulationData(sets, "Burkart", ages=None)
+    
+    # Merge the three xarrays to have all data in the same format and coordinates
+    paf_mor_pop = xr.merge([pop, gbd_mor, paf], join="outer") 
+    
+    ### ----------------------- ISO3 -------------------------
+    
+    # Calculate total mortality and relative mortality
+    paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
+    paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
+    
+    # Convert xarray to dataframe to save as csv files
+    p2m.ProcessXarray2csv(sets, paf_mor_pop, "Burkart", "ISO3", mchar)
+    
+    # Map location ids to IMAGE region names
+    paf_mor_pop['ISO3'] = xr.DataArray(
+        [fls.image_dict[id] for id in paf_mor_pop['ISO3'].values], 
+        coords=paf_mor_pop['ISO3'].coords, 
+        dims=paf_mor_pop['ISO3'].dims
         )
 
-        gbd_mor = (
-            gbd_mor.loc[mask, ["location_id","location_name","cause_name","year","val"]]
-            .groupby(["location_id", "location_name", "cause_name", "year"], as_index=False)
-            .sum() # Sum age groups per location, cause and year
-            .pivot(index=["location_id", "location_name", "cause_name"],
-                    columns="year",
-                    values="val") # Pivot years to columns
-            .reset_index()
-            .set_index(["cause_name", "location_id"]) # Reindex for later merging
-            .rename(index={v: k for k, v in sets.causes.items()}, level=0) # Invert dict to map
-            .rename_axis(index={"cause_name": "disease", "location_id": "region"})
-        )
+    ### ----------------------- IMAGE -------------------------
 
-        # --------------- Mortality for ISO3 countries --------------
+    # Aggregate mortality and population data by IMAGE region
+    mor_image = paf_mor_pop.groupby("ISO3").sum().drop_vars(["paf", "rel_mor"])
 
-        # Reorder levels
-        paf_reordered = paf.reorder_levels(order=[1,0,2])
-        t_types = ["heat", "cold", "all"]
+    # Calculate global mortality and population
+    mor_image = xr.concat([
+        mor_image,
+        mor_image.sum(dim='ISO3').assign_coords(ISO3="World")],
+        dim='ISO3')
 
-        # Multiply per gbd mortality
-        result = pd.concat(
-            [paf_reordered.loc[tt] * gbd_mor.drop(columns="location_name") for tt in t_types],
-            keys=t_types,
-            names=["t_type"]
-        )
+    # Calcualte relative mortality and PAF for IMAGE regions
+    mor_image["rel_mor"] = mor_image["mor"] * 1e5 / mor_image["pop"]
+    mor_image["paf"] = mor_image["mor"] / mor_image["val"]
 
-        # Change region id to region name
-        result= (
-            result
-            .reset_index() # Reset
-            .merge(gbd_mor.groupby(["location_name", "region"]).first().reset_index()[["location_name", "region"]], # Merge with GBD mortality data
-                    left_on="region", 
-                    right_on="region", 
-                    how="left")
-            .drop(columns={"region"}) # Discard region number from GBD
-            .rename(columns={"location_name":"region", "disease":"cause"}) # Leave only country name
-            )
+    # Convert xarray to dataframe to save as csv files
+    p2m.ProcessXarray2csv(sets, mor_image, "Burkart", "IMAGE", mchar)
+    
 
-        result_allcauses = result.groupby(["t_type", "region"]).sum()
-        result_allcauses["cause"] = "All causes"
-        # Concat cause specific and all causes dataframes
-        result_allcauses = pd.concat([result_allcauses.reset_index(), result], ignore_index=True)
-        
-        # -------------- Relative mortality ---------------------
-        
-        res = result_allcauses.merge(fls.pop_region, left_on="region", right_on="loc_name", how="left")
-        # 
-        res = (
-            res
-            .assign(**{
-                f"{col.replace('_pop', '')}_relmor":
-                res[int(col.replace('_pop', ''))] * 1e5 / res[col].replace(0, np.nan)
-                for col in res.columns if str(col).endswith('_pop')
-            })
-            .set_index(["t_type", "region", "cause"])
-            .filter(like="_relmor")
-            .rename(columns=lambda col: int(col.replace('_relmor', '')))
-            .reset_index()
-        )
-        
-        result_allcauses.insert(0, "unit", "Total Mortality")
-        res.insert(0, "unit", "Relative Mortality")
-        
-        result_allcauses = pd.concat([result_allcauses, res], ignore_index=True)
-        
-        result_allcauses.to_csv(
-            out_path /
-            f"Mortality_{sets.project}_{sets.scenario}_ISO3{years_part}{age_part}{extrap_part}{erf_part}.csv"
-            ) 
-        
 
-        # -------------- Mortality for IMAGE regions -------------
+def ReformatPAF(sets, fls):
+    
+    """
+    Convert the PAF dataframe to an xarray with the same coordinates 
+    as the GBD mortality and UN population data, to be able to merge the 
+    three datasets and calculate attributable mortality.
+    """
+    
+    paf = fls.paf.stack([0,1,2], future_stack=True)
+    paf.index.names = ["ISO3", "year", "cause", "t_type"]
 
-        region_class = pd.read_csv(
-            wdir_up + 
-            "/data/region_classification.csv"
-            ).drop_duplicates(subset="gbd_location_id", keep="first")
+    # Reformat dataframe to include age and certainty columns and convert to xarray
+    paf = (
+        paf
+        .reset_index()
+        .rename(columns={0:"paf"})
+        .assign(paf=lambda df: df['paf'].astype(float)) 
+        .set_index(["ISO3", "t_type", "cause", "year"])
+        .to_xarray()
+    )
 
-        image_results = (
-            result
-            .merge(region_class[["gbd_level3", "IMAGE26"]], left_on="region", right_on="gbd_level3", how="left")
-            .drop(columns=["region", "gbd_level3"])
-            .groupby(["t_type", "cause", "IMAGE26"])
-            .sum()
-            .reset_index()
-            .rename(columns={"IMAGE26":"region"})
-        )
+    # Map location ids to ISO3 codes
+    paf["ISO3"] = xr.DataArray(
+        [fls.region_dict[id] for id in paf['ISO3'].values], 
+        coords=paf['ISO3'].coords, 
+        dims=paf['ISO3'].dims
+    ).astype(object)
+    
+    # Causes of death with longer names
+    paf["cause"] = xr.DataArray(
+        [sets.causes[c] for c in paf['cause'].values],
+        coords=paf['cause'].coords,
+        dims=paf['cause'].dims
+    ).astype(object)
 
-        # Add global mortality result
-        world = image_results.groupby(["cause", "t_type"]).sum()
-        world["region"] = "World"
-        image_world_results = pd.concat([image_results, world.reset_index()], ignore_index=True)
-        image_allcauses = image_world_results.groupby(["t_type", "region"]).sum()
-        image_allcauses["cause"] = "All causes"
-        image_allcauses = pd.concat([image_allcauses.reset_index(), image_world_results], ignore_index=True)
-        
-        
-        # -------- Relative mortality for IMAGE26 ------------
-        
-        image_pop = (
-            fls.pop_region
-            .merge(region_class[["gbd_location_id", "IMAGE26"]], left_on=["loc_id"], right_on="gbd_location_id", how="left")
-            .groupby("IMAGE26")
-            .sum()
-            .drop(columns=["loc_name", "loc_id", "gbd_location_id"])
-        )
-        image_pop.loc["World",:] = image_pop.sum(axis=0)
-        
-        res = image_allcauses.merge(image_pop.reset_index(), left_on="region", right_on="IMAGE26", how="left")
-        
-        res = (
-            res
-            .assign(**{
-                f"{col.replace('_pop', '')}_relmor":
-                res[int(col.replace('_pop', ''))] * 1e5 / res[col].replace(0, np.nan)
-                for col in res.columns if str(col).endswith('_pop')
-            })
-            .set_index(["t_type", "region", "cause"])
-            .filter(like="_relmor")
-            .rename(columns=lambda col: int(col.replace('_relmor', '')))
-            .reset_index()
-        )
-        
-        image_allcauses_copy = image_allcauses.copy()
-        image_allcauses_copy.insert(0, "unit", "Total Mortality")
-        res.insert(0, "unit", "Relative Mortality")
-        
-        image_allcauses_copy = pd.concat([image_allcauses_copy, res], ignore_index=True)        
-
-        image_allcauses_copy.to_csv(
-            out_path /
-            f"mortality_{sets.project}_{sets.scenario}_IMAGE{years_part}{age_part}{extrap_part}{erf_part}.csv"
-            ) 
-
-        # ----------- PAF for IMAGE regions ----------------
-
-        gbd_mor_image = (
-            gbd_mor
-            .reset_index()
-            .merge(region_class[["gbd_level3", "IMAGE26"]], left_on="location_name", right_on="gbd_level3", how="left")
-            .drop(columns=["region", "location_name", "gbd_level3"])
-            .rename(columns={"disease":"cause", "IMAGE26": "region"})
-            .groupby(["cause", "region"])
-            .sum()
-        )
-
-        image_results = image_results.set_index(["t_type", "cause", "region"])
-        image_paf = pd.concat(
-            [image_results.loc[tt] / gbd_mor_image for tt in t_types],
-            keys=t_types,
-            names=["t_type"]
-        )
-        image_paf.to_csv(out_path /
-                    f"PAF_{sets.project}_{sets.scenario}_IMAGE{years_part}{extrap_part}{erf_part}.csv") 
-
-    else:
-        print("Cause-specific mortality projections not available yet :(")
+    paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("year")
+    
+    return paf
