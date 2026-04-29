@@ -383,14 +383,6 @@ def PostprocessResults(sets, fls):
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
-    PAF2Mortality(sets, fls, paf, sn)
-    
-    print("Model ran succesfully!")
-    
-    
-    
-def PAF2Mortality(sets, fls, paf, sn):
-
     # Set causes of death to grab from GBD data
     gbd_causes = [
         "All causes", 
@@ -398,48 +390,14 @@ def PAF2Mortality(sets, fls, paf, sn):
         "Chronic respiratory diseases", 
         "Respiratory infections and tuberculosis"
         ]
-
-    # Import GBD mortality data and population and convert paf to xarrays
-    gbd_mor = p2m.LoadGBDmortality(sets, fls, gbd_causes, "Scovronick")
+    
+    # Change PAF format to xarray
     paf = ReformatPAF(fls)
-    pop = p2m.LoadUNpopulationData(sets, "Scovronick")
     
-    # Merge the three xarrays to have all data in the same format and coordinates
-    paf_mor_pop = xr.merge([pop, gbd_mor, paf], join="outer") 
+    p2m.PAF2Mortality(sets, fls, paf, gbd_causes, sn)
     
-    # Create "oldest" age group for model comparison
-    paf_mor_pop = p2m.AggCoordElementsXarray(paf_mor_pop, "age_group", ["65", "85"], "oldest", exclude=False)
-
-    # Calculate total mortality and relative mortality
-    paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
-    paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
-
-    # Convert xarray to dataframe to save as csv files
-    p2m.ProcessXarray2csv(sets, paf_mor_pop, "Scovronick", "ISO3", sn)
-
-    # Map location ids to IMAGE region names
-    paf_mor_pop['ISO3'] = xr.DataArray(
-        [fls.image_dict[id] for id in paf_mor_pop['ISO3'].values], 
-        coords=paf_mor_pop['ISO3'].coords, 
-        dims=paf_mor_pop['ISO3'].dims
-        )
-
-    # Aggregate mortality and population data by IMAGE region
-    mor_image = paf_mor_pop.groupby("ISO3").sum().drop_vars(["paf", "rel_mor"])
-
-    # Calculate global mortality and population
-    mor_image = xr.concat([
-        mor_image,
-        mor_image.sum(dim='ISO3').assign_coords(ISO3="World")],
-        dim='ISO3')
-
-    # Calcualte relative mortality and PAF for IMAGE regions
-    mor_image["rel_mor"] = mor_image["mor"] * 1e5 / mor_image["pop"]
-    mor_image["paf"] = mor_image["mor"] / mor_image["val"]
-
-    # Convert xarray to dataframe to save as csv files
-    p2m.ProcessXarray2csv(sets, mor_image, "Scovronick", "IMAGE", sn)
-
+    print("Model ran succesfully!")
+    
 
 
 def ReformatPAF(fls):

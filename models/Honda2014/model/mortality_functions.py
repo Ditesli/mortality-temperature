@@ -132,6 +132,8 @@ class LoadInputData:
     erf: pd.DataFrame
     min_val: dict
     max_val: dict
+    region_dict: dict
+    image_dict: dict
     paf: pd.DataFrame
     
     @classmethod
@@ -178,6 +180,8 @@ class LoadInputData:
             erf=erf,
             min_val=min_val,
             max_val=max_val,
+            region_dict=region_dict,
+            image_dict=image_dict,
             paf=paf
         ) 
         
@@ -380,6 +384,7 @@ def PostprocessResults(sets, fls):
             self.extrap_part = "_extrap" if sets.extrap_erf else ""
             self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
             self.out_path = Path(sets.wdir) / "output" / f"{sets.project}"
+            self.model = "Honda"
     sn = ScenarioNaming(sets)
     
     # Create project folder if it doesn't exist
@@ -389,18 +394,42 @@ def PostprocessResults(sets, fls):
     # Save the results and temperature statistics
     paf.to_csv(sn.out_path / file_name)  
     
-    print(["3.2 Calculating attributable mortality and saving results..."])
-    
-    PAF2Mortality(sets, fls, paf, sn)
-
-    print("Model ran succesfully!")
-    
-    
-
-def PAF2Mortality(sets, fls, paf, sn):
+    print("3.2 Calculating attributable mortality and saving results...")
     
     causes = ['All causes']  
+    paf = ReformatPAF(sets, fls)
+    p2m.PAF2Mortality(sets, fls, paf, causes, sn)
+
+    print("Model ran succesfully!")
+
     
-    # Load GBD mortality records
-    gbd_mor = p2m.LoadGBDmortality(sets, fls, sets.causes.values(), "Honda")
-       
+    
+def ReformatPAF(sets, fls):
+    
+    """
+    Convert the PAF dataframe to an xarray with the same coordinates 
+    as the GBD mortality and UN population data, to be able to merge the 
+    three datasets and calculate attributable mortality.
+    """
+    
+    paf = (
+        fls.paf
+        .stack(future_stack=True)
+        .reset_index()
+        .rename(columns={"level_2": "year", 0: "paf", "region": "ISO3"})
+        .assign(cause="All causes")
+        .set_index(["ISO3", "t_type", "cause", "year"])
+        .assign(paf=lambda df: df['paf'].astype(float)) 
+        .to_xarray()
+    )
+            
+    # Map location ids to ISO3 codes
+    paf["ISO3"] = xr.DataArray(
+        [fls.region_dict[id] for id in paf['ISO3'].values], 
+        coords=paf['ISO3'].coords, 
+        dims=paf['ISO3'].dims
+    ).astype(object)
+
+    paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("year")
+    
+    return paf

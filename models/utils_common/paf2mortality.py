@@ -3,6 +3,45 @@ import pandas as pd
 import os
 
 
+
+def LoadRegionClassificationDicts(wdir):
+    
+    """
+    Load regions name from GBD and its corresponding ISO3 country code
+    and IMAGE26 region name as dictionaries to map locations later on.
+    """
+        
+    # Move one level up to access all-model data and region classification file
+    wdir_up = os.path.dirname(wdir)
+    
+    # Create dictionaries to map location ids to ISO3 codes
+    region_names = (
+        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        [["gbd_location_id", "ISO3"]]
+        .drop_duplicates()
+        .dropna()
+    )
+    
+    region_dict = dict(zip(
+        region_names["gbd_location_id"].astype(int), 
+        region_names["ISO3"]))
+    
+    # Dictionary to map location ids to IMAGE region names
+    region_names = (
+        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        [["IMAGE26", "ISO3"]]
+        .drop_duplicates()
+        .dropna()
+    )
+    
+    image_dict = dict(zip(  
+        region_names["ISO3"],
+        region_names["IMAGE26"]))
+    
+    return region_dict, image_dict
+
+
+
 def AggCoordElementsXarray(array, coord, old_elems, new_elem, exclude):
 
     """
@@ -67,10 +106,19 @@ def LoadGBDmortality(sets, fls, causes, model):
         
         # Remove other age groups that are not included in the analysis
         gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if "years" in c]), drop=True)
+    
+    if model == "Honda":
         
+        oldest_group = [f"{year}-{year+4} years" for year in range(65,85,5)] + ["85+ years"]
+        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", oldest_group, "oldest", exclude=True)
+        
+        # Remove other age groups that are not included in the analysis
+        gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if " " in c]), drop=True)
+
+    
     if model == "Scovronick":
         
-        # Merge respiratory causes of death into a single category
+        # Merge respiratory causes of death and age_groups into a single category
         rsp_causes = ["Chronic respiratory diseases", "Respiratory infections and tuberculosis"]
         oldest_65_group = [f'{year}-{year+4} years' for year in range(65,75,5)]
         rr_40_group = [f'{year}-{year+4} years' for year in range(30,45,5)]
@@ -133,6 +181,7 @@ def LoadUNpopulationData(sets, model):
     )
 
     if model == "Burkart":
+        
         # Aggregate 5-year age groups into the same age groups as the other xarrays
         oldest_group = [f'{year}-{year+4}' for year in range(65,100,5)] + ["100+"]
         all_ages_group = [f'{year}-{year+4}' for year in range(0,100,5)] + ["100+"]
@@ -141,6 +190,15 @@ def LoadUNpopulationData(sets, model):
         un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=all_ages_group, new_elem="All ages", exclude=True)
 
         un_pop = un_pop.sortby("age_group").sortby("ISO3").sortby("year")
+        
+    if model == "Honda":
+
+        # Aggregate 5-year age groups into the same age groups as the other xarrays
+        oldest_group = [f'{year}-{year+4}' for year in range(65,100,5)] + ["100+"]
+        un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=oldest_group, new_elem="oldest", exclude=True)
+        
+        # Drop age groups that are not included in the analysis (e.g. 0-4 years, 5-9 years, etc.)
+        un_pop = un_pop.where(~un_pop.coords["age_group"].isin([c for c in un_pop.age_group.values if "-" in c]), drop=True)
         
     if model == "Scovronick":
         
@@ -168,7 +226,58 @@ def LoadUNpopulationData(sets, model):
 
 
 
-def ProcessXarray2csv(sets, data_array, model, regions, sn):
+def PAF2Mortality(sets, fls, paf, causes, sn):
+    
+    # Load GBD mortality records
+    gbd_mor = LoadGBDmortality(sets, fls, causes, sn.model)
+    pop = LoadUNpopulationData(sets, sn.model)
+    
+    # Merge the three xarrays to have all data in the same format and coordinates
+    paf_mor_pop = xr.merge([pop, gbd_mor, paf], join="outer") 
+    
+    if sn.model == "Scovronick":
+         # Create "oldest" age group for model comparison
+        paf_mor_pop = AggCoordElementsXarray(paf_mor_pop, "age_group", ["65", "85"],
+                                             "oldest", exclude=False)
+
+    
+    ### ----------------------- ISO3 -------------------------
+    
+    # Calculate total mortality and relative mortality
+    paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
+    paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
+
+    # Convert xarray to dataframe to save as csv files
+    ProcessXarray2csv(sets, paf_mor_pop, "ISO3", sn)
+    
+     ### ----------------------- IMAGE -------------------------
+     
+    # Map location ids to IMAGE region names
+    paf_mor_pop['ISO3'] = xr.DataArray(
+        [fls.image_dict[id] for id in paf_mor_pop['ISO3'].values], 
+        coords=paf_mor_pop['ISO3'].coords, 
+        dims=paf_mor_pop['ISO3'].dims
+        )
+
+    # Aggregate mortality and population data by IMAGE region
+    mor_image = paf_mor_pop.groupby("ISO3").sum().drop_vars(["paf", "rel_mor"])
+
+    # Calculate global mortality and population
+    mor_image = xr.concat([
+        mor_image,
+        mor_image.sum(dim='ISO3').assign_coords(ISO3="World")],
+        dim='ISO3')
+
+    # Calcualte relative mortality and PAF for IMAGE regions
+    mor_image["rel_mor"] = mor_image["mor"] * 1e5 / mor_image["pop"]
+    mor_image["paf"] = mor_image["mor"] / mor_image["val"]
+
+    # Convert xarray to dataframe to save as csv files
+    ProcessXarray2csv(sets, mor_image, "IMAGE", sn)
+
+
+
+def ProcessXarray2csv(sets, data_array, regions, sn):
     
     """
     Convert the xarray with mortality data to a dataframe and save it as a csv file. 
@@ -202,9 +311,11 @@ def ProcessXarray2csv(sets, data_array, model, regions, sn):
         + list(mor.columns[4:-1])
     ].rename(columns={"ISO3": "region"})
     
-    if model == "Scovronick":
+    if sn.model == "Scovronick":
         file_name = sn.years_part
-    if model == "Burkart":
+    if sn.model == "Burkart":
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}"
+    if sn.model == "Honda":
+        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range[-4:]}"
         
     mor_rel_mor.to_csv(f"{sn.out_path}/mortality_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
