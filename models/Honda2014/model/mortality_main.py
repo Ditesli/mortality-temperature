@@ -1,4 +1,4 @@
-import mortality_functions as mf
+import models.Honda2014.model.mortality_functions as mf
 import yaml
 from pathlib import Path
 
