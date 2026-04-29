@@ -8,6 +8,7 @@ import os, sys, re
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"..",'..')))
 from utils_common import temperature as tmp
 from utils_common import population as pop
+from utils_common import paf2mortality as p2m
 
 
 
@@ -161,6 +162,10 @@ class LoadInputData:
         # Load file with optimal temperatures for 1980-2010
         optimal_temperatures = LoadOptimalTemperatures(sets.wdir, sets.optimal_range, sets.scenario)
         
+        print("[1.5] Loading region classification dictionaries...")
+        region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
+        
+        print("[1.6] Creating final dataframe to store results...")
         # Create final dataframe
         paf = pd.DataFrame(index=pd.MultiIndex.from_product([['Cold', 'Heat', 'All'], regions_range]), 
                             columns=sets.years)  
@@ -379,7 +384,7 @@ def PostprocessResults(sets, fls):
     
     # Create project folder if it doesn't exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f'PAF_{sets.project}_{sets.scenario}_{sets.region}{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range[-4:]}.csv'
+    file_name = f'PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range[-4:]}.csv'
             
     # Save the results and temperature statistics
     paf.to_csv(sn.out_path / file_name)  
@@ -394,68 +399,8 @@ def PostprocessResults(sets, fls):
 
 def PAF2Mortality(sets, fls, paf, sn):
     
+    causes = ['All causes']  
     
-    if re.search(r"ERA5", sets.scenario):
-        
-        # Load GBD mortality records
-        wdir_up = os.path.dirname(sets.wdir)
-        gbd_mor = pd.read_csv(f'{wdir_up}/data/mortality/GBD_mortality/IHME-GBD_2021_DATA.csv')
-        
-        # Reformat mortality
-        gbd_mor = (
-            gbd_mor
-            [['location_id', 'location_name', 'cause_name', 'year', 'val']] # upper,lower
-            [
-                (gbd_mor['cause_name'] == 'All causes') &
-                (gbd_mor['sex_name'] == 'Both') &
-                (gbd_mor['year'].isin(range(2000, 2022))) &
-                (gbd_mor['age_name'].isin(['65-69 years', '70-74 years', '75-79 years', '85+ years'])) &
-                (gbd_mor['location_name'] != 'Global')
-            ]
-            .groupby(['location_id', 'location_name', 'year'])
-            .sum()
-            .reset_index()
-            .drop(columns='cause_name')
-            .assign(year=lambda x: x['year'].astype(int))
-            .pivot(index=['location_id', 'location_name'],
-                columns='year',
-                values='val')
-            .reset_index()
-            .set_index("location_id")
-        )
-        
-        mortality = (
-            paf
-            .mul(gbd_mor.drop(columns='location_name'), level=1)
-            .reset_index()
-            .merge(
-                gbd_mor[['location_name']],
-                left_on="level_1",
-                right_index=True,
-                how='left'
-            )
-            .rename(columns={"level_0":"t_type", "level_1":"region_id", "location_name":"region"})
-            .assign(units='Total Mortality')  
-            .pipe(lambda d: d[['units', *d.columns.drop('units')]])
-            .pipe(lambda d: d[[*d.columns[:2], 'region', *[c for c in d.columns if c not in ('region', *d.columns[:2])]]])
-        )
-        
-        region_class = pd.read_csv(wdir_up+"/data/region_classification.csv").drop_duplicates(subset="gbd_location_id", keep='first')
-        image_mor = (
-            mortality
-            .merge(region_class[["gbd_level3", "IMAGE26"]], left_on="region", right_on="gbd_level3", how="left")
-            .groupby(["units", "t_type", "IMAGE26"]).sum()
-            .drop(columns=["region", "region_id","gbd_level3"])
-            .reset_index().rename(columns={"IMAGE26":"region"})
-        )
-        
-        world = image_mor.groupby(["units", "t_type"]).sum()
-        world["region"] = "World"
-        final = pd.concat([image_mor, world.reset_index()], ignore_index=True)
-        
-        
-    else:
-        print["Cause-specific mortality projections not available yet :("]
-        
-    final.to_csv(out_path / 
-                   f'mortality_{sets.project}_{sets.scenario}_IMAGE26{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv') 
+    # Load GBD mortality records
+    gbd_mor = p2m.LoadGBDmortality(sets, fls, sets.causes.values(), "Honda")
+       

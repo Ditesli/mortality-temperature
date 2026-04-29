@@ -196,7 +196,8 @@ class LoadInputData:
         # Load Exposure Response Functions (ERF; 1 draw or mean) and set dicts of min and max temp.
         erf, tmin, pmap = LoadExposureResponseFunctionsAndPercentiles(sets, range(1980,2011))
         
-        region_dict, image_dict = LoadRegionClassificationDicts(sets.wdir)
+        print("[1.4] Loading region classification dictionaries...")
+        region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
             
         print("[1.5] Creating final dataframe to store results...")
         paf = pd.DataFrame(
@@ -268,41 +269,6 @@ def LoadExposureResponseFunctionsAndPercentiles(sets, years):
         )
     
     return erf, tmin, percentiles_map
-
-
-
-def LoadRegionClassificationDicts(wdir):
-    
-    print("[1.4] Loading region classification dictionaries...")
-    
-    # Move one level up to access all-model data and region classification file
-    wdir_up = os.path.dirname(wdir)
-    
-    # Create dictionaries to map location ids to ISO3 codes
-    region_names = (
-        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
-        [["gbd_location_id", "ISO3"]]
-        .drop_duplicates()
-        .dropna()
-    )
-    
-    region_dict = dict(zip(
-        region_names["gbd_location_id"].astype(int), 
-        region_names["ISO3"]))
-    
-    # Dictionary to map location ids to IMAGE region names
-    region_names = (
-        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
-        [["IMAGE26", "ISO3"]]
-        .drop_duplicates()
-        .dropna()
-    )
-    
-    image_dict = dict(zip(  
-        region_names["ISO3"],
-        region_names["IMAGE26"]))
-    
-    return region_dict, image_dict
 
 
 

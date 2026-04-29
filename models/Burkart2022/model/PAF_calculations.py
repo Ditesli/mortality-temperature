@@ -260,8 +260,9 @@ class LoadInputData:
         # Average to one ERF to discard cuase of death
         if sets.single_erf == True:
             df_erf_tmrel = AverageToSingleERF(df_erf_tmrel)
-            
-        region_dict, image_dict = LoadRegionClassificationDicts(sets.wdir)
+        
+        print("[1.8] Loading region classification dictionaries...")
+        region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
             
         print("[1.9] Creating final dataframe to store results...")
         paf = pd.DataFrame(
@@ -566,41 +567,6 @@ def AverageToSingleERF(df):
     df_mean = df_mean.drop_duplicates().reset_index(drop=True)
         
     return df_mean
-
-
-
-def LoadRegionClassificationDicts(wdir):
-    
-    print("[1.8] Loading region classification dictionaries...")
-    
-    # Move one level up to access all-model data and region classification file
-    wdir_up = os.path.dirname(wdir)
-    
-    # Create dictionaries to map location ids to ISO3 codes
-    region_names = (
-        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
-        [["gbd_location_id", "ISO3"]]
-        .drop_duplicates()
-        .dropna()
-    )
-    
-    region_dict = dict(zip(
-        region_names["gbd_location_id"].astype(int), 
-        region_names["ISO3"]))
-    
-    # Dictionary to map location ids to IMAGE region names
-    region_names = (
-        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
-        [["IMAGE26", "ISO3"]]
-        .drop_duplicates()
-        .dropna()
-    )
-    
-    image_dict = dict(zip(  
-        region_names["ISO3"],
-        region_names["IMAGE26"]))
-    
-    return region_dict, image_dict
 
      
         
