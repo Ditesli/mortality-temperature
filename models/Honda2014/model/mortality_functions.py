@@ -5,7 +5,7 @@ import xarray as xr
 from dataclasses import dataclass
 from pathlib import Path
 import os, sys, re
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"..",'..')))
 from utils_common import temperature as tmp
 from utils_common import population as pop
 
@@ -17,7 +17,6 @@ def CalculatePAF(
     project: str,
     scenario: str,
     years: list,
-    regions: str,
     optimal_range: str,
     extrap_erf: bool,
     temp_max: any
@@ -29,7 +28,6 @@ def CalculatePAF(
         project=project,
         scenario=scenario,
         years=years,
-        regions=regions,
         optimal_range=optimal_range,
         extrap_erf=extrap_erf,
         temp_max=temp_max
@@ -48,7 +46,6 @@ class ModelSettings:
     project: str
     scenario: str
     years: list
-    regions: str 
     optimal_range: str
     extrap_erf: bool
     temp_max: any
@@ -150,13 +147,13 @@ class LoadInputData:
         ssp = re.search(r"SSP\d", sets.scenario).group()
         pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, sets.years)
         
-        print(f"[1.2] Loading region classification for {sets.regions} regions...")
+        print(f"[1.2] Loading region classification...")
         regions, regions_range = pop.LoadRegionClassificationMap(
             sets.wdir, 
             temp_dir=sets.temp_dir,
-            region_class=sets.regions, 
+            region_class="countries", 
             scenario=sets.scenario,
-            pop_ssp=pop_ssp)
+            pop_map=pop_ssp)
 
         # Load Exposure Response Function files for the relevant diseases
         erf, min_val, max_val = LoadERF(sets.wdir, sets.extrap_erf, sets.temp_max)
@@ -190,7 +187,7 @@ def LoadERF(wdir, extrap_erf=False, temp_max=None):
     
     print('[1.3] Loading Exposure Response Function...')
         
-    risk_function = (pd.read_csv(wdir+'/data/risk_function/dummy/interpolated_dataset.csv')
+    risk_function = (pd.read_csv(wdir+'/data/risk_function/interpolated_dataset.csv')
         .astype(float))
     
     # Extrapolate risk_function
@@ -286,17 +283,19 @@ def CalculatePAFYear(sets, fls, year):
     '''
     
     print(f'[2.1] Loading {year} daily temperatures...')
-    daily_temp, num_days = tmp.LoadDailyTemperatures(temp_dir=sets.temp_dir,
-                                                     scenario=sets.scenario,
-                                                     temp_type="max",
-                                                     year=year, 
-                                                     pop_ssp=fls.pop_ssp,
-                                                     std_factor=1)
+    daily_temp, num_days = tmp.LoadDailyTemperatures(
+        temp_dir=sets.temp_dir,
+        scenario=sets.scenario,
+        temp_type="max",
+        year=year, 
+        pop_map=fls.pop_ssp,
+        std_factor=1
+        )
 
     # Select population for the corresponding year and convert to numpy array with non-negative values
     pop_year = np.clip(fls.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
     
-    print(f'[2.2] Calculating Population Attributable Fraction for {year}') 
+    print(f'[2.2] Calculating Population Attributable Fraction for {year}...') 
 
     # Calculate baseline temperature
     baseline_temp = daily_temp - fls.opt_temp[...,np.newaxis]
@@ -325,11 +324,11 @@ def CalculatePAFYear(sets, fls, year):
     
     # Calculate regional PAFs
     for mode in ['All', 'Heat', 'Cold']:
-        fls.paf.loc[mode,year] = WeightAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_baseline_temp)
+        fls.paf.loc[mode,year] = WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_baseline_temp)
 
     
 
-def WeightAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_base_temp):
+def WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_base_temp):
     
     '''
     Calculate weighted average of PAFs per region
@@ -365,32 +364,36 @@ def PostprocessResults(sets, fls):
     print("[3] Model run complete. Postprocessing...")
     
     # Substracting counterfactual mortality
-    paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
+    # paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
+    paf=fls.paf
+    paf.index.names = ["t_type", "region"]
     
     print("[3.1] Saving PAF results...")
     
-    extrap_part = "_extrap" if sets.extrap_erf else ""
-    years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+    class ScenarioNaming:
+        def __init__(self, sets):
+            self.extrap_part = "_extrap" if sets.extrap_erf else ""
+            self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+            self.out_path = Path(sets.wdir) / "output" / f"{sets.project}"
+    sn = ScenarioNaming(sets)
     
-    # Create project folder if it doesn"t exist
-    out_path = Path(sets.wdir) / "output" / f"{sets.project.upper()}" 
-    out_path.mkdir(parents=True, exist_ok=True)
+    # Create project folder if it doesn't exist
+    sn.out_path.mkdir(parents=True, exist_ok=True)
+    file_name = f'PAF_{sets.project}_{sets.scenario}_{sets.region}{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range[-4:]}.csv'
             
     # Save the results and temperature statistics
-    paf.to_csv(out_path / 
-                   f'PAF_{sets.project}_{sets.scenario}_{sets.region}{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv')  
+    paf.to_csv(sn.out_path / file_name)  
     
-    print(["3.2 Calculating attributable mortality and saving results"])
+    print(["3.2 Calculating attributable mortality and saving results..."])
     
-    PAF2Mortality(sets, fls, out_path, years_part, extrap_part)
+    PAF2Mortality(sets, fls, paf, sn)
 
     print("Model ran succesfully!")
     
     
 
-def PAF2Mortality(sets, fls, paf, out_path, years_part, extrap_part):
+def PAF2Mortality(sets, fls, paf, sn):
     
-    print(["3.2 Calculating attributable mortality and saving results..."])
     
     if re.search(r"ERA5", sets.scenario):
         
@@ -456,7 +459,3 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, extrap_part):
         
     final.to_csv(out_path / 
                    f'mortality_{sets.project}_{sets.scenario}_IMAGE26{years_part}{extrap_part}_ot-{sets.optimal_range[-4:]}.csv') 
-    
-    
-    
-PAF2Mortality(None, None, None, None,None, None)
