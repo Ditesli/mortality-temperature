@@ -755,7 +755,6 @@ def PostprocessResults(sets, fls):
             self.extrap_part = "_extrap" if sets.extrap_erf else ""
             self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
             self.out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
-            
     sn = ScenarioNaming(sets)
     
     # Create project folder if it doesn't exist
