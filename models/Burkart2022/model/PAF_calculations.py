@@ -747,7 +747,7 @@ def PostprocessResults(sets, fls):
     paf.index.names = ["disease", "t_type", "region"]
     
     # Substract counterfactual mortality
-    # paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
+    paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
     
     class ScenarioNaming:
         def __init__(self, sets):
@@ -773,11 +773,11 @@ def PostprocessResults(sets, fls):
     
     
 
-def PAF2Mortality(sets, fls, paf, mchar):
+def PAF2Mortality(sets, fls, paf, sn):
     
     gbd_mor = p2m.LoadGBDmortality(sets, fls, sets.causes.values(), "Burkart")
     paf = ReformatPAF(sets, fls)
-    pop = p2m.LoadUNpopulationData(sets, "Burkart", ages=None)
+    pop = p2m.LoadUNpopulationData(sets, "Burkart")
     
     # Merge the three xarrays to have all data in the same format and coordinates
     paf_mor_pop = xr.merge([pop, gbd_mor, paf], join="outer") 
@@ -789,7 +789,7 @@ def PAF2Mortality(sets, fls, paf, mchar):
     paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
     
     # Convert xarray to dataframe to save as csv files
-    p2m.ProcessXarray2csv(sets, paf_mor_pop, "Burkart", "ISO3", mchar)
+    p2m.ProcessXarray2csv(sets, paf_mor_pop, "Burkart", "ISO3", sn)
     
     # Map location ids to IMAGE region names
     paf_mor_pop['ISO3'] = xr.DataArray(
@@ -814,7 +814,7 @@ def PAF2Mortality(sets, fls, paf, mchar):
     mor_image["paf"] = mor_image["mor"] / mor_image["val"]
 
     # Convert xarray to dataframe to save as csv files
-    p2m.ProcessXarray2csv(sets, mor_image, "Burkart", "IMAGE", mchar)
+    p2m.ProcessXarray2csv(sets, mor_image, "Burkart", "IMAGE", sn)
     
 
 
