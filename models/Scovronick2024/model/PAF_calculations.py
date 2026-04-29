@@ -396,32 +396,34 @@ def PostprocessResults(sets, fls):
     paf.index.names=["region", "t_type", "cause", "age_group"]
     
     # Substract counterfactual mortality
-    paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
+    # paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
     
-    # Create project folder if it doesn"t exist
-    out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
-    out_path.mkdir(parents=True, exist_ok=True)
+    # Create class to store output path and file name format
+    class ScenarioNaming:
+        def __init__(self, sets):
+            self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+            self.out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
+            
+    sn = ScenarioNaming(sets)
     
-    years_part = f"_{sets.years[0]}-{sets.years[-1]}"
+    # Create project folder if it doesn't exist
+    sn.out_path.mkdir(parents=True, exist_ok=True)
     
+    # Save PAF results as csv file
     paf.to_csv(
-        out_path /
-        f"PAF_{sets.project}_{sets.scenario}_ISO3{years_part}.csv"
+        sn.out_path /
+        f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}.csv"
         ) 
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
-    PAF2Mortality(sets, fls, paf, out_path, years_part, ages="oldest")
-    PAF2Mortality(sets, fls, paf, out_path, years_part, ages="All")
+    PAF2Mortality(sets, fls, paf, sn)
     
     print("Model ran succesfully!")
     
     
     
-def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
-    
-    # Set age part of the file name depending on the age groups included in the analysis
-    age_part = "" if ages == "All" else "_oldest" if ages == "oldest" else age_part
+def PAF2Mortality(sets, fls, paf, sn):
 
     # Set causes of death to grab from GBD data
     gbd_causes = [
@@ -432,22 +434,22 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
         ]
 
     # Import GBD mortality data and population and convert paf to xarrays
-    gbd_mor = p2m.LoadGBDmortality(sets, fls, gbd_causes, "Scovronick", ages)
+    gbd_mor = p2m.LoadGBDmortality(sets, fls, gbd_causes, "Scovronick")
     paf = ReformatPAF(fls)
-    pop = p2m.LoadUNpopulationData(sets, "Scovronick", ages)
+    pop = p2m.LoadUNpopulationData(sets, "Scovronick")
     
     # Merge the three xarrays to have all data in the same format and coordinates
     paf_mor_pop = xr.merge([pop, gbd_mor, paf], join="outer") 
     
-    if ages == "oldest":
-        paf_mor_pop = p2m.AggCoordElementsXarray(paf_mor_pop, "age_group", ["70", "85"], "oldest", exclude=False)
+    # Create "oldest" age group for model comparison
+    paf_mor_pop = p2m.AggCoordElementsXarray(paf_mor_pop, "age_group", ["65", "85"], "oldest", exclude=False)
 
     # Calculate total mortality and relative mortality
     paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
     paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
 
     # Convert xarray to dataframe to save as csv files
-    p2m.ProcessXarray2csv(sets, paf_mor_pop, "ISO3", out_path, years_part, age_part)
+    p2m.ProcessXarray2csv(sets, paf_mor_pop, "Scovronick", "ISO3", sn)
 
     # Map location ids to IMAGE region names
     paf_mor_pop['ISO3'] = xr.DataArray(
@@ -470,7 +472,7 @@ def PAF2Mortality(sets, fls, paf, out_path, years_part, ages):
     mor_image["paf"] = mor_image["mor"] / mor_image["val"]
 
     # Convert xarray to dataframe to save as csv files
-    p2m.ProcessXarray2csv(sets, mor_image, "IMAGE", out_path, years_part, age_part)
+    p2m.ProcessXarray2csv(sets, mor_image, "Scovronick", "IMAGE", sn)
 
 
 
@@ -513,6 +515,9 @@ def ReformatPAF(fls):
         coords=paf['ISO3'].coords, 
         dims=paf['ISO3'].dims
         ).astype(object)
+    
+    paf_65 = paf.sel(age_group="70").assign_coords(age_group="65")
+    paf = xr.concat([paf, paf_65], dim="age_group")
 
     paf = paf.sortby("age_group").sortby("ISO3").sortby("cause")
     

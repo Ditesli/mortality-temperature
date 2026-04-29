@@ -72,12 +72,14 @@ def LoadGBDmortality(sets, fls, causes, model):
         
         # Merge respiratory causes of death into a single category
         rsp_causes = ["Chronic respiratory diseases", "Respiratory infections and tuberculosis"]
+        oldest_65_group = [f'{year}-{year+4} years' for year in range(65,75,5)]
         rr_40_group = [f'{year}-{year+4} years' for year in range(30,45,5)]
         rr_55_group = [f'{year}-{year+4} years' for year in range(45,60,5)]
-        rr_70_group = [f'{year}-{year+4} years' for year in range(65,75,5)] if ages == "oldest" else [f'{year}-{year+4} years' for year in range(60,75,5)]
+        rr_70_group =  [f'{year}-{year+4} years' for year in range(60,75,5)]
         rr_85_group = [f"{year}-{year+4} years" for year in range(75,85,5)] + ["85+ years"]
 
         gbd_mor = AggCoordElementsXarray(gbd_mor, "cause", rsp_causes, "Respiratory diseases", exclude=True)
+        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", oldest_65_group, "65", exclude=False)
         gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_40_group, "40", exclude=True)
         gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_55_group, "55", exclude=True)
         gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_70_group, "70", exclude=True)
@@ -109,7 +111,7 @@ def LoadGBDmortality(sets, fls, causes, model):
 
 
 
-def LoadUNpopulationData(sets, model, ages):
+def LoadUNpopulationData(sets, model):
     
     """
     Load UN population data for the selected years range and age groups.
@@ -145,10 +147,12 @@ def LoadUNpopulationData(sets, model, ages):
         # Aggregate 5-year age groups into the same age groups as the other xarrays
         rr_40_group = [f'{year}-{year+4}' for year in range(30,45,5)]
         rr_55_group = [f'{year}-{year+4}' for year in range(45,60,5)]
-        rr_70_group = [f'{year}-{year+4}' for year in range(65,75,5)] if ages == "oldest" else [f'{year}-{year+4}' for year in range(60, 75, 5)]
+        rr_65_group = [f'{year}-{year+4}' for year in range(65,75,5)]
+        rr_70_group = [f'{year}-{year+4}' for year in range(60, 75, 5)]
         rr_85_group = [f"{year}-{year+4}" for year in range(75,100,5)] + ["100+"]
 
         un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_85_group, new_elem="85", exclude=True)
+        un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_65_group, new_elem="65", exclude=False)
         un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_70_group, new_elem="70", exclude=True)
         un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_55_group, new_elem="55", exclude=True)
         un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_40_group, new_elem="40", exclude=True)
@@ -199,11 +203,8 @@ def ProcessXarray2csv(sets, data_array, model, regions, sn):
     ].rename(columns={"ISO3": "region"})
     
     if model == "Scovronick":
-        file_name = sn.region_type + sn.years_part + sn.age_part
+        file_name = sn.years_part
     if model == "Burkart":
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}"
         
-    mor_rel_mor.to_csv(
-        sn.out_path / 
-        f"mortality_{sets.project}_{sets.scenario}_{regions}" + file_name + ".csv"
-        ) 
+    mor_rel_mor.to_csv(f"{sn.out_path}/mortality_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
