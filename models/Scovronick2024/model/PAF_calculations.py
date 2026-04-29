@@ -396,7 +396,7 @@ def PostprocessResults(sets, fls):
     paf.index.names=["region", "t_type", "cause", "age_group"]
     
     # Substract counterfactual mortality
-    # paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
+    paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
     
     # Create class to store output path and file name format
     class ScenarioNaming:
