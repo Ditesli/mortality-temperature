@@ -373,8 +373,7 @@ def PostprocessResults(sets, fls):
     print("[3] Model run complete. Postprocessing...")
     
     # Substracting counterfactual mortality
-    # paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
-    paf=fls.paf
+    paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
     paf.index.names = ["t_type", "region"]
     
     print("[3.1] Saving PAF results...")
@@ -397,14 +396,14 @@ def PostprocessResults(sets, fls):
     print("3.2 Calculating attributable mortality and saving results...")
     
     causes = ['All causes']  
-    paf = ReformatPAF(sets, fls)
+    paf = ReformatPAF(fls, paf)
     p2m.PAF2Mortality(sets, fls, paf, causes, sn)
 
     print("Model ran succesfully!")
 
     
     
-def ReformatPAF(sets, fls):
+def ReformatPAF(fls, paf):
     
     """
     Convert the PAF dataframe to an xarray with the same coordinates 
@@ -413,7 +412,7 @@ def ReformatPAF(sets, fls):
     """
     
     paf = (
-        fls.paf
+        paf
         .stack(future_stack=True)
         .reset_index()
         .rename(columns={"level_2": "year", 0: "paf", "region": "ISO3"})
