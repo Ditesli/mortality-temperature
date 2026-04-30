@@ -245,6 +245,14 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     
     # Calculate total mortality and relative mortality
     paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
+    
+    if sn.model == "Burkart":
+        paf_mor_pop = xr.concat([
+            paf_mor_pop,
+            paf_mor_pop.sum(dim="cause").assign_coords(cause="All causes")
+            ],
+            dim="cause")
+    
     paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
 
     # Convert xarray to dataframe to save as csv files
