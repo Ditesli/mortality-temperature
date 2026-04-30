@@ -82,7 +82,10 @@ class PAFModel:
         self.fls = LoadInputData.from_files(sets=self.sets)
         
     def run(self):
-        print(f"Running model for project {self.sets.project} and scenario {self.sets.scenario}...")
+        print("----------------------------------------------------------------")
+        print(f"Running Mortality-Temperature model (Honda et al., 2014 version)")
+        print(f"for project: {self.sets.project}, scenario: {self.sets.scenario}, and years: {self.sets.years[0]}-{self.sets.years[-1]}...")
+        print("----------------------------------------------------------------")
         self.load_inputs()
         
         print("[2] Starting PAF calculations...")

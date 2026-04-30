@@ -144,7 +144,10 @@ class MortalityModel:
         
         
     def run(self):
-        print(f"Starting mortality model for {self.sets.scenario}")
+        print("----------------------------------------------------------------")
+        print(f"Running Mortality-Temperature model (Carleton et al., 2022 version)")
+        print(f"for project: {self.sets.project}, scenario: {self.sets.scenario}, and years: {self.sets.years[0]}-{self.sets.years[-1]}...")
+        print("----------------------------------------------------------------")
         self.load_inputs()
 
         print("[2] Starting mortality calculations...")
