@@ -733,29 +733,27 @@ def PostprocessResults(sets, fls):
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
-    paf = ReformatPAF(sets, fls)
+    paf = ReformatPAF(sets, fls, paf)
     p2m.PAF2Mortality(sets, fls, paf, sets.causes.values(), sn)
     
     print("Model ran succesfully!")
     
 
 
-def ReformatPAF(sets, fls):
+def ReformatPAF(sets, fls, paf):
     
     """
     Convert the PAF dataframe to an xarray with the same coordinates 
     as the GBD mortality and UN population data, to be able to merge the 
     three datasets and calculate attributable mortality.
     """
-    
-    paf = fls.paf.stack([0,1,2], future_stack=True)
-    paf.index.names = ["ISO3", "year", "cause", "t_type"]
 
     # Reformat dataframe to include age and certainty columns and convert to xarray
     paf = (
         paf
+        .stack(future_stack=True)
         .reset_index()
-        .rename(columns={0:"paf"})
+        .rename(columns={"level_3":"year", 0:"paf", "disease":"cause", "region":"ISO3"})
         .assign(paf=lambda df: df['paf'].astype(float)) 
         .set_index(["ISO3", "t_type", "cause", "year"])
         .to_xarray()
