@@ -3,6 +3,42 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+IMAGE_REGIONS = {
+    # America
+    "CAN":["Canada", 1],
+    "USA":["USA", 2],
+    "MEX":["Mexico", 3],
+    "RCAM":["Central America", 4],
+    "BRA":["Brazil", 5],
+    "RSAM":["Rest of South America", 6],
+    # Africa
+    "NAF":["Northern Africa", 7],
+    "WAF":["Western Africa", 8],
+    "EAF":["Eastern Africa", 9],
+    "SAF":["South Africa", 10], 
+    # Europe
+    "WEU":["Western Europe", 11], 
+    "CEU":["Central Europe", 12], 
+    "TUR":["Turkey", 13], 
+    "UKR":["Ukraine region", 14],
+    # Asia
+    "STAN":["Central Asia", 15],
+    "RUS":["Russia region", 16], 
+    "ME":["Middle East", 17],
+    "INDIA":["India", 18], 
+    "KOR":["Korea region", 19], 
+    "CHN":["China region", 20], 
+    "SEAS":["Southeastern Asia", 21], 
+    "INDO":["Indonesia region", 22], 
+    "JAP":["Japan", 23],
+    # Oceania + other
+    "OCE": ["Oceania", 24],
+    "RSAS": ["Rest of South Asia", 25],
+    "RSAF": ["Rest of Southern Africa", 26]
+    } 
+
+
+
 # Full list of causes
 causes = {
     'ckd':'Chronic kidney disease', 
