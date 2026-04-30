@@ -407,10 +407,8 @@ def ReformatPAF(fls):
     as the GBD mortality and UN population data, to be able to merge the 
     three datasets and calculate attributable mortality.
     """
-    
-    paf = fls.paf
 
-    # Split the age group into age and certainty level (low, medium, high) 
+    # Split the age group into age and certainty level (low, medium, high) paf
     age_group_split = paf.index.get_level_values('age_group').str.split('_', expand=True)
 
     # Assign the age group and certainty level to separate columns in the dataframe
