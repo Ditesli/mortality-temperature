@@ -365,13 +365,14 @@ def PostprocessResults(sets, fls):
     paf.index.names=["region", "t_type", "cause", "age_group"]
     
     # Substract counterfactual mortality
-    paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
+    # paf = paf.sub(paf[list(range(2001,2010))].mean(axis=1), axis=0)
     
     # Create class to store output path and file name format
     class ScenarioNaming:
         def __init__(self, sets):
             self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
             self.out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
+            self.model = "Scovronick"
             
     sn = ScenarioNaming(sets)
     
@@ -395,7 +396,7 @@ def PostprocessResults(sets, fls):
         ]
     
     # Change PAF format to xarray
-    paf = ReformatPAF(fls)
+    paf = ReformatPAF(fls, paf)
     
     p2m.PAF2Mortality(sets, fls, paf, gbd_causes, sn)
     
@@ -403,7 +404,7 @@ def PostprocessResults(sets, fls):
     
 
 
-def ReformatPAF(fls):
+def ReformatPAF(fls, paf):
     
     """
     Convert the PAF dataframe to an xarray with the same coordinates 
