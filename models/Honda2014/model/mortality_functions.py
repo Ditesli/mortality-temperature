@@ -58,13 +58,12 @@ class ModelSettings:
             self.years = range(self.years.start, self.years.stop + 1)
         
         # Reduce range years if working with ERA5 data
-        ERA5_START_YEAR = 2000
         ERA5_END_YEAR = 2025
 
         if re.search(r"ERA5", self.scenario):
             self.years = [
                 y for y in self.years
-                if ERA5_START_YEAR <= y <= ERA5_END_YEAR
+                if y <= ERA5_END_YEAR
             ]
             
             
@@ -376,7 +375,8 @@ def PostprocessResults(sets, fls):
     print("[3] Model run complete. Postprocessing...")
     
     # Substracting counterfactual mortality
-    paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
+    # paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
+    paf = fls.paf
     paf.index.names = ["t_type", "region"]
     
     print("[3.1] Saving PAF results...")
