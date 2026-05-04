@@ -5,7 +5,7 @@ import yaml
 
 
 def load_config():
-    config_path = Path(__file__).parent / "config.yaml"
+    config_path = Path(__file__).parent.parent / "examples/config.yaml"
     with config_path.open() as f:
         return yaml.safe_load(f)
 
@@ -18,10 +18,9 @@ def main():
         out_dir=config["out_dir"],
         years=range(config["start_year"],config["end_year"]), 
         step=config["step"],
-        temp_type="max",
+        temp_type=config["temp_type"],
         percentile=config["percentile"]
     )
-        
         
 
 
