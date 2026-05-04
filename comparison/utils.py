@@ -111,11 +111,64 @@ def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cau
 
     # Apply filter and select columns starting from the 5th column
     df = df[filter][[str(y) for y in years if str(y) in df.columns]]
-    
+
     # Convert column names to int
     df.columns = df.columns.astype(int)
     
     return df
+
+
+
+def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
+    
+    # Load the CSV file into a DataFrame
+    df = pd.read_csv(wdir + filename + ".csv")
+
+    # Initialize filter as True to not filter anything initially
+    filter = pd.Series(True, index=df.index)
+
+    # Apply age_group condition only if the column exists
+    if "age_group" in df.columns:
+        filter &= df["age_group"].str.lower().str.contains(age_group.lower())
+        
+    # Apply age_group condition only if the column exists
+    if "cause" in df.columns:
+        filter &= df["cause"].str.lower().str.contains(cause.lower())
+
+    # Condition for t_type
+    filter &= df["t_type"].str.lower() == temp_type.lower()
+
+    # Condition for units
+    if "units" in df.columns:
+        filter &= df["units"].str.lower().str.contains(unit.lower())
+        
+    # Load region classification    
+    region_class = (
+        pd.read_csv(wdir+"data/region_classification.csv")
+        [["ISO3", "continents"]]
+        .drop_duplicates()
+        )
+
+    # Apply filter and select columns starting from the 5th column
+    df = df[filter][["region"]+[str(y) for y in years if str(y) in df.columns]]
+
+    # Merge with region classification and group by continents, summing the values
+    df = df.merge(region_class, left_on="region", right_on="ISO3", how="left").groupby("continents").sum().drop(columns=["ISO3", "region"])
+    
+    # Add a row for the world total by summing all the continents
+    df.loc["World"] = df.sum(numeric_only=True)
+    
+    # Convert column names to int
+    df.columns = df.columns.astype(int)
+    
+    final_df = pd.DataFrame(index=df.index)
+    final_df["mean"] = df.mean(axis=1)
+    final_df["p95"] = df.quantile(0.95, axis=1)
+    final_df["p5"] = df.quantile(0.05, axis=1)
+    
+    final_df.sort_index(inplace=True)
+    
+    return final_df
 
 
 
