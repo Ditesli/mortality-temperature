@@ -71,5 +71,5 @@ def calculate_optimal_temperature(
      .pipe(lambda x: x - 273.15) # Convert to Celsius
      .round(1)
      .to_netcdf(out_dir + 
-                     f'era5_t2m_{temp_type}_{years[0]}-{years[-1]}_p{np.round(percentile*100,0)}.nc')
+                     f'era5_t2m_{temp_type}_{years[0]}-{years[-1]}_p{int(np.round(percentile*100,0))}.nc')
     )
