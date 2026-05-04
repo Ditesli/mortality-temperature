@@ -121,8 +121,8 @@ class LoadInputData:
         2D array with optimal temperatures as defined by Honda et al.
     erf: pd.DataFrame
         DataFrame with ERFs
-    min_val:
-    max_val:
+    temp_min:
+    temp_max:
     paf: pd.DataFrame
         Dataframe to store Population Attributable Fraction results.
     """
@@ -131,9 +131,9 @@ class LoadInputData:
     regions: np.ndarray
     regions_range: np.ndarray
     opt_temp: np.ndarray
-    erf: pd.DataFrame
-    min_val: dict
-    max_val: dict
+    risks: np.ndarray
+    temp_min: dict
+    temp_max: dict
     region_dict: dict
     image_dict: dict
     paf: pd.DataFrame
@@ -161,7 +161,7 @@ class LoadInputData:
             pop_map=pop_ssp)
 
         # Load Exposure Response Function files for the relevant diseases
-        erf, min_val, max_val = LoadERF(sets.wdir, sets.extrap_erf, sets.temp_max)
+        risks, temp_min, temp_max = LoadERF(sets.wdir, sets.extrap_erf, sets.temp_max)
         
         # Load file with optimal temperatures for 1980-2010
         optimal_temperatures = LoadOptimalTemperatures(sets.wdir, sets.optimal_range, sets.scenario)
@@ -179,9 +179,9 @@ class LoadInputData:
             regions=regions,
             regions_range=regions_range,
             opt_temp=optimal_temperatures,
-            erf=erf,
-            min_val=min_val,
-            max_val=max_val,
+            risks=risks,
+            temp_min=temp_min,
+            temp_max=temp_max,
             region_dict=region_dict,
             image_dict=image_dict,
             paf=paf
@@ -210,10 +210,13 @@ def LoadERF(wdir, extrap_erf=False, temp_max=None):
     risk_function['index_temperature'] = (risk_function['daily_temperature']*10).astype(int)
     
     # Perform groupby operation using the columns
-    min_val = risk_function['index_temperature'].min()   
-    max_val = risk_function['index_temperature'].max()
+    temp_min = risk_function['index_temperature'].min()   
+    temp_max = risk_function['index_temperature'].max()
+    
+    # Prepare risk function lookup arrays
+    risks = risk_function["relative_risk"].to_numpy()
             
-    return risk_function, min_val, max_val
+    return risks, temp_min, temp_max
 
 
 
@@ -267,13 +270,13 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
     print('[1.4] Loading optimal temperatures...')
     
     # Load file with optimal temperatures for 1980-2010 period (default period)
-    optimal_temps = xr.open_dataset(wdir+f'/data/optimal_temperatures/era5_t2m_max_{optimal_range}_p84.nc')
+    optimal_temps = xr.open_dataset(wdir+f'/data/optimal_temperatures/era5_t2m_{optimal_range}.nc')
     
     if not re.search(r"ERA5", scenario):
         # Reduce resolution to 0.5x0.5 degrees
         optimal_temps = optimal_temps.coarsen(latitude=2, longitude=2, boundary='pad').mean(skipna=True)
     
-    return optimal_temps.t2m_p84.values
+    return optimal_temps[f"t2m_{optimal_range[-3:]}"].values
 
 
 
@@ -308,27 +311,23 @@ def CalculatePAFYear(sets, fls, year):
     
     print(f'[2.2] Calculating Population Attributable Fraction for {year}...') 
 
-    # Calculate baseline temperature
+    # Calculate baseline temperature (t - OT)
     baseline_temp = daily_temp - fls.opt_temp[...,np.newaxis]
     
     # Clip baseline temperatures to min and max values
-    clip_baseline_temp = np.round(np.clip(baseline_temp*10, fls.min_val, fls.max_val), 0).astype(int)
-
-    # Prepare risk function lookup arrays
-    temps = fls.erf["index_temperature"].to_numpy()
-    risks = fls.erf["relative_risk"].to_numpy()
+    clip_baseline_temp = np.round(np.clip(baseline_temp*10, fls.temp_min, fls.temp_max), 0).astype(int)
 
     # Initialize relative risks array
     relative_risks = np.full_like(baseline_temp, np.nan, dtype=float)
 
-    # Create mask for valid baseline temperatures (used with IMAGE data)
+    # Create mask for valid baseline temperatures
     mask = ~np.isnan(baseline_temp)
 
     # Get indices for lookup
-    indices = (clip_baseline_temp[mask] - temps.min()).astype(int)
+    indices = (clip_baseline_temp[mask] - fls.temp_min).astype(int)
 
     # Get relative risks from risks lookup table    
-    relative_risks[mask] = risks[indices]
+    relative_risks[mask] = fls.risks[indices]
 
     # Calculate PAFs
     pafs = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
@@ -391,7 +390,7 @@ def PostprocessResults(sets, fls):
     
     # Create project folder if it doesn't exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f'PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range[-4:]}.csv'
+    file_name = f'PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}.csv'
             
     # Save the results and temperature statistics
     paf.to_csv(sn.out_path / file_name)  
@@ -404,7 +403,7 @@ def PostprocessResults(sets, fls):
 
     print("Model ran succesfully!")
 
-    
+
     
 def ReformatPAF(fls, paf):
     
