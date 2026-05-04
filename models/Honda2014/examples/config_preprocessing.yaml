@@ -11,3 +11,4 @@ end_year: 2006
 step: 40
 # Define percentile of optimal temperatures
 percentile: 0.836 # or 0.845 as in the Lancet 2024
+temp_type: "max" # or "mean"
