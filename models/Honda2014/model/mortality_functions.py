@@ -5,7 +5,7 @@ import xarray as xr
 from dataclasses import dataclass
 from pathlib import Path
 import os, sys, re
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"..",'..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"..","..")))
 from utils_common import temperature as tmp
 from utils_common import population as pop
 from utils_common import paf2mortality as p2m
@@ -141,12 +141,12 @@ class LoadInputData:
     @classmethod
     def from_files(cls, sets):
         
-        '''
+        """
         Load all input files required for PAF calculations. 
         Data is located in the wdir/data folder.
-        '''
+        """
         
-        print('[1] Loading main files...')
+        print("[1] Loading main files...")
         
         print("[1.1] Loading SSP population data...")
         ssp = re.search(r"SSP\d", sets.scenario).group()
@@ -161,7 +161,7 @@ class LoadInputData:
             pop_map=pop_ssp)
 
         # Load Exposure Response Function files for the relevant diseases
-        risks, temp_min, temp_max = LoadERF(sets.wdir, sets.extrap_erf, sets.temp_max)
+        risks, temp_min, temp_max = LoadERF(sets.wdir, sets.project, sets.extrap_erf, sets.temp_max)
         
         # Load file with optimal temperatures for 1980-2010
         optimal_temperatures = LoadOptimalTemperatures(sets.wdir, sets.optimal_range, sets.scenario)
@@ -171,7 +171,7 @@ class LoadInputData:
         
         print("[1.6] Creating final dataframe to store results...")
         # Create final dataframe
-        paf = pd.DataFrame(index=pd.MultiIndex.from_product([['Cold', 'Heat', 'All'], regions_range]), 
+        paf = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
                             columns=sets.years)  
         
         return cls(
@@ -189,29 +189,34 @@ class LoadInputData:
         
         
         
-def LoadERF(wdir, extrap_erf=False, temp_max=None):
+def LoadERF(wdir, project, extrap_erf=False, temp_max=None):
     
-    ''' 
+    """ 
     Load the single risk function from Honda et al. (2014).
     The function also outputs the min and max temperature dictionaries.
-    '''
+    """
     
-    print('[1.3] Loading Exposure Response Function...')
+    print("[1.3] Loading Exposure Response Function...")
+    
+    if re.search(r"honda", project.lower()):
+        function = "Honda2014"
+    elif re.search(r"romanello", project.lower()):
+        function = "Romanello2024"
         
-    risk_function = (pd.read_csv(wdir+'/data/risk_function/interpolated_dataset.csv')
+    risk_function = (pd.read_csv(wdir+f"/data/risk_function/RiskFunction_{function}.csv")
         .astype(float))
     
     # Extrapolate risk_function
     if extrap_erf == True:
-        print('Extrapolating ERFs...')
+        print("Extrapolating ERFs...")
         risk_function = ExtrapolateERF(risk_function, temp_max) 
 
     # Prepare risk function for lookup, convert entries to int and multiply by 10
-    risk_function['index_temperature'] = (risk_function['daily_temperature']*10).astype(int)
+    risk_function["index_temperature"] = (risk_function["daily_temperature"]*10).astype(int)
     
     # Perform groupby operation using the columns
-    temp_min = risk_function['index_temperature'].min()   
-    temp_max = risk_function['index_temperature'].max()
+    temp_min = risk_function["index_temperature"].min()   
+    temp_max = risk_function["index_temperature"].max()
     
     # Prepare risk function lookup arrays
     risks = risk_function["relative_risk"].to_numpy()
@@ -232,26 +237,26 @@ def ExtrapolateERF(erf, temp_max):
     
     def log_linear_interp(xx, yy):
         # Linear interpolation of raw ln(RR) data over a df column  
-        lin_interp = sp.interpolate.interp1d(xx, np.log(yy), kind='linear', fill_value='extrapolate')    
+        lin_interp = sp.interpolate.interp1d(xx, np.log(yy), kind="linear", fill_value="extrapolate")    
         return lambda zz: np.exp(lin_interp(zz))
     
     
     # Round index to one decimal
-    erf['daily_temperature']= erf['daily_temperature'].round(1)
+    erf["daily_temperature"]= erf["daily_temperature"].round(1)
     
-    zero_index = erf.index[erf['daily_temperature']==0.][0]
+    zero_index = erf.index[erf["daily_temperature"]==0.][0]
             
     # Define interpolation with last range
-    interp = log_linear_interp(erf['daily_temperature'].loc[zero_index:].values, 
-                               erf['relative_risk'].loc[zero_index:].values)
+    interp = log_linear_interp(erf["daily_temperature"].loc[zero_index:].values, 
+                               erf["relative_risk"].loc[zero_index:].values)
     
     # Define temperature values to interpolate
-    xx = np.round(np.linspace(erf['daily_temperature'].iloc[-1]+0.1, temp_max, 
-                    int((temp_max - erf['daily_temperature'].iloc[-1])/0.1)+1), 1)
+    xx = np.round(np.linspace(erf["daily_temperature"].iloc[-1]+0.1, temp_max, 
+                    int((temp_max - erf["daily_temperature"].iloc[-1])/0.1)+1), 1)
 
     erf_extrap = pd.DataFrame({
-        'daily_temperature': xx,
-        'relative_risk': interp(xx)
+        "daily_temperature": xx,
+        "relative_risk": interp(xx)
         })
     
     erf_extrap = pd.concat([erf, erf_extrap], ignore_index=True)
@@ -262,19 +267,19 @@ def ExtrapolateERF(erf, temp_max):
 
 def LoadOptimalTemperatures(wdir, optimal_range, scenario):
     
-    '''
+    """
     Load the optimal temperatures netcdf file calculated for a predefiend 
     period (1980-2010) and return as numpy array.
-    '''
+    """
     
-    print('[1.4] Loading optimal temperatures...')
+    print("[1.4] Loading optimal temperatures...")
     
     # Load file with optimal temperatures for 1980-2010 period (default period)
-    optimal_temps = xr.open_dataset(wdir+f'/data/optimal_temperatures/era5_t2m_{optimal_range}.nc')
+    optimal_temps = xr.open_dataset(wdir+f"/data/optimal_temperatures/era5_t2m_{optimal_range}.nc")
     
     if not re.search(r"ERA5", scenario):
         # Reduce resolution to 0.5x0.5 degrees
-        optimal_temps = optimal_temps.coarsen(latitude=2, longitude=2, boundary='pad').mean(skipna=True)
+        optimal_temps = optimal_temps.coarsen(latitude=2, longitude=2, boundary="pad").mean(skipna=True)
     
     return optimal_temps[f"t2m_{optimal_range[-3:]}"].values
 
@@ -282,7 +287,7 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
 
 def CalculatePAFYear(sets, fls, year):
     
-    '''
+    """
     Run the main model using ERA5 historical data
     
     Parameters:
@@ -290,13 +295,13 @@ def CalculatePAFYear(sets, fls, year):
     - era5_dir: directory where ERA5 daily temperature data is stored
     - years: list of the period in which the model will be run
     - ssp: SSP scenario name
-    - region_class: region classification to use ('IMAGE26' or 'GBD_level3')
+    - region_class: region classification to use ("IMAGE26" or "GBD_level3")
     - extrap_erf: boolean, if True extrapolate risk functions, if False use original one
     - temp_max: maximum temperature to extrapolate to 
     - temp_min: minimum temperature to extrapolate to 
-    '''
+    """
     
-    print(f'[2.1] Loading {year} daily temperatures...')
+    print(f"[2.1] Loading {year} daily temperatures...")
     daily_temp, num_days = tmp.LoadDailyTemperatures(
         temp_dir=sets.temp_dir,
         scenario=sets.scenario,
@@ -307,9 +312,9 @@ def CalculatePAFYear(sets, fls, year):
         )
 
     # Select population for the corresponding year and convert to numpy array with non-negative values
-    pop_year = np.clip(fls.pop_ssp.sel(time=f'{year}').mean('time').GPOP.values, 0, None)
+    pop_year = np.clip(fls.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values, 0, None)
     
-    print(f'[2.2] Calculating Population Attributable Fraction for {year}...') 
+    print(f"[2.2] Calculating Population Attributable Fraction for {year}...") 
 
     # Calculate baseline temperature (t - OT)
     baseline_temp = daily_temp - fls.opt_temp[...,np.newaxis]
@@ -333,21 +338,21 @@ def CalculatePAFYear(sets, fls, year):
     pafs = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
     
     # Calculate regional PAFs
-    for mode in ['All', 'Heat', 'Cold']:
+    for mode in ["All", "Heat", "Cold"]:
         fls.paf.loc[mode,year] = WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_baseline_temp)
 
     
 
 def WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_base_temp):
     
-    '''
+    """
     Calculate weighted average of PAFs per region
-    '''
+    """
     
     # Apply mask to PAFs to select cold, hot or all temperatures
-    if mode == 'Cold':
+    if mode == "Cold":
         pafs = np.where(clip_base_temp<0, pafs, 0)
-    if mode == 'Heat':
+    if mode == "Heat":
         pafs = np.where(clip_base_temp>0, pafs, 0) 
     
     # Aggregate PAFs over days
@@ -388,16 +393,16 @@ def PostprocessResults(sets, fls):
             self.model = "Honda"
     sn = ScenarioNaming(sets)
     
-    # Create project folder if it doesn't exist
+    # Create project folder if it doesn' exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f'PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}.csv'
+    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}.csv"
             
     # Save the results and temperature statistics
     paf.to_csv(sn.out_path / file_name)  
     
     print("3.2 Calculating attributable mortality and saving results...")
     
-    causes = ['All causes']  
+    causes = ["All causes"]  
     paf = ReformatPAF(fls, paf)
     p2m.PAF2Mortality(sets, fls, paf, causes, sn)
 
@@ -420,15 +425,15 @@ def ReformatPAF(fls, paf):
         .rename(columns={"level_2": "year", 0: "paf", "region": "ISO3"})
         .assign(cause="All causes")
         .set_index(["ISO3", "t_type", "cause", "year"])
-        .assign(paf=lambda df: df['paf'].astype(float)) 
+        .assign(paf=lambda df: df["paf"].astype(float)) 
         .to_xarray()
     )
             
     # Map location ids to ISO3 codes
     paf["ISO3"] = xr.DataArray(
-        [fls.region_dict[id] for id in paf['ISO3'].values], 
-        coords=paf['ISO3'].coords, 
-        dims=paf['ISO3'].dims
+        [fls.region_dict[id] for id in paf["ISO3"].values], 
+        coords=paf["ISO3"].coords, 
+        dims=paf["ISO3"].dims
     ).astype(object)
 
     paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("year")
