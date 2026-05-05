@@ -322,6 +322,6 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
     if sn.model == "Burkart":
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}"
     if sn.model == "Honda":
-        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range[-4:]}"
+        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}"
         
     mor_rel_mor.to_csv(f"{sn.out_path}/mortality_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
