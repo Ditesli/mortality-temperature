@@ -18,6 +18,7 @@ def CalculatePAF(
     project: str,
     scenario: str,
     years: list,
+    counterfactual: bool,
     optimal_range: str,
     extrap_erf: bool,
     temp_max: any
@@ -29,6 +30,7 @@ def CalculatePAF(
         project=project,
         scenario=scenario,
         years=years,
+        counterfactual=counterfactual,
         optimal_range=optimal_range,
         extrap_erf=extrap_erf,
         temp_max=temp_max
@@ -73,8 +75,19 @@ class PAFModel:
     sets: ModelSettings
     
     """
-    Run the main model 
-    ADD DESCRIPTION
+    Run the main model from Honda et al., 2014. The model calculates the 
+    Population Attributable Fraction (PAF), and total and relative mortality 
+    due to non-optimal temperatures for a given scenario, and time period.
+    The model has the option to read in either the original Relative Risk
+    functions from Honda et al., 2014, or to use the adapted version used
+    in the Lancet Countdown reports from 2002-2024 (Romanello et al., 2024).
+    The model also has the option to extrapolate the ERF curves to a defined 
+    temperature range.
+    As with the other models coded, the calculations are given per year, in each
+    timestep, daily temperature data is loaded, the PAF is calculated for each 
+    grid cell and then aggregated to the annual and regional level. 
+    The results are saved in a csv file, then the attributable (total and relative) 
+    mortality is calculated and saved in a separate csv file.
     """
     
     def load_inputs(self):
