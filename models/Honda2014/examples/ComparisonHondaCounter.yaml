@@ -7,7 +7,7 @@ project: 'ComparisonHonda'
 scenario:  'SSP2_ERA5'
 start_year: 1980
 end_year: 2022
-counterfactual: False
+counterfactual: True
 
 # Risk function
 extrap_erf: False
