@@ -17,6 +17,7 @@ def CalculatePAF(
     project: str,
     scenario: str,
     years: list,
+    counterfactual: bool,
     draw: any,
     single_erf: bool,
     extrap_erf: bool
@@ -28,6 +29,7 @@ def CalculatePAF(
         project=project,
         scenario=scenario,
         years=years,
+        counterfactual=counterfactual,
         draw=draw,
         single_erf=single_erf,
         extrap_erf=extrap_erf,
@@ -46,6 +48,7 @@ class ModelSettings:
     project: str
     scenario: str
     years: list
+    counterfactual: bool
     draw: any
     single_erf: bool
     extrap_erf: bool
