@@ -170,12 +170,7 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
     
     return final_df
 
-wdir = 'X:/user/liprandicn/mt-comparison/'
-temp_type = "heat"
-unit = "total"
-age_group = "all"
-years = range(2010,2021)
-cause = "All causes"
+
 
 def LoadBallesterScatter(wdir):
     
@@ -281,39 +276,82 @@ def StylizeAxes(ax, *,
                 legend=False,
                 legend_kwargs=None):  
     
-    if xscale is not None:
-        ax.set_xscale(xscale)
-    if yscale is not None:
-        ax.set_yscale(yscale)
-    if ylim is not None:
-        ax.set_ylim(ylim)
-    if xlim is not None:
-        ax.set_xlim(xlim)
-    if title is not None:
-        ax.set_title(title)
-    if xlabel is not None:
-        ax.set_xlabel(xlabel)
-    if ylabel is not None:
-        ax.set_ylabel(ylabel)
+    if xscale is not None: ax.set_xscale(xscale)
+    if yscale is not None: ax.set_yscale(yscale)
+    
+    if ylim is not None: ax.set_ylim(ylim)
+    if xlim is not None: ax.set_xlim(xlim)
+    
+    if title is not None: ax.set_title(title)
+    
+    if xlabel is not None: ax.set_xlabel(xlabel)
+    if ylabel is not None: ax.set_ylabel(ylabel)
 
-    if xticks is not None:
-        ax.set_xticks(xticks) 
-    if xtickslabels is not False:
-        ax.set_xticklabels(xtickslabels, **(xtickslabels_kwargs or {}))
+    if xticks is not None: ax.set_xticks(xticks) 
+    if xtickslabels is not False: ax.set_xticklabels(xtickslabels, **(xtickslabels_kwargs or {}))
 
-    if yticks is not None:
-        ax.set_yticks(yticks) 
-    if ytickslabels is not False:
-        ax.set_yticklabels(ytickslabels, **(ytickslabels_kwargs or {}))
+    if yticks is not None: ax.set_yticks(yticks) 
+    if ytickslabels is not False: ax.set_yticklabels(ytickslabels, **(ytickslabels_kwargs or {}))
 
-    if facecolor is not None:
-        ax.set_facecolor(facecolor)
-    if grid:
-        ax.grid(**(grid_kwargs or {}))
-    if legend:
-        ax.legend(**(legend_kwargs or {}))
+    if facecolor is not None: ax.set_facecolor(facecolor)
+    if grid: ax.grid(**(grid_kwargs or {}))
+    
+    if legend: ax.legend(**(legend_kwargs or {}))
     
     return ax
+
+
+
+def StylizeAxes(ax, *, 
+                xscale=None,
+                yscale=None,
+                ylim=None,
+                xlim=None,
+                title=None,
+                xlabel=None,
+                ylabel=None,
+                xticks=None,
+                xtickslabels=False,
+                xtickslabels_kwargs=None,
+                yticks=None,
+                ytickslabels=False,
+                ytickslabels_kwargs=None,
+                facecolor=None,
+                grid=False,
+                grid_kwargs=None,
+                legend=False,
+                legend_kwargs=None,
+                spines=None,
+                **kwargs):  
+    
+    if xscale is not None: ax.set_xscale(xscale)
+    if yscale is not None: ax.set_yscale(yscale)
+    
+    if ylim is not None: ax.set_ylim(ylim)
+    if xlim is not None: ax.set_xlim(xlim)
+    
+    if title is not None: ax.set_title(title)
+    
+    if xlabel is not None: ax.set_xlabel(xlabel)
+    if ylabel is not None: ax.set_ylabel(ylabel)
+    
+    if xticks is not None: ax.set_xticks(xticks) 
+    if xtickslabels is not False: ax.set_xticklabels(xtickslabels, **(xtickslabels_kwargs or {}))
+    
+    if yticks is not None: ax.set_yticks(yticks) 
+    if ytickslabels is not False: ax.set_yticklabels(ytickslabels, **(ytickslabels_kwargs or {}))
+    
+    if facecolor is not None: ax.set_facecolor(facecolor)
+    if grid: ax.grid(**(grid_kwargs or {}))
+    
+    if legend: ax.legend(**(legend_kwargs or {}))
+    
+    if spines is not None:
+        for spine, is_visible in spines.items():
+            ax.spines[spine].set_visible(is_visible)
+    
+    return ax
+
 
 
 
