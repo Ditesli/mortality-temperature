@@ -49,6 +49,7 @@ class ModelSettings:
     project: str
     scenario: str
     years: list
+    counterfactual: bool
     optimal_range: str
     extrap_erf: bool
     temp_max: any

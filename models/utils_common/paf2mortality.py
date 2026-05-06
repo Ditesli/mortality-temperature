@@ -97,6 +97,12 @@ def LoadGBDmortality(sets, fls, causes, model):
         .set_index(["ISO3","cause","age_group","year"])
         .to_xarray()
     )
+    
+    if sets.counterfactual == True:
+        
+        # Calculate the mean mortality for the years 1980-1990 to use as counterfactual mortality 
+        mean_mor = gbd_mor.sel(year=slice(1980, 1990)).mean(dim='year')
+        gbd_mor = mean_mor.expand_dims(year=gbd_mor.year)
 
     if model == "Burkart":
         
@@ -323,5 +329,7 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}"
     if sn.model == "Honda":
         file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}"
+    if sets.counterfactual == True:
+        file_name += "_counterfactual"
         
-    mor_rel_mor.to_csv(f"{sn.out_path}/mortality_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
+    mor_rel_mor.to_csv(f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
