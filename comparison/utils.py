@@ -170,6 +170,65 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
     
     return final_df
 
+wdir = 'X:/user/liprandicn/mt-comparison/'
+temp_type = "heat"
+unit = "total"
+age_group = "all"
+years = range(2010,2021)
+cause = "All causes"
+
+def LoadBallesterScatter(wdir):
+    
+    # Open ballester results
+    ballester = pd.read_excel(wdir + "ballester2025/ballester2025_lancet_tab8.xlsx")
+    
+    # Opern region classification
+    regions = pd.read_csv(wdir+"data/region_classification.csv")[["gbd_location_id", "UN_M49_level1"]].drop_duplicates().dropna()
+    regions["gbd_location_id"] = regions["gbd_location_id"].astype(int)
+    
+    years = range(2012,2022)
+    
+    # Load GBD mortality records
+    gbd_mor = pd.read_csv(wdir+f"/data/GBD_mortality/IHME-GBD_2022_DATA.csv")
+
+    mask = (
+            (gbd_mor["cause_name"] == "All causes") & # Only selected causes of death
+            (gbd_mor["sex_name"] == "Both") & # Both sexes
+            gbd_mor["year"].isin(years) & # Only years assessed
+            (gbd_mor["location_name"] != "Global") & # Exclude global mortality
+            (gbd_mor["age_name"] == "All ages") # All ages
+        )
+
+    # Mask and convert to xarray
+    gbd_mor = (
+        gbd_mor
+        .loc[mask, ["location_id", "year","val", "upper", "lower"]]
+        .groupby(["location_id"])
+        .mean()
+        .reset_index()
+        .merge(regions, left_on="location_id", right_on="gbd_location_id", how="left")
+        .groupby("UN_M49_level1")
+        .sum()
+        .reset_index()
+        .merge(ballester[["region", "2012-2021"]], left_on="UN_M49_level1", right_on="region", how="inner")
+    )
+    
+    # Calculate mortality for each region and confidence intervals
+    gbd_mor["mean"] = gbd_mor["val"] * gbd_mor["2012-2021"] / 100
+    gbd_mor["p5"] = gbd_mor["lower"] * gbd_mor["2012-2021"] / 100
+    gbd_mor["p95"] = gbd_mor["upper"] * gbd_mor["2012-2021"] / 100
+    
+    gbd_mor = gbd_mor[["region", "mean", "p5", "p95"]].set_index("region")
+    
+    # Merge America regions into one
+    gbd_mor.loc["America"] = gbd_mor.loc["Northern America"] + gbd_mor.loc["Latin America and the Caribbean"]
+    gbd_mor.drop(["Northern America", "Latin America and the Caribbean"], inplace = True)
+    
+    # Get world total by summing all regions
+    gbd_mor.loc["World"] = gbd_mor.sum(numeric_only=True)
+   
+    return gbd_mor.sort_index()
+
 
 
 def WeightsAndCountsForKDE(tmrel, era5_tz, pop_ssp_year, tz):
