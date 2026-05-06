@@ -392,8 +392,6 @@ def PostprocessResults(sets, fls):
     
     print("[3] Model run complete. Postprocessing...")
     
-    # Substracting counterfactual mortality
-    # paf = fls.paf.sub(fls.paf[list(range(2001, 2011))].mean(axis=1), axis=0)
     paf = fls.paf
     paf.index.names = ["t_type", "region"]
     
