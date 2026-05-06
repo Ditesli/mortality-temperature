@@ -3,11 +3,11 @@ wdir: "X:/user/liprandicn/mt-comparison/burkart2022"
 temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
 
 # Scenario settings
-project: "ReplicationBurkart"
+project: "ComparisonBurkartCounter"
 scenario: "SSP2_ERA5" 
-start_year: 1990
-end_year: 2019
-counterfactual: False
+start_year: 1980
+end_year: 2022
+counterfactual: True
 
 # Exposure Response Function Settings
 single_erf: False # Use all ERFs (False)
