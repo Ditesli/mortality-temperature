@@ -98,11 +98,11 @@ def LoadGBDmortality(sets, fls, causes, model):
         .to_xarray()
     )
     
-    if sets.counterfactual == True:
+    # if sets.counterfactual == True:
         
-        # Calculate the mean mortality for the years 1980-1990 to use as counterfactual mortality 
-        mean_mor = gbd_mor.sel(year=slice(1980, 1990)).mean(dim='year')
-        gbd_mor = mean_mor.expand_dims(year=gbd_mor.year)
+    #     # Calculate the mean mortality for the years 1980-1990 to use as counterfactual mortality 
+    #     mean_mor = gbd_mor.sel(year=slice(1980, 1990)).mean(dim='year')
+    #     gbd_mor = mean_mor.expand_dims(year=gbd_mor.year)
 
     if model == "Burkart":
         
