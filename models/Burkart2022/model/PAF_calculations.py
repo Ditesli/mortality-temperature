@@ -4,6 +4,7 @@ import scipy as sp
 import xarray as xr
 import re, sys, os, random
 from pathlib import Path
+from collections import defaultdict
 from dataclasses import dataclass, field
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
@@ -153,11 +154,14 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
+        paf_counter = CalculateCounterfactualPAF(self.sets, self.fls)
+        
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
                 fls=self.fls,
-                year=year
+                year=year,
+                paf_counter=paf_counter
                 )
             
         self.postprocess()
@@ -603,6 +607,9 @@ def CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp
     3. Separating the dataframe into cold and heat attributable deaths
     4. Calculating the PAF per temperature type and storing it in the final dataframe
     """
+    
+    # Select population for the corresponding year
+    pop_year = fls.pop_map.sel(time=f"{year}").mean("time").GPOP.values
     
     # Get population mask within selected region
     region_mask = (pop_year > 0.) & (fls.regions == region)
