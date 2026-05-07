@@ -103,11 +103,17 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
+        if self.sets.counterfactual == True:
+            paf_counter = CalculateCounterfactualPAF(self.sets, self.fls)
+        else:
+            paf_counter = None
+        
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
                 fls=self.fls,
-                year=year
+                year=year,
+                paf_counter=paf_counter
                 )
             
         self.postprocess()
@@ -187,6 +193,7 @@ class LoadInputData:
         # Create final dataframe
         paf = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
                             columns=sets.years)  
+        
         
         return cls(
             pop_ssp=pop_ssp,
@@ -299,20 +306,49 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
 
 
 
-def CalculatePAFYear(sets, fls, year):
+def CalculateCounterfactualPAF(sets, fls):
     
     """
-    Run the main model using ERA5 historical data
+    Calculate counterfactual PAFs using 1980-1990 the daily temperatures.
+    """
     
-    Parameters:
-    - wdir: working directory
-    - era5_dir: directory where ERA5 daily temperature data is stored
-    - years: list of the period in which the model will be run
-    - ssp: SSP scenario name
-    - region_class: region classification to use ("IMAGE26" or "GBD_level3")
-    - extrap_erf: boolean, if True extrapolate risk functions, if False use original one
-    - temp_max: maximum temperature to extrapolate to 
-    - temp_min: minimum temperature to extrapolate to 
+    print("[2.0] Calculating counterfactual PAFs...")
+    
+    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+        
+        BASE_YEARS = range(1980, 1990)
+        paf_hot, paf_cold, paf_all = {}, {}, {}
+        
+        for year in BASE_YEARS:
+            
+            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
+            
+            # Read in daily temperature data for the counterfactual period (1980-1990)
+            daily_temp, num_days = tmp.LoadDailyTemperatures(
+                temp_dir=sets.temp_dir,
+                scenario=sets.scenario,
+                temp_type="max",
+                year=year, 
+                pop_map=fls.pop_ssp,
+                std_factor=1
+                )
+
+            paf_hot[year], paf_cold[year], paf_all[year] = AnnualPAFperRegion(fls, year, num_days, daily_temp)
+        
+        pafs_counter = {}
+        
+        pafs_counter["heat"] = np.mean(list(paf_hot.values()), axis=0)
+        pafs_counter["cold"] = np.mean(list(paf_cold.values()), axis=0)
+        pafs_counter["all"] = np.mean(list(paf_all.values()), axis=0)
+        
+    return pafs_counter
+
+
+
+def CalculatePAFYear(sets, fls, year, paf_counter):
+    
+    """
+    Calculate PAF for a given year, and subtract counterfactual PAFs if indicated
     """
     
     print(f"[2.1] Loading {year} daily temperatures...")
@@ -325,10 +361,28 @@ def CalculatePAFYear(sets, fls, year):
         std_factor=1
         )
 
+    print(f"[2.2] Calculating Population Attributable Fraction for {year}...") 
+    
+    # Calcuate PAFs per region and corresponding year
+    paf_hot, paf_cold, paf_all = AnnualPAFperRegion(fls, year, num_days, daily_temp)
+    
+    # Locate results in paf dataframe and subtract counterfactual PAFs if indicated
+    fls.paf.loc["Heat", year] = paf_hot - paf_counter["heat"] if paf_counter is not None else paf_hot
+    fls.paf.loc["Cold", year] = paf_cold - paf_counter["cold"] if paf_counter is not None else paf_cold
+    fls.paf.loc["All", year] = paf_all - paf_counter["all"] if paf_counter is not None else paf_all
+
+    
+
+def AnnualPAFperRegion(fls, year, num_days, daily_temp):
+    
+    """
+    Calculate weighted average of PAFs per region an year, using population as weights. 
+    The function first calculates the PAFs per grid cell, then aggregates to the annual 
+    level and finally calculates the weighted average per region.
+    """
+    
     # Select population for the corresponding year and convert to numpy array with non-negative values
     pop_year = np.clip(fls.pop_ssp.sel(time=f"{year}").mean("time").GPOP.values, 0, None)
-    
-    print(f"[2.2] Calculating Population Attributable Fraction for {year}...") 
 
     # Calculate baseline temperature (t - OT)
     baseline_temp = daily_temp - fls.opt_temp[...,np.newaxis]
@@ -347,44 +401,35 @@ def CalculatePAFYear(sets, fls, year):
 
     # Get relative risks from risks lookup table    
     relative_risks[mask] = fls.risks[indices]
-
-    # Calculate PAFs
-    pafs = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
-    
-    # Calculate regional PAFs
-    for mode in ["All", "Heat", "Cold"]:
-        fls.paf.loc[mode,year] = WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_baseline_temp)
-
-    
-
-def WeightedAvgOfPAFperRegion(fls, pafs, num_days, pop_year, mode, clip_base_temp):
-    
-    """
-    Calculate weighted average of PAFs per region
-    """
-    
-    # Apply mask to PAFs to select cold, hot or all temperatures
-    if mode == "Cold":
-        pafs = np.where(clip_base_temp<0, pafs, 0)
-    if mode == "Heat":
-        pafs = np.where(clip_base_temp>0, pafs, 0) 
-    
-    # Aggregate PAFs over days
-    pafs = np.sum(pafs, axis=2) / num_days
     
     # Flatten arrays
     regions_flat = np.nan_to_num(fls.regions.ravel()).astype(int)
-    pafs_flat = np.nan_to_num(pafs.ravel())
     pop_flat = np.nan_to_num(pop_year.ravel())
     
-    # Calculate weighted sum of PAFs per region
-    weighted_sum = np.bincount(regions_flat, weights=pafs_flat * pop_flat)
-    weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
+    weighted_avg = {}
     
-    # Calculate weighted average for specified regions
-    weighted_avg = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
+    for mode in ["cold", "heat", "all"]:
+        print(f"Calculating {mode} PAFs...")
+        
+        paf = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
+        
+        if mode == "cold":
+            paf = np.where(clip_baseline_temp<0, paf, 0)
+        if mode == "heat":
+            paf = np.where(clip_baseline_temp>0, paf, 0)
+        
+        # Aggregate PAFs over days
+        paf = np.sum(paf, axis=2) / num_days        
+        paf_flat = np.nan_to_num(paf.ravel())
+        
+        # Calculate weighted sum of PAFs per region
+        weighted_sum = np.bincount(regions_flat, weights=paf_flat * pop_flat)
+        weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
+        
+        # Calculate weighted average for specified regions
+        weighted_avg[mode] = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
     
-    return weighted_avg
+    return weighted_avg["heat"], weighted_avg["cold"], weighted_avg["all"]
     
     
 
