@@ -154,14 +154,13 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
-        paf_counter = CalculateCounterfactualPAF(self.sets, self.fls)
+        CalculateCounterPAF(self.sets, self.fls)
         
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
                 fls=self.fls,
-                year=year,
-                paf_counter=paf_counter
+                year=year
                 )
             
         self.postprocess()
@@ -211,6 +210,7 @@ class LoadInputData:
     region_dict: dict
     image_dict: dict
     paf: pd.DataFrame
+    paf_counter: pd.DataFrame
 
 
     @classmethod
@@ -277,6 +277,11 @@ class LoadInputData:
         paf = pd.DataFrame(
             index=regions_range, 
             columns=pd.MultiIndex.from_product([sets.years, sets.causes, ["cold", "heat", "all"]])
+            )
+        
+        paf_counter = pd.DataFrame(
+            index=regions_range, 
+            columns=pd.MultiIndex.from_product([range(1980,1990), sets.causes, ["cold", "heat", "all"]])
             )  
         
         
@@ -292,7 +297,8 @@ class LoadInputData:
             df_erf_tmrel=df_erf_tmrel,
             region_dict=region_dict,
             image_dict=image_dict,
-            paf=paf
+            paf=paf,
+            paf_counter=paf_counter
         )
     
 
@@ -577,28 +583,57 @@ def AverageToSingleERF(df):
         
     return df_mean
 
-     
+
+
+def CalculateCounterPAF(sets, fls):
+    
+    """
+    Calculate counterfactual PAFs using 1980-1990 the daily temperatures.
+    """
+    
+    print("[2.0] Calculating counterfactual PAFs...")
+    
+    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+
+        BASE_YEARS = range(1980, 1990)
+        
+        for year in BASE_YEARS:
+            
+            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
+            
+            daily_temp, num_days = tmp.LoadDailyTemperatures(
+                temp_dir=sets.temp_dir,
+                scenario=sets.scenario,
+                temp_type="mean",
+                year=year, 
+                pop_map=fls.pop_map,
+                std_factor=1
+                )
+            
+            for region in fls.regions_range:
+                CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter=True)
+            
+        
         
 def CalculatePAFYear(sets, fls, year):
     
     print(f"[2.1] Loading daily temperature data for year {year}...") 
-    daily_temp, num_days = tmp.LoadDailyTemperatures(temp_dir=sets.temp_dir,
-                                                     scenario=sets.scenario,
-                                                     temp_type="mean",
-                                                     year=year, 
-                                                     pop_map=fls.pop_map,
-                                                     std_factor=1)
-
-    # Select population for the corresponding year
-    pop_year = fls.pop_map.sel(time=f"{year}").mean("time").GPOP.values
+    daily_temp, num_days = tmp.LoadDailyTemperatures(
+        temp_dir=sets.temp_dir,
+        scenario=sets.scenario,
+        temp_type="mean",
+        year=year, 
+        pop_map=fls.pop_map,
+        std_factor=1
+        )
 
     print(f"[2.2] Calculating Population Attributable Fractions for year {year}...")
     for region in fls.regions_range:
-        CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp)
+        CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter=False)
     
     
     
-def CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp):
+def CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter):
     
     """
     Get the Population Atributable Fraction per region and year by:
@@ -641,11 +676,20 @@ def CalculateRegionalPAF(sets, fls, pop_year, region, year, num_days, daily_temp
             columns=[f"{col}" for col in sets.causes],
             index=df.index
         ).sum(axis=0)
-
-        # Locate aggregated PAF in annual dataframe
-        fls.paf.loc[region, (year, causes, temp_type)] = [paf_region[f"{d}"] for d in causes]
-            
         
+        if counter == False:
+            # Locate aggregated PAF in annual dataframe
+            fls.paf.loc[region, (year, causes, temp_type)] = [paf_region[f"{d}"] for d in causes]
+                
+        else:
+            if sets.counterfactual == True:
+                # Locate aggregated PAF in counterfactual dataframe
+                fls.paf_counter.loc[region, (year, causes, temp_type)] = [paf_region[f"{d}"] for d in causes]
+            else:
+                # Assing 0s to counterfactual dataframe
+                fls.paf_counter.loc[region, (year, causes, temp_type)] = [0 for d in causes]
+
+
 
 def CreatePopulationDF(sets, fls, mask, pop_year, daily_temp, num_days):
     
@@ -720,12 +764,17 @@ def PostprocessResults(sets, fls):
         
     print("[3] Model run complete. Saving results...")
     
-    # Stack dataframe to leave only years in columns
+    # Stack dataframe to leave only years in columns 
     paf = fls.paf.stack([1,2], future_stack=True).reorder_levels([1,2,0]).sort_index()
     paf.index.names = ["disease", "t_type", "region"]
     
-    # Substract counterfactual mortality
-    # paf = paf.sub(paf[list(range(2001,2011))].mean(axis=1), axis=0)
+    # Stack dataframe to leave only years in columns
+    paf_counter = fls.paf_counter.stack([1,2], future_stack=True).reorder_levels([1,2,0]).sort_index().mean(axis=1)    
+    paf_counter.index.names = ["disease", "t_type", "region"]
+    
+    # Substract counterfactual PAFs
+    paf = paf.sub(paf_counter, axis=0)
+    
     
     class ScenarioNaming:
         def __init__(self, sets):
@@ -738,10 +787,11 @@ def PostprocessResults(sets, fls):
     
     # Create project folder if it doesn't exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}{sn.erf_part}.csv"
+    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}{sn.erf_part}"
             
     # Save the results and temperature statistics
-    paf.to_csv(sn.out_path / file_name)  
+    paf.to_csv(sn.out_path / file_name + ".csv")
+    paf_counter.to_csv(sn.out_path / file_name + "_counter.csv")  
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
