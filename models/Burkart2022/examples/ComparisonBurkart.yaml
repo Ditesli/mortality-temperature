@@ -7,7 +7,6 @@ project: "ComparisonBurkart"
 scenario: "SSP2_ERA5" 
 start_year: 1980
 end_year: 2022
-counterfactual: False
 
 # Exposure Response Function Settings
 single_erf: False # Use all ERFs (False)

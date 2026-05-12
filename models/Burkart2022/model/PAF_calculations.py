@@ -18,7 +18,6 @@ def CalculatePAF(
     project: str,
     scenario: str,
     years: list,
-    counterfactual: bool,
     draw: any,
     single_erf: bool,
     extrap_erf: bool
@@ -30,7 +29,6 @@ def CalculatePAF(
         project=project,
         scenario=scenario,
         years=years,
-        counterfactual=counterfactual,
         draw=draw,
         single_erf=single_erf,
         extrap_erf=extrap_erf,
@@ -49,7 +47,6 @@ class ModelSettings:
     project: str
     scenario: str
     years: list
-    counterfactual: bool
     draw: any
     single_erf: bool
     extrap_erf: bool
@@ -682,14 +679,10 @@ def CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter)
             fls.paf.loc[region, (year, causes, temp_type)] = [paf_region[f"{d}"] for d in causes]
                 
         else:
-            if sets.counterfactual == True:
-                # Locate aggregated PAF in counterfactual dataframe
-                fls.paf_counter.loc[region, (year, causes, temp_type)] = [paf_region[f"{d}"] for d in causes]
-            else:
-                # Assing 0s to counterfactual dataframe
-                fls.paf_counter.loc[region, (year, causes, temp_type)] = [0 for d in causes]
-
-
+            # Locate aggregated PAF in counterfactual dataframe
+            fls.paf_counter.loc[region, (year, causes, temp_type)] = [paf_region[f"{d}"] for d in causes]
+            
+            
 
 def CreatePopulationDF(sets, fls, mask, pop_year, daily_temp, num_days):
     
@@ -773,8 +766,7 @@ def PostprocessResults(sets, fls):
     paf_counter.index.names = ["disease", "t_type", "region"]
     
     # Substract counterfactual PAFs
-    paf = paf.sub(paf_counter, axis=0)
-    
+    paf_counterfactual = paf.sub(paf_counter, axis=0)
     
     class ScenarioNaming:
         def __init__(self, sets):
@@ -795,7 +787,16 @@ def PostprocessResults(sets, fls):
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
+    # Reformat PAF df to xarray
     paf = ReformatPAF(sets, fls, paf)
+    paf_counterfactual = ReformatPAF(sets, fls, paf_counterfactual)
+    
+    # Calculate mortality from PAF
+    sn.counter = ""
+    p2m.PAF2Mortality(sets, fls, paf, sets.causes.values(), sn)
+    
+    # Calculate mortality from PAF in the counterfactual scenario
+    sn.counter = "_counterfactual"
     p2m.PAF2Mortality(sets, fls, paf, sets.causes.values(), sn)
     
     print("Model ran succesfully!")
