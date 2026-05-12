@@ -329,7 +329,5 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}"
     if sn.model == "Honda":
         file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}"
-    if sets.counterfactual == True:
-        file_name += "_counterfactual"
         
-    mor_rel_mor.to_csv(f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
+    mor_rel_mor.to_csv(f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}{sn.counter}.csv", index=False) 
