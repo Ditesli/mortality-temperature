@@ -57,13 +57,12 @@ class ModelSettings:
             self.years = range(self.years.start, self.years.stop + 1)
         
         # Reduce range years if working with ERA5 data
-        ERA5_START_YEAR = 2000
         ERA5_END_YEAR = 2025
 
         if re.search(r"ERA5", self.scenario):
             self.years = [
                 y for y in self.years
-                if ERA5_START_YEAR <= y <= ERA5_END_YEAR
+                if y <= ERA5_END_YEAR
             ]
             
             
@@ -123,6 +122,8 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
+        CalculateCounterPAF(self.sets, self.fls)
+        
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
@@ -166,6 +167,7 @@ class LoadInputData:
     region_dict: dict
     image_dict: dict
     paf: pd.DataFrame
+    paf_counter: pd.DataFrame 
 
 
     @classmethod
@@ -216,6 +218,7 @@ class LoadInputData:
             columns=sets.years
             )  
         
+        paf_counter = paf.copy().drop(columns=sets.years[10:])
         
         return cls(
             regions=regions,
@@ -226,7 +229,8 @@ class LoadInputData:
             pmap=pmap,
             region_dict=region_dict,
             image_dict=image_dict,
-            paf=paf
+            paf=paf,
+            paf_counter=paf_counter
         )
    
 
@@ -275,27 +279,56 @@ def LoadExposureResponseFunctionsAndPercentiles(sets, years):
 
 
 
+def CalculateCounterPAF(sets, fls):
+    
+    """
+    Calculate counterfactual PAFs using 1980-1990 the daily temperatures.
+    """
+    
+    print("[2.0] Calculating counterfactual PAFs...")
+    
+    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+
+        BASE_YEARS = range(1980, 1990)
+        
+        for year in BASE_YEARS:
+            
+            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
+            
+            daily_temp, num_days = tmp.LoadDailyTemperatures(
+                temp_dir=sets.temp_dir,
+                scenario=sets.scenario,
+                temp_type="mean",
+                year=year, 
+                pop_map=fls.pop_map,
+                std_factor=1
+                )
+            
+            for region in fls.regions_range:
+                CalculateRegionalPAF(sets, fls, region, year, daily_temp, num_days, counter=True)
+            
+
+
 def CalculatePAFYear(sets, fls, year):
     
     print(f"[2.1] Loading daily temperature data for year {year}...") 
-    daily_temp, _ = tmp.LoadDailyTemperatures(temp_dir=sets.temp_dir,
-                                                     scenario=sets.scenario,
-                                                     temp_type="mean",
-                                                     year=year, 
-                                                     pop_map=fls.pop_map,
-                                                     std_factor=1)
-
-    # Select population for the corresponding year
-    pop_year = fls.pop_map.sel(time=f"{year}").mean("time").GPOP.values
+    daily_temp, num_days = tmp.LoadDailyTemperatures(
+        temp_dir=sets.temp_dir,
+        scenario=sets.scenario,
+        temp_type="mean",
+        year=year, 
+        pop_map=fls.pop_map,
+        std_factor=1
+        )
 
     print(f"[2.2] Calculating Population Attributable Fractions for year {year}...")
     
     for region in fls.regions_range:
-        CalculateRegionalPAF(fls, pop_year, region, year, daily_temp)
+        CalculateRegionalPAF(sets, fls, region, year, daily_temp, num_days, counter=False)
         
         
     
-def CalculateRegionalPAF(fls, pop_year, region, year, daily_temp):
+def CalculateRegionalPAF(sets, fls, region, year, daily_temp, num_days, counter):
     
     """
     Get the Population Atributable Fraction per region and year by:
@@ -307,42 +340,43 @@ def CalculateRegionalPAF(fls, pop_year, region, year, daily_temp):
     4. Calculating the PAF per temperature type and storing it in the final dataframe.
     """
     
+    # Select population for the corresponding year
+    pop_year = fls.pop_map.sel(time=f"{year}").mean("time").GPOP.values
+    
     # Get region mask 
     region_mask = (pop_year > 0.) & (fls.regions == region)
+    
     # Get the population per region by masking the selected region map
-    pop_region = fls.pop_map.mean(dim="time").GPOP.values[region_mask]
+    pop_region = pop_year[region_mask]
     
     # Mask the percentiles map and daily temperature data to the selected region
     pmap = fls.pmap.t2m.values[:, region_mask]
     temp = daily_temp[region_mask]
     
-    # Map the corresponding indices of the pmap to the temperature data to assign the corresponding percentile    
+    # Map the corresponding indices of the pmap to the temperature to assign the corresponding percentile    
     p_indices = np.argmin(
         np.abs(pmap[:, :, np.newaxis] - temp[np.newaxis, :, :]), 
         axis=0
     )
     
     # Get the corresponding relative risks from the indices
-    rr = fls.erf[:,:,p_indices] - 1 # Substract 1 following Zhao et al., (2021)
+    rr = fls.erf[:,:,p_indices] 
+    
+    # Calculate Population Attributable Fraction (PAF)
+    paf = 1 - 1/rr
     
     # Mask to separate between rr from heat and rr from cold temperatures
     mask_cold = p_indices[np.newaxis, np.newaxis, :, :] < fls.tmin[:, :, np.newaxis, np.newaxis]
     
-    # Calculate the average RR for heat and cold temperatures by averaging across all days of the year (axis=3)
-    sum_cold = np.sum(np.where(mask_cold, rr, 0), axis=3)
-    sum_hot = np.sum(np.where(~mask_cold, rr, 0), axis=3)
+    # Calculate the average paf for heat and cold temperatures by averaging across all days of the year (axis=3)
+    paf_year_cold = np.sum(np.where(mask_cold, paf, 0), axis=3) / num_days
+    paf_year_hot = np.sum(np.where(~mask_cold, paf, 0), axis=3) / num_days
     
-    count_cold = np.sum(mask_cold.astype(int), axis=3)
-    count_hot = np.sum((~mask_cold).astype(int), axis=3)
-    
-    rr_cold = np.divide(sum_cold, count_cold, out=np.zeros_like(sum_cold), where=count_cold!=0)
-    rr_hot = np.divide(sum_hot, count_hot, out=np.zeros_like(sum_hot), where=count_hot!=0)
-    
-    # Get PAF per region by calculating the population-weighted average of the RR across all cells in the region
+    # Get PAF per region by calculating the population-weighted average across all cells in a region
     if pop_region.size > 0 and np.sum(pop_region) != 0:
 
-        paf_cold = np.average(rr_cold, axis=2, weights=pop_region)
-        paf_hot = np.average(rr_hot, axis=2, weights=pop_region)
+        paf_cold = np.average(paf_year_cold, axis=2, weights=pop_region)
+        paf_hot = np.average(paf_year_hot, axis=2, weights=pop_region)
         paf_all = paf_hot + paf_cold
         
     else:
@@ -350,12 +384,17 @@ def CalculateRegionalPAF(fls, pop_year, region, year, daily_temp):
         paf_hot = np.full(fls.tmin.shape, np.nan)
         paf_all = np.full(fls.tmin.shape, np.nan)
     
-    # Append to final dataframe
-    fls.paf.loc[(region, "cold"), year] = paf_cold.flatten()
-    fls.paf.loc[(region, "heat"), year] = paf_hot.flatten()
-    fls.paf.loc[(region, "all"), year] = paf_all.flatten()
-    
-    
+    for t_type, paf_type in zip(["cold", "heat", "all"], [paf_cold, paf_hot, paf_all]):
+            
+        if counter == False:    
+            # Locate aggregated PAF in annual dataframe
+            fls.paf.loc[(region, t_type), year] = paf_type.flatten()
+            
+        else:
+            # Locate aggregated PAF in counterfactual dataframe
+            fls.paf_counter.loc[(region, t_type), year] = paf_type.flatten()
+
+
     
 def PostprocessResults(sets, fls):
         
@@ -364,8 +403,11 @@ def PostprocessResults(sets, fls):
     paf = fls.paf
     paf.index.names=["region", "t_type", "cause", "age_group"]
     
-    # Substract counterfactual mortality
-    # paf = paf.sub(paf[list(range(2001,2010))].mean(axis=1), axis=0)
+    # Get counterfactual baseline to susbtract (scenario with no climate)
+    paf_counter = fls.paf_counter.mean(axis=1)   
+    paf_counter.index.names=["region", "t_type", "cause", "age_group"]
+    
+    paf_counterfactual = paf.sub(paf_counter, axis=0)
     
     # Create class to store output path and file name format
     class ScenarioNaming:
@@ -384,6 +426,10 @@ def PostprocessResults(sets, fls):
         sn.out_path /
         f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}.csv"
         ) 
+    paf_counterfactual.to_csv(
+        sn.out_path /
+        f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}_counterfactual.csv"
+        ) 
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
@@ -397,8 +443,13 @@ def PostprocessResults(sets, fls):
     
     # Change PAF format to xarray
     paf = ReformatPAF(fls, paf)
+    paf_counterfactual = ReformatPAF(fls, paf_counterfactual)
     
+    # Calculate mortality from PAF
+    sn.counter = ""
     p2m.PAF2Mortality(sets, fls, paf, gbd_causes, sn)
+    sn.counter = "_counterfactual"
+    p2m.PAF2Mortality(sets, fls, paf_counterfactual, gbd_causes, sn)
     
     print("Model ran succesfully!")
     
