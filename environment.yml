@@ -18,3 +18,4 @@ dependencies:
   - pym
   - country_converter
   - pyreadr
+  - cartopy

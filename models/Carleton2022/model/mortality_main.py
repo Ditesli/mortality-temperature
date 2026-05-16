@@ -2,7 +2,7 @@ import mortality_functions as mf
 import yaml
 from pathlib import Path
 
-config_file = Path(__file__).parent.parent / "examples" / "SPARCCLE" / "IMP-SSP2-REF-GDPIMP-CP-base.yaml"
+config_file = Path(__file__).parent.parent / "examples" / "example.yaml"
 with open(config_file) as f:
     config = yaml.safe_load(f)
     
@@ -15,5 +15,6 @@ mf.CalculateMortality(
     project=config["project"], # Project name
     scenario=config["scenario"], # Scenario name
     adaptation=config["adaptation"], # Adaptation on or off
+    counterfactual=config["counterfactual"], # Counterfactual climate scenario
     reporting_tool=config["reporting_tool"], # Report on or off
 )

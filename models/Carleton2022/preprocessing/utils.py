@@ -8,8 +8,7 @@ from rasterio.features import rasterize
 import country_converter as coco
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-import mortality_functions as mf
-
+from Carleton2022.model import mortality_functions as mf
 
 
 def RegionClassificationFile(
@@ -32,7 +31,7 @@ def RegionClassificationFile(
     ----------
     wdir : str
         Working directory path containing the Carleton model files.
-        Must include a subdirectory `carleton_sm/ir_shp/` with `impact-region.shp`.
+        Must include a subdirectory `CarletonSM/ir_shp/` with `impact-region.shp`.
     regions_file : str
         Path to the IMAGE region classification Excel file.
         The Excel file must contain a sheet named `"regions"` with, a column `"ISO3"`
@@ -50,7 +49,7 @@ def RegionClassificationFile(
     image_regions = pd.read_excel(regions_class+"region_classification.csv", sheet_name="regions")
 
     # Read impact regions shapefile and extract regions names
-    impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
+    impact_regions = gpd.read_file(wdir+"data/CarletonSM/ir_shp/impact-region.shp")
     impact_regions["ISO3"] = impact_regions["hierid"].str[:3]
 
     # Merge with IMAGE regions to get IMAGE region codes
@@ -92,7 +91,7 @@ def PopulationHistorical(
     print("Generating historical population per impact region and age group...")
     
     # Open impact regions shapefile
-    impact_regions = gpd.read_file(wdir+"/carleton_sm/ir_shp/impact-region.shp").to_crs("EPSG:4326")
+    impact_regions = gpd.read_file(wdir+"/CarletonSM/ir_shp/impact-region.shp").to_crs("EPSG:4326")
     
     # Get UN population shares per country and year
     population_shares = ProcessUNPopulation5years(wdir)
@@ -345,7 +344,7 @@ def IMAGEPopulation2ImpactRegion(wdir, pop_dir, ssp, years):
     print(f"Calculating population per impact region for SSP: {ssp}...")
     
     # Read in impact regions shapefile
-    impact_regions = gpd.read_file(wdir+"data/carleton_sm/ir_shp/impact-region.shp")
+    impact_regions = gpd.read_file(wdir+"data/CarletonSM/ir_shp/impact-region.shp")
     
     # Read IMAGE SSP population nc file
     pop_image = xr.open_dataset(pop_dir+f"/IMAGE_POP/{ssp.upper()}/GPOP.nc")
@@ -549,22 +548,34 @@ def CompletePopulationDataLustrum(df):
 
 
 
-def DailyTemperaturesERA5PresentDay(wdir, era5_dir):
+def DailyTemperaturesERA5PresentDay(wdir, era5_dir, years):
     
-    # Present day years for which to calculate T_0 (2000-2010)
-    YEARS = range(2000,2011)
+    sets = mf.ModelSettings(
+        temp_dir=era5_dir,
+        gdp_dir=None,
+        wdir=wdir,
+        project=None,
+        scenario="ERA5_SSP2",
+        years=years,
+        adaptation=False,
+        counterfactual=False,
+        reporting_tool=False
+    )
     
     # Get spatial relationship between ERA5 grid and impact regions
-    spatial_relation, ir = mf.GridRelationship(wdir, "ERA5", era5_dir, YEARS)
+    spatial_relation, ir = mf.GridRelationship(sets)
     
     # Create directory if it doesn't exist
-    out_path = Path(wdir) / "data" / "climate_data"
+    out_path = Path(wdir) / "data" / "ClimateData" / "PresentDayTemperatures"
     out_path.mkdir(parents=True, exist_ok=True)
     
     # Calculate T_0 for each year and save as CSV
-    for year in YEARS:
-        t_0 = mf.ERA5Temperature2IR(era5_dir, year, ir, spatial_relation)
-        t_0.to_csv(wdir+f"data/climate_data/ERA5_T0_{year}.csv")
+    for year in years:
+        
+        print(f"Calculating T_0 for year: {year}...")
+        
+        t_0 = mf.ERA5Temperature2IR(era5_dir, year, spatial_relation)
+        t_0.to_csv(out_path + f"/ERA5_T0_{year}.csv")
         
         
 
@@ -619,5 +630,9 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     climatologies_df = climatologies_df.groupby("index_right").mean()
     
     climatologies_df.insert(0, "hierid", ir)
-    climatologies_df.to_csv(wdir+f"data/climate_data/era5/climatologies/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
+    
+    out_path = Path(wdir) / "data" / "ClimateData" / "Climatologies"
+    out_path.mkdir(parents=True, exist_ok=True)
+    
+    climatologies_df.to_csv(out_path+f"/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
                             index=False)

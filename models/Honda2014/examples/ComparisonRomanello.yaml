@@ -1,0 +1,15 @@
+# Data paths
+wdir: 'X:/user/liprandicn/mt-comparison/honda2014'
+temp_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
+
+# Scenario settings
+project: 'ComparisonRomanello' 
+scenario:  'SSP2_ERA5'
+start_year: 1980
+end_year: 2022
+counterfactual: False
+
+# Risk function
+extrap_erf: False
+temp_max: None 
+optimal_range: 'max_1980-2010_p84'   

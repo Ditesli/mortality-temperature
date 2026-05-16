@@ -2,7 +2,7 @@ import mortality_functions as mf
 import yaml
 from pathlib import Path
 
-config_file = Path(__file__).parent / "examples" / "ERA5_default.yaml"
+config_file = Path(__file__).parent.parent / "examples" / "example.yaml"
 with open(config_file) as f:
     config = yaml.safe_load(f)
 

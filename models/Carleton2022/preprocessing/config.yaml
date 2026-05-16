@@ -1,8 +1,8 @@
 # Path to working directory where all data will be stored
-wdir: ""
+wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
 
 # Path to ERA5 daily temeprature data
-era5_dir: ""
+era5_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
 
 # Path to IMAGE regions classification folder produced manually
 regions_class: ""

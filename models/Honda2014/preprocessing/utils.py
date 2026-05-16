@@ -64,12 +64,12 @@ def calculate_optimal_temperature(
         
     (
       xr.concat(percentile_bands, dim='latitude')
-     .rename(f't2m_p{np.round(percentile*100,0)}')
+     .rename(f't2m_p{int(np.round(percentile*100,0))}')
      .assign_coords(longitude=lambda x: ((x.longitude + 180) % 360 - 180))
      .sortby("longitude") # Shift longitude coordinates to -180 - 180 range
      .drop_vars('quantile') # Drop quantile coordinate
      .pipe(lambda x: x - 273.15) # Convert to Celsius
      .round(1)
      .to_netcdf(out_dir + 
-                     f'era5_t2m_{temp_type}_{years[0]}-{years[-1]}_p{np.round(percentile*100,0)}.nc')
+                     f'era5_t2m_{temp_type}_{years[0]}-{years[-1]}_p{int(np.round(percentile*100,0))}.nc')
     )
