@@ -656,7 +656,7 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
         fls=fls,
         year=year, 
         adaptation=adaptation,
-        baseline = baseline,
+        baseline=baseline,
         counterfactual=counterfactual
         )
 
