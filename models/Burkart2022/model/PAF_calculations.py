@@ -511,6 +511,7 @@ def LoadTMRELsMap(sets, year):
 
 
 
+
 def ShiftRRfromTMREL(erf, pop_map, tmrel, temperature_zones, causes):
     
     """
@@ -522,7 +523,7 @@ def ShiftRRfromTMREL(erf, pop_map, tmrel, temperature_zones, causes):
     print("[1.7] Shifting Relative Risks (RRs) relative to TMRELs...")
     
     
-    def divide_by_tmrel(group, causes):
+    def DivideByTMREL(group, causes):
         
         """
         Locates per temperature zone the row whose daily temperature equals 
@@ -549,13 +550,97 @@ def ShiftRRfromTMREL(erf, pop_map, tmrel, temperature_zones, causes):
         .merge(erf, on=["temperature_zone"], how="right") # Merge with ERF data
         .set_index("temperature_zone")  # Set temperature_zone as index
         .groupby("temperature_zone", group_keys=False).apply( # For each tz, divide RR by TMREL
-            lambda group: divide_by_tmrel(group, list(causes.keys())))
+            lambda group: DivideByTMREL(group, list(causes.keys()))
+            )
         .reset_index()
     )
 
     return df_erf_tmrel
 
+
+
+# sets = ModelSettings(
+#         wdir="X:/user/liprandicn/mt-comparison/burkart2022",
+#         temp_dir="X:/user/liprandicn/Data/ERA5/t2m_daily",
+#         project=None,
+#         scenario="SSP2_ERA5",
+#         years=[2010],
+#         draw="mean",
+#         single_erf=False, 
+#         extrap_erf=False,
+#     )
+
+
+def LoadExposureResponseFunctionsAll(sets):
+    
+    
+    
+    def DivideByTMREL(tz):
+        # Find the index of the row where daily_temperature equals tmrel for the current temperature zone
+        diff = (tz["daily_temperature"] - tz["tmrel"]).abs()
+        id_min = diff.idxmin()
+
+        # Columns that start with "draw"
+        columnas_draw = [col for col in tz.columns if col.startswith("draw")]
+
+        # Extract row corresponding to TMREL for the current temperature zone
+        fila_divisor = tz.loc[id_min, columnas_draw]
+
+        # Divide all rows of the current temperature zone by the row corresponding to TMREL
+        tz[columnas_draw] = tz[columnas_draw].div(fila_divisor, axis="columns")
+
+        return tz
+    
+    
+    pop_map = pop.LoadPopulationMap(
+        wdir=sets.wdir,
+        scenario=sets.scenario, 
+        ssp="SSP2", 
+        years=sets.years
+        )
+    tmrel = LoadTMRELsMap(sets, 2010)
+    temperature_zones = LoadTemperatureZones(sets)
+    
+    # Mask TMREL and temperature_zones arrays with valid POP
+    mask_pop = (pop_map.GPOP > 0).any(dim="time")
+    tmrel_valid_pop = tmrel[mask_pop.values]
+    tz_valid_pop = temperature_zones[mask_pop.values]
+    
+    #  Read the raw Exposure Response Functions from the specified path.
+    erf_dict = {}
+    for cause in list(sets.causes.keys()):
+        # Open file for selected cause of death
+        erf_cause = pd.read_csv(
+            f"{sets.wdir}/data/burkart_sm/ERF/{cause}_curve_samples.csv", index_col=[0,1]
+            )
         
+        erf_cause = (
+            erf_cause
+            .astype(float).apply(lambda x: np.exp(x)) # Convert log(rr) to rr   
+            .rename_axis(index={"annual_temperature":"temperature_zone"})
+            .reset_index() # Convert MultiIndex levels into columns
+            .set_index("temperature_zone") # Keep only one index
+        )
+       
+        erf_tmrel = (
+            pd.DataFrame({"temperature_zone": tz_valid_pop, "tmrel": np.round(tmrel_valid_pop, 1)})
+            .drop_duplicates()
+            .groupby("temperature_zone")["tmrel"]
+            .mean() # Calculate TMREL mean per temperature zone
+            .round(1)
+            .reset_index()
+            .merge(erf_cause, on=["temperature_zone"], how="right") # Merge with ERF data
+            .groupby("temperature_zone", group_keys=False).apply( # For each tz, divide RR by TMREL
+                lambda group: DivideByTMREL(group)
+            )
+            .drop(columns=["tmrel"]) # Drop TMREL column after shifting RR
+        )
+        
+        erf_dict[cause] = erf_tmrel
+        
+    return erf_dict
+  
+    
 
 def AverageToSingleERF(df):
     
@@ -783,7 +868,7 @@ def PostprocessResults(sets, fls):
             
     # Save the results and temperature statistics
     paf.to_csv(sn.out_path / file_name + ".csv")
-    paf_counter.to_csv(sn.out_path / file_name + "_counter.csv")  
+    paf_counterfactual.to_csv(sn.out_path / file_name + "_counter.csv")  
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
