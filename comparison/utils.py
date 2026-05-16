@@ -262,52 +262,7 @@ def StylizeAxes(ax, *,
                 ylim=None,
                 xlim=None,
                 title=None,
-                xlabel=None,
-                ylabel=None,
-                xticks=None,
-                xtickslabels=False,
-                xtickslabels_kwargs=None,
-                yticks=None,
-                ytickslabels=False,
-                ytickslabels_kwargs=None,
-                facecolor=None,
-                grid=False,
-                grid_kwargs=None,
-                legend=False,
-                legend_kwargs=None):  
-    
-    if xscale is not None: ax.set_xscale(xscale)
-    if yscale is not None: ax.set_yscale(yscale)
-    
-    if ylim is not None: ax.set_ylim(ylim)
-    if xlim is not None: ax.set_xlim(xlim)
-    
-    if title is not None: ax.set_title(title)
-    
-    if xlabel is not None: ax.set_xlabel(xlabel)
-    if ylabel is not None: ax.set_ylabel(ylabel)
-
-    if xticks is not None: ax.set_xticks(xticks) 
-    if xtickslabels is not False: ax.set_xticklabels(xtickslabels, **(xtickslabels_kwargs or {}))
-
-    if yticks is not None: ax.set_yticks(yticks) 
-    if ytickslabels is not False: ax.set_yticklabels(ytickslabels, **(ytickslabels_kwargs or {}))
-
-    if facecolor is not None: ax.set_facecolor(facecolor)
-    if grid: ax.grid(**(grid_kwargs or {}))
-    
-    if legend: ax.legend(**(legend_kwargs or {}))
-    
-    return ax
-
-
-
-def StylizeAxes(ax, *, 
-                xscale=None,
-                yscale=None,
-                ylim=None,
-                xlim=None,
-                title=None,
+                title_kwargs=None,
                 xlabel=None,
                 ylabel=None,
                 xticks=None,
@@ -330,7 +285,7 @@ def StylizeAxes(ax, *,
     if ylim is not None: ax.set_ylim(ylim)
     if xlim is not None: ax.set_xlim(xlim)
     
-    if title is not None: ax.set_title(title)
+    if title is not None: ax.set_title(title, **(title_kwargs or {}))
     
     if xlabel is not None: ax.set_xlabel(xlabel)
     if ylabel is not None: ax.set_ylabel(ylabel)
@@ -372,7 +327,8 @@ def StylizePlot(*,
                 xticks_kwargs=None,
                 yticks_kwargs=None,
                 tight_layout=None,
-                show=True):
+                facecolor=None,
+                despine=None):
     if xscale:
         plt.xscale(xscale)
     if yscale:
@@ -399,8 +355,13 @@ def StylizePlot(*,
         plt.yticks(**yticks_kwargs)
     if tight_layout:
         plt.tight_layout()
-    if show:
-        plt.show()
+    if facecolor:
+        plt.gca().set_facecolor(facecolor)
+    if despine:
+        ax = plt.gca()
+        for spine_edge in despine:
+            if spine_edge in ax.spines:
+                ax.spines[spine_edge].set_visible(False)
 
 
 
