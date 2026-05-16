@@ -18,7 +18,6 @@ def CalculatePAF(
     project: str,
     scenario: str,
     years: list,
-    counterfactual: bool,
     optimal_range: str,
     extrap_erf: bool,
     temp_max: any
@@ -30,7 +29,6 @@ def CalculatePAF(
         project=project,
         scenario=scenario,
         years=years,
-        counterfactual=counterfactual,
         optimal_range=optimal_range,
         extrap_erf=extrap_erf,
         temp_max=temp_max
@@ -49,7 +47,6 @@ class ModelSettings:
     project: str
     scenario: str
     years: list
-    counterfactual: bool
     optimal_range: str
     extrap_erf: bool
     temp_max: any
@@ -103,17 +100,13 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
-        if self.sets.counterfactual == True:
-            paf_counter = CalculateCounterfactualPAF(self.sets, self.fls)
-        else:
-            paf_counter = None
+        CalculateCounterPAF(self.sets, self.fls)
         
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
                 fls=self.fls,
-                year=year,
-                paf_counter=paf_counter
+                year=year
                 )
             
         self.postprocess()
@@ -157,6 +150,7 @@ class LoadInputData:
     region_dict: dict
     image_dict: dict
     paf: pd.DataFrame
+    paf_counter: pd.DataFrame
     
     @classmethod
     def from_files(cls, sets):
@@ -190,10 +184,11 @@ class LoadInputData:
         region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
         
         print("[1.6] Creating final dataframe to store results...")
-        # Create final dataframe
+        # Create final dataframes
         paf = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
                             columns=sets.years)  
-        
+        paf_counter = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
+                            columns=range(1980, 1990))
         
         return cls(
             pop_ssp=pop_ssp,
@@ -205,7 +200,8 @@ class LoadInputData:
             temp_max=temp_max,
             region_dict=region_dict,
             image_dict=image_dict,
-            paf=paf
+            paf=paf,
+            paf_counter=paf_counter
         ) 
         
         
@@ -333,19 +329,11 @@ def CalculateCounterfactualPAF(sets, fls):
                 std_factor=1
                 )
 
-            paf_hot[year], paf_cold[year], paf_all[year] = AnnualPAFperRegion(fls, year, num_days, daily_temp)
-        
-        pafs_counter = {}
-        
-        pafs_counter["heat"] = np.mean(list(paf_hot.values()), axis=0)
-        pafs_counter["cold"] = np.mean(list(paf_cold.values()), axis=0)
-        pafs_counter["all"] = np.mean(list(paf_all.values()), axis=0)
-        
-    return pafs_counter
+            AnnualPAFperRegion(fls, year, num_days, daily_temp, counter=True)
 
 
 
-def CalculatePAFYear(sets, fls, year, paf_counter):
+def CalculatePAFYear(sets, fls, year):
     
     """
     Calculate PAF for a given year, and subtract counterfactual PAFs if indicated
@@ -364,16 +352,11 @@ def CalculatePAFYear(sets, fls, year, paf_counter):
     print(f"[2.2] Calculating Population Attributable Fraction for {year}...") 
     
     # Calcuate PAFs per region and corresponding year
-    paf_hot, paf_cold, paf_all = AnnualPAFperRegion(fls, year, num_days, daily_temp)
-    
-    # Locate results in paf dataframe and subtract counterfactual PAFs if indicated
-    fls.paf.loc["Heat", year] = paf_hot - paf_counter["heat"] if paf_counter is not None else paf_hot
-    fls.paf.loc["Cold", year] = paf_cold - paf_counter["cold"] if paf_counter is not None else paf_cold
-    fls.paf.loc["All", year] = paf_all - paf_counter["all"] if paf_counter is not None else paf_all
+    AnnualPAFperRegion(fls, year, num_days, daily_temp, counter=False)
 
     
 
-def AnnualPAFperRegion(fls, year, num_days, daily_temp):
+def AnnualPAFperRegion(fls, year, num_days, daily_temp, counter):
     
     """
     Calculate weighted average of PAFs per region an year, using population as weights. 
@@ -406,8 +389,6 @@ def AnnualPAFperRegion(fls, year, num_days, daily_temp):
     regions_flat = np.nan_to_num(fls.regions.ravel()).astype(int)
     pop_flat = np.nan_to_num(pop_year.ravel())
     
-    weighted_avg = {}
-    
     for mode in ["cold", "heat", "all"]:
         print(f"Calculating {mode} PAFs...")
         
@@ -427,9 +408,13 @@ def AnnualPAFperRegion(fls, year, num_days, daily_temp):
         weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
         
         # Calculate weighted average for specified regions
-        weighted_avg[mode] = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
+        weighted_paf = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
     
-    return weighted_avg["heat"], weighted_avg["cold"], weighted_avg["all"]
+        # Locate results in paf dataframe
+        if counter == False:
+            fls.paf.loc[mode.capitalize(), year] = weighted_paf
+        else:
+            fls.paf_counter.loc[mode.capitalize(), year] = weighted_paf    
     
     
 
@@ -439,6 +424,12 @@ def PostprocessResults(sets, fls):
     
     paf = fls.paf
     paf.index.names = ["t_type", "region"]
+    
+    paf_counter = fls.paf_counter.mean(axis=1)
+    paf.index.names = ["t_type", "region"]
+    
+    # Substract counterfactual PAFs
+    paf_counterfactual = paf.sub(paf_counter, axis=0)
     
     print("[3.1] Saving PAF results...")
     
@@ -452,16 +443,26 @@ def PostprocessResults(sets, fls):
     
     # Create project folder if it doesn' exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}.csv"
+    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}"
             
     # Save the results and temperature statistics
-    paf.to_csv(sn.out_path / file_name)  
+    paf.to_csv(sn.out_path / file_name + ".csv")  
+    paf_counterfactual.to_csv(sn.out_path / file_name + "_counter.csv")  
     
     print("3.2 Calculating attributable mortality and saving results...")
     
     causes = ["All causes"]  
+    
     paf = ReformatPAF(fls, paf)
+    paf_counterfactual = ReformatPAF(fls, paf_counterfactual)
+    
+    # Calculate mortality from PAF
+    sn.counter = ""
     p2m.PAF2Mortality(sets, fls, paf, causes, sn)
+    
+    # Calculate mortality from PAF in the counterfactual scenario
+    sn.counter = "_counterfactual"
+    p2m.PAF2Mortality(sets, fls, paf_counterfactual, causes, sn)
 
     print("Model ran succesfully!")
 
