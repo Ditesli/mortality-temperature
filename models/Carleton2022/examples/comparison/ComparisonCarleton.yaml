@@ -1,5 +1,5 @@
 wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
-temp_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
+temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
 gdp_dir: None
 
 start_year: 1980
