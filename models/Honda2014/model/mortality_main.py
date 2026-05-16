@@ -13,7 +13,6 @@ mf.CalculatePAF(
     project=config["project"],
     scenario=config["scenario"],   # Scenario
     years=range(config["start_year"], config["end_year"]),  #  Years range
-    counterfactual =config["counterfactual"],   # Counterfactual scenario
     optimal_range=config["optimal_range"],
     extrap_erf=config["extrap_erf"],   # Extrapolate ERF(s)
     temp_max=config["temp_max"],   # Minimum temperature to extrapolate to
