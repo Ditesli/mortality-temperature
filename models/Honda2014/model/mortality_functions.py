@@ -100,7 +100,7 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
-        CalculateCounterPAF(self.sets, self.fls)
+        CalculateCounterfactualPAF(self.sets, self.fls)
         
         for year in self.sets.years:
             CalculatePAFYear(
@@ -164,7 +164,11 @@ class LoadInputData:
         
         print("[1.1] Loading SSP population data...")
         ssp = re.search(r"SSP\d", sets.scenario).group()
-        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, sets.years)
+        years = sets.years
+        for year in range(1980, 1990):
+            if year not in sets.years:
+                years.append(year)
+        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, years.sort())
         
         print(f"[1.2] Loading region classification...")
         regions, regions_range = pop.LoadRegionClassificationMap(
@@ -446,8 +450,8 @@ def PostprocessResults(sets, fls):
     file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}"
             
     # Save the results and temperature statistics
-    paf.to_csv(sn.out_path / file_name + ".csv")  
-    paf_counterfactual.to_csv(sn.out_path / file_name + "_counter.csv")  
+    paf.to_csv(f"{sn.out_path}/{file_name}.csv")  
+    paf_counterfactual.to_csv(f"{sn.out_path}/{file_name}_counter.csv")  
     
     print("3.2 Calculating attributable mortality and saving results...")
     

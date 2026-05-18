@@ -7,7 +7,6 @@ project: 'ReplicationRomanello'
 scenario:  'SSP2_ERA5'
 start_year: 2000
 end_year: 2023
-counterfactual: False
 
 # Risk function
 extrap_erf: False
