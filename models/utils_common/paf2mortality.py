@@ -34,9 +34,12 @@ def LoadRegionClassificationDicts(wdir):
         .dropna()
     )
     
-    image_dict = dict(zip(  
-        region_names["ISO3"],
-        region_names["IMAGE26"]))
+    image_dict = dict(
+        zip(  
+            region_names["ISO3"],
+            region_names["IMAGE26"]
+            )
+        )
     
     return region_dict, image_dict
 
@@ -84,11 +87,11 @@ def LoadGBDmortality(sets, fls, causes, model):
     gbd_mor = pd.read_csv(f"{os.path.dirname(sets.wdir)}/data/GBD_mortality/IHME-GBD_2022_DATA.csv")
 
     mask = (
-            gbd_mor["cause_name"].isin(causes) & # Only selected causes of death
-            (gbd_mor["sex_name"] == "Both") & # Both sexes
-            gbd_mor["year"].isin(sets.years) & # Only years assessed
-            (gbd_mor["location_name"] != "Global") # Exclude global mortality
-        )
+        gbd_mor["cause_name"].isin(causes) & # Only selected causes of death
+        (gbd_mor["sex_name"] == "Both") & # Both sexes
+        gbd_mor["year"].isin(sets.years) & # Only years assessed
+        (gbd_mor["location_name"] != "Global") # Exclude global mortality
+    )
 
     # Mask and convert to xarray
     gbd_mor = (
@@ -108,7 +111,13 @@ def LoadGBDmortality(sets, fls, causes, model):
         
         # Create "oldest" age group composed by people over 65 years
         oldest_group = [f"{year}-{year+4} years" for year in range(65,85,5)] + ["85+ years"]
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", oldest_group, "oldest", exclude=True)
+        gbd_mor = AggCoordElementsXarray(
+            array=gbd_mor,
+            coord="age_group",
+            old_elems=oldest_group,
+            new_elem="oldest",
+            exclude=True
+            )
         
         # Remove other age groups that are not included in the analysis
         gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if "years" in c]), drop=True)
@@ -116,7 +125,13 @@ def LoadGBDmortality(sets, fls, causes, model):
     if model == "Honda":
         
         oldest_group = [f"{year}-{year+4} years" for year in range(65,85,5)] + ["85+ years"]
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", oldest_group, "oldest", exclude=True)
+        gbd_mor = AggCoordElementsXarray(
+            array=gbd_mor, 
+            coord="age_group",
+            old_elems=oldest_group,
+            new_elem="oldest",
+            exclude=True
+            )
         
         # Remove other age groups that are not included in the analysis
         gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if " " in c]), drop=True)
@@ -125,19 +140,40 @@ def LoadGBDmortality(sets, fls, causes, model):
     if model == "Scovronick":
         
         # Merge respiratory causes of death and age_groups into a single category
-        rsp_causes = ["Chronic respiratory diseases", "Respiratory infections and tuberculosis"]
+        rsp_causes = [
+            "Chronic respiratory diseases", 
+            "Lower respiratory infections",
+            "Upper respiratory infections"
+            ]
         oldest_65_group = [f'{year}-{year+4} years' for year in range(65,75,5)]
         rr_40_group = [f'{year}-{year+4} years' for year in range(30,45,5)]
         rr_55_group = [f'{year}-{year+4} years' for year in range(45,60,5)]
         rr_70_group =  [f'{year}-{year+4} years' for year in range(60,75,5)]
         rr_85_group = [f"{year}-{year+4} years" for year in range(75,85,5)] + ["85+ years"]
 
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "cause", rsp_causes, "Respiratory diseases", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", oldest_65_group, "65", exclude=False)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_40_group, "40", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_55_group, "55", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_70_group, "70", exclude=True)
-        gbd_mor = AggCoordElementsXarray(gbd_mor, "age_group", rr_85_group, "85", exclude=True)
+        gbd_mor = AggCoordElementsXarray(
+            array=gbd_mor,
+            coord="cause",
+            old_elems=rsp_causes,
+            new_elem="Respiratory diseases",
+            exclude=True
+            )
+        gbd_mor = AggCoordElementsXarray(
+            array=gbd_mor,
+            coord="age_group",
+            old_elems=oldest_65_group,
+            new_elem="65",
+            exclude=False
+            )
+        
+        for age, group in zip(["40", "55", "70", "85"], [rr_40_group, rr_55_group, rr_70_group, rr_85_group]):
+            gbd_mor = AggCoordElementsXarray(
+                array=gbd_mor,
+                coord="age_group",
+                old_elems=group,
+                new_elem=age,
+                exclude=True
+                )
         
         # Remove other age groups that are not included in the analysis
         gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if " " in c]), drop=True)
@@ -192,8 +228,14 @@ def LoadUNpopulationData(sets, model):
         oldest_group = [f'{year}-{year+4}' for year in range(65,100,5)] + ["100+"]
         all_ages_group = [f'{year}-{year+4}' for year in range(0,100,5)] + ["100+"]
         
-        un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=oldest_group, new_elem="oldest", exclude=False)
-        un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=all_ages_group, new_elem="All ages", exclude=True)
+        for old_elem, new_elem, boolean in zip([oldest_group, all_ages_group], ["oldest", "All ages"], [False, True]):
+            un_pop = AggCoordElementsXarray(
+                array=un_pop, 
+                coord="age_group", 
+                old_elems=old_elem, 
+                new_elem=new_elem, 
+                exclude=boolean
+            )
 
         un_pop = un_pop.sortby("age_group").sortby("ISO3").sortby("year")
         
@@ -201,7 +243,13 @@ def LoadUNpopulationData(sets, model):
 
         # Aggregate 5-year age groups into the same age groups as the other xarrays
         oldest_group = [f'{year}-{year+4}' for year in range(65,100,5)] + ["100+"]
-        un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=oldest_group, new_elem="oldest", exclude=True)
+        un_pop = AggCoordElementsXarray(
+            array=un_pop,
+            coord="age_group",
+            old_elems=oldest_group,
+            new_elem="oldest",
+            exclude=True
+            )
         
         # Drop age groups that are not included in the analysis (e.g. 0-4 years, 5-9 years, etc.)
         un_pop = un_pop.where(~un_pop.coords["age_group"].isin([c for c in un_pop.age_group.values if "-" in c]), drop=True)
@@ -212,7 +260,7 @@ def LoadUNpopulationData(sets, model):
         rr_40_group = [f'{year}-{year+4}' for year in range(30,45,5)]
         rr_55_group = [f'{year}-{year+4}' for year in range(45,60,5)]
         rr_65_group = [f'{year}-{year+4}' for year in range(65,75,5)]
-        rr_70_group = [f'{year}-{year+4}' for year in range(60, 75, 5)]
+        rr_70_group = [f'{year}-{year+4}' for year in range(60,75,5)]
         rr_85_group = [f"{year}-{year+4}" for year in range(75,100,5)] + ["100+"]
 
         un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_85_group, new_elem="85", exclude=True)
@@ -243,8 +291,13 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     
     if sn.model == "Scovronick":
          # Create "oldest" age group for model comparison
-        paf_mor_pop = AggCoordElementsXarray(paf_mor_pop, "age_group", ["65", "85"],
-                                             "oldest", exclude=False)
+        paf_mor_pop = AggCoordElementsXarray(
+            paf_mor_pop, 
+            "age_group", 
+            ["65", "85"],
+            "oldest",
+            exclude=False
+            )
 
     
     ### ----------------------- ISO3 -------------------------
@@ -278,7 +331,8 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     mor_image = xr.concat([
         mor_image,
         mor_image.sum(dim='ISO3').assign_coords(ISO3="World")],
-        dim='ISO3')
+        dim='ISO3'
+        )
 
     # Calcualte relative mortality and PAF for IMAGE regions
     mor_image["rel_mor"] = mor_image["mor"] * 1e5 / mor_image["pop"]

@@ -438,7 +438,8 @@ def PostprocessResults(sets, fls):
         "All causes", 
         "Cardiovascular diseases", 
         "Chronic respiratory diseases", 
-        "Respiratory infections and tuberculosis"
+        "Lower respiratory infections",
+        "Upper respiratory infections"
         ]
     
     # Change PAF format to xarray
