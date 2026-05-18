@@ -84,7 +84,7 @@ def LoadGBDmortality(sets, fls, causes, model):
     """
     
     # Load GBD mortality records
-    gbd_mor = pd.read_csv(f"{os.path.dirname(sets.wdir)}/data/GBD_mortality/IHME-GBD_2022_DATA.csv")
+    gbd_mor = pd.read_csv(f"{os.path.dirname(sets.wdir)}/data/GBD/Mortality/IHME-GBD_2023_DATA.csv")
 
     mask = (
         gbd_mor["cause_name"].isin(causes) & # Only selected causes of death
@@ -95,7 +95,8 @@ def LoadGBDmortality(sets, fls, causes, model):
 
     # Mask and convert to xarray
     gbd_mor = (
-        gbd_mor.loc[mask, ["location_id","cause_name","age_name","year","val"]]
+        gbd_mor
+        .loc[mask, ["location_id","cause_name","age_name","year","val","upper","lower"]]
         .rename(columns={"age_name": "age_group", "location_id":"ISO3", "cause_name":"cause"})
         .set_index(["ISO3","cause","age_group","year"])
         .to_xarray()
@@ -120,7 +121,11 @@ def LoadGBDmortality(sets, fls, causes, model):
             )
         
         # Remove other age groups that are not included in the analysis
-        gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if "years" in c]), drop=True)
+        gbd_mor = gbd_mor.where(
+            ~gbd_mor.coords["age_group"]
+            .isin([c for c in gbd_mor.age_group.values if "years" in c]), 
+            drop=True
+            )
     
     if model == "Honda":
         
@@ -134,7 +139,11 @@ def LoadGBDmortality(sets, fls, causes, model):
             )
         
         # Remove other age groups that are not included in the analysis
-        gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if " " in c]), drop=True)
+        gbd_mor = gbd_mor.where(
+            ~gbd_mor.coords["age_group"]
+            .isin([c for c in gbd_mor.age_group.values if " " in c]),
+            drop=True
+            )
 
     
     if model == "Scovronick":
@@ -165,7 +174,7 @@ def LoadGBDmortality(sets, fls, causes, model):
             new_elem="65",
             exclude=False
             )
-        
+
         for age, group in zip(["40", "55", "70", "85"], [rr_40_group, rr_55_group, rr_70_group, rr_85_group]):
             gbd_mor = AggCoordElementsXarray(
                 array=gbd_mor,
@@ -176,7 +185,11 @@ def LoadGBDmortality(sets, fls, causes, model):
                 )
         
         # Remove other age groups that are not included in the analysis
-        gbd_mor = gbd_mor.where(~gbd_mor.coords["age_group"].isin([c for c in gbd_mor.age_group.values if " " in c]), drop=True)
+        gbd_mor = gbd_mor.where(
+            ~gbd_mor.coords["age_group"]
+            .isin([c for c in gbd_mor.age_group.values if " " in c]),
+            drop=True
+            )
 
         # Calculate Non-cardiorespiratory causes
         gbd_ncrc = (
@@ -252,7 +265,11 @@ def LoadUNpopulationData(sets, model):
             )
         
         # Drop age groups that are not included in the analysis (e.g. 0-4 years, 5-9 years, etc.)
-        un_pop = un_pop.where(~un_pop.coords["age_group"].isin([c for c in un_pop.age_group.values if "-" in c]), drop=True)
+        un_pop = un_pop.where(
+            ~un_pop.coords["age_group"]
+            .isin([c for c in un_pop.age_group.values if "-" in c]),
+            drop=True
+            )
         
     if model == "Scovronick":
         
@@ -270,7 +287,11 @@ def LoadUNpopulationData(sets, model):
         un_pop = AggCoordElementsXarray(array=un_pop, coord="age_group", old_elems=rr_40_group, new_elem="40", exclude=True)
 
         # Drop age groups that are not included in the analysis (e.g. 0-4 years, 5-9 years, etc.)
-        un_pop = un_pop.where(~un_pop.coords["age_group"].isin([c for c in un_pop.age_group.values if "-" in c]), drop=True)
+        un_pop = un_pop.where(
+            ~un_pop.coords["age_group"]
+            .isin([c for c in un_pop.age_group.values if "-" in c]),
+            drop=True
+            )
 
         un_pop = un_pop.sortby("age_group").sortby("ISO3")
 
@@ -304,13 +325,19 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     
     # Calculate total mortality and relative mortality
     paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
+    paf_mor_pop["mor_upper"] = paf_mor_pop['paf'] * paf_mor_pop['upper']
+    paf_mor_pop["mor_lower"] = paf_mor_pop['paf'] * paf_mor_pop['lower']
     
     if sn.model == "Burkart":
+        # Calculate total mortality and relative mortality for "All causes" category
         total_causes = paf_mor_pop.sum(dim="cause")
         total_causes = total_causes.expand_dims(cause=["All causes"])
         paf_mor_pop = xr.concat([paf_mor_pop, total_causes], dim="cause")
     
+    # Calculate relative mortality per 100,000 people
     paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
+    paf_mor_pop["rel_mor_upper"] = paf_mor_pop["mor_upper"] * 1e5 / paf_mor_pop["pop"]
+    paf_mor_pop["rel_mor_lower"] = paf_mor_pop["mor_lower"] * 1e5 / paf_mor_pop["pop"]
 
     # Convert xarray to dataframe to save as csv files
     ProcessXarray2csv(sets, paf_mor_pop, "ISO3", sn)
@@ -325,7 +352,7 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
         )
 
     # Aggregate mortality and population data by IMAGE region
-    mor_image = paf_mor_pop.groupby("ISO3").sum().drop_vars(["paf", "rel_mor"])
+    mor_image = paf_mor_pop.groupby("ISO3").sum().drop_vars(["paf", "rel_mor", "rel_mor_upper", "rel_mor_lower"])
 
     # Calculate global mortality and population
     mor_image = xr.concat([
@@ -336,6 +363,8 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
 
     # Calcualte relative mortality and PAF for IMAGE regions
     mor_image["rel_mor"] = mor_image["mor"] * 1e5 / mor_image["pop"]
+    mor_image["rel_mor_upper"] = mor_image["mor_upper"] * 1e5 / mor_image["pop"]
+    mor_image["rel_mor_lower"] = mor_image["mor_lower"] * 1e5 / mor_image["pop"]
     mor_image["paf"] = mor_image["mor"] / mor_image["val"]
 
     # Convert xarray to dataframe to save as csv files
@@ -352,36 +381,43 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
     is saved as a csv file in the output folder.
     """
     
-    def ProcessMortalityData(data_array, unit_name):
+    def ProcessMortalityData(data_array, unit_name, val):
     
         df = (
             data_array.to_dataframe()
             .reset_index()
             .pivot_table(
-                index=['ISO3', 't_type', 'cause', 'age_group'],
+                index=["ISO3", "t_type", "cause", "age_group"],
                 columns='year', 
                 values=data_array.name)  # Uses the array name as the value column
             .reset_index()
             )
-        df['units'] = unit_name
+        df["units"] = unit_name
+        df["val"] = val
         
         return df
     
-    mor = ProcessMortalityData(data_array["mor"], 'Total Mortality')
-    rel_mor = ProcessMortalityData(data_array["rel_mor"], 'Relative Mortality')
     
     # Concatenate the results and save
-    mor_rel_mor = pd.concat([
-        mor, rel_mor], axis=0)[
-        ['ISO3', 't_type', 'cause', 'age_group', 'units'] 
-        + list(mor.columns[4:-1])
+    mor_rel_mor = pd.concat(
+        [
+        ProcessMortalityData(data_array["mor"], 'Total Mortality', "mean"),
+        ProcessMortalityData(data_array["rel_mor"], 'Relative Mortality', "mean"),
+        ProcessMortalityData(data_array["mor_upper"], 'Total Mortality', "upper"),
+        ProcessMortalityData(data_array["rel_mor_upper"], 'Relative Mortality', "upper"),
+        ProcessMortalityData(data_array["mor_lower"], 'Total Mortality', "lower"),
+        ProcessMortalityData(data_array["rel_mor_lower"], 'Relative Mortality', "lower")
+        ] , axis=0)[
+        ["ISO3", "t_type", "cause", "age_group", "units", "val"] + sets.years
     ].rename(columns={"ISO3": "region"})
     
+    # Create file name based on model and scenario characteristics
     if sn.model == "Scovronick":
         file_name = sn.years_part
     if sn.model == "Burkart":
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}"
     if sn.model == "Honda":
         file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}"
-        
+    
+    # Save the dataframe as a csv file
     mor_rel_mor.to_csv(f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}{sn.counter}.csv", index=False) 
