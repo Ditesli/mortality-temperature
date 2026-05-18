@@ -57,7 +57,7 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     
     # Open IMAGE SSP population data
     wdir_up = os.path.dirname(wdir)
-    pop = xr.open_dataset(f'{wdir_up}/data/image_population/{ssp}/GPOP.nc')
+    pop = xr.open_dataset(f'{wdir_up}/data/IMAGE/IMAGE_population/{ssp}/GPOP.nc')
     
     if re.search(r"ERA5", scenario):
         # Reduce resolution to 15 min to match ERA5 data
