@@ -413,11 +413,12 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
     
     # Create file name based on model and scenario characteristics
     if sn.model == "Scovronick":
-        file_name = sn.years_part
+        file_name = f"{sn.years_part}{sn.counter}"
     if sn.model == "Burkart":
-        file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}"
+        file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}{sn.counter}{sn.draw}"
     if sn.model == "Honda":
-        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}"
+        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}{sn.counter}"
+        
     
     # Save the dataframe as a csv file
-    mor_rel_mor.to_csv(f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}{sn.counter}.csv", index=False) 
+    mor_rel_mor.to_csv(f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
