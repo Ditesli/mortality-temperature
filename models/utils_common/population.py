@@ -13,7 +13,7 @@ image_index = {
     1:"CAN", 2:"USA", 3:"MEX", 4:"RCAM", 5:"BRA", 6:"RSAM", # America
     7:"NAF", 8:"WAF", 9:"EAF", 10:"SAF", # Africa
     11:"WEU", 12:"CEU", 13:"TUR", 14:"UKR", # Europe
-    15:"SEAS", 16:"RUS", 17:"ME", 18:"INDIA", 19:"KOR", 20:"CHN", 21:"SEAS", 22:"INDO", 23:"JAP", # Asia
+    15:"STAN", 16:"RUS", 17:"ME", 18:"INDIA", 19:"KOR", 20:"CHN", 21:"SEAS", 22:"INDO", 23:"JAP", # Asia
     24:"OCE", 25:"RSAS", 26:"RSAF" # Oceania + other
     } 
 
@@ -162,7 +162,7 @@ def IMAGEPopulation2Regions(shp_dir, shp_name, pop_dir, ssp, years):
     regions_shp = gpd.read_file(shp_dir+shp_name+".shp")
     
     # Read IMAGE SSP population nc file
-    pop_image = xr.open_dataset(pop_dir+f"/image_population/{ssp.upper()}/GPOP.nc")
+    pop_image = xr.open_dataset(pop_dir+f"/IMAGE/IMAGE_population/{ssp.upper()}/GPOP.nc")
     
     # Ensure CRS is set to EPSG:4326 and align with regions
     pop_image = pop_image.rio.write_crs("EPSG:4326", inplace=False)
