@@ -73,7 +73,7 @@ relevant_causes = {
 
 
 
-def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cause, val):
+def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cause, val_mor, val_erf):
     
     """
     Load mortality from ANY calculation method as time series and constrained to 
@@ -106,8 +106,11 @@ def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cau
     filter &= df["region"] == region
     
     # Condition for value
-    if "val" in df.columns:
-        filter &= df["val"].str.lower() == val.lower()
+    if "val_mor" in df.columns:
+        filter &= df["val_mor"].str.lower() == val_mor.lower()
+        
+    if "val_erf" in df.columns:
+        filter &= df["val_erf"].str.lower() == val_erf.lower()
 
     # Condition for units
     if "units" in df.columns:
