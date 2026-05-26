@@ -342,7 +342,8 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     # Convert xarray to dataframe to save as csv files
     ProcessXarray2csv(sets, paf_mor_pop, "ISO3", sn)
     
-     ### ----------------------- IMAGE -------------------------
+    
+    ### ----------------------- IMAGE -------------------------
      
     # Map location ids to IMAGE region names
     paf_mor_pop['ISO3'] = xr.DataArray(
@@ -381,13 +382,18 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
     is saved as a csv file in the output folder.
     """
     
-    def ProcessMortalityData(data_array, unit_name, val):
+    def ProcessMortalityData(sn, data_array, unit_name, val):
+        
+        if sn.model == "Scovronick":
+            index_df = ["ISO3", "t_type", "cause", "age_group", "val_erf"]
+        else:
+            index_df = ["ISO3", "t_type", "cause", "age_group"]
     
         df = (
             data_array.to_dataframe()
             .reset_index()
             .pivot_table(
-                index=["ISO3", "t_type", "cause", "age_group"],
+                index=index_df,
                 columns='year', 
                 values=data_array.name)  # Uses the array name as the value column
             .reset_index()
@@ -398,18 +404,24 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
         return df
     
     
+    if sn.model == "Scovronick":
+            cols_df = ["ISO3", "t_type", "cause", "age_group", "units", "val_erf" ,"val"]
+    else:
+            cols_df = ["ISO3", "t_type", "cause", "age_group", "units", "val"]
+    
+    
     # Concatenate the results and save
     mor_rel_mor = pd.concat(
         [
-        ProcessMortalityData(data_array["mor"], 'Total Mortality', "mean"),
-        ProcessMortalityData(data_array["rel_mor"], 'Relative Mortality', "mean"),
-        ProcessMortalityData(data_array["mor_upper"], 'Total Mortality', "upper"),
-        ProcessMortalityData(data_array["rel_mor_upper"], 'Relative Mortality', "upper"),
-        ProcessMortalityData(data_array["mor_lower"], 'Total Mortality', "lower"),
-        ProcessMortalityData(data_array["rel_mor_lower"], 'Relative Mortality', "lower")
+        ProcessMortalityData(sn, data_array["mor"], 'Total Mortality', "mean"),
+        ProcessMortalityData(sn, data_array["rel_mor"], 'Relative Mortality', "mean"),
+        ProcessMortalityData(sn, data_array["mor_upper"], 'Total Mortality', "upper"),
+        ProcessMortalityData(sn, data_array["rel_mor_upper"], 'Relative Mortality', "upper"),
+        ProcessMortalityData(sn, data_array["mor_lower"], 'Total Mortality', "lower"),
+        ProcessMortalityData(sn, data_array["rel_mor_lower"], 'Relative Mortality', "lower")
         ] , axis=0)[
-        ["ISO3", "t_type", "cause", "age_group", "units", "val"] + sets.years
-    ].rename(columns={"ISO3": "region"})
+            cols_df + sets.years
+    ].rename(columns={"ISO3": "region", "val":"val_mor"})
     
     # Create file name based on model and scenario characteristics
     if sn.model == "Scovronick":
