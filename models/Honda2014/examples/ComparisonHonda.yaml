@@ -6,8 +6,7 @@ temp_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
 project: 'ComparisonHonda' 
 scenario:  'SSP2_ERA5'
 start_year: 1980
-end_year: 2022
-counterfactual: False
+end_year: 2023
 
 # Risk function
 extrap_erf: False
