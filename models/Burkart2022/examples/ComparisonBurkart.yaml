@@ -6,7 +6,7 @@ temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
 project: "ComparisonBurkart"
 scenario: "SSP2_ERA5" 
 start_year: 1980
-end_year: 2022
+end_year: 2023
 
 # Exposure Response Function Settings
 single_erf: False # Use all ERFs (False)
