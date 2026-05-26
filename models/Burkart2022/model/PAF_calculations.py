@@ -366,7 +366,7 @@ def LoadExposureResponseFunctions(sets):
         elif sets.draw == "random":
             draw = random.randint(0,999)
             erf[cause] = erf_dict[cause][f"draw_{draw}"]  
-        elif isinstance(sets.draw_type, int):
+        elif isinstance(sets.draw, int):
             erf[cause] = erf_dict[cause][f"draw_{sets.draw}"]
         
      
@@ -860,6 +860,7 @@ def PostprocessResults(sets, fls):
             self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
             self.out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
             self.model = "Burkart"
+            self.draw = f"_{sets.draw}" if isinstance(sets.draw, int) else f"_{sets.draw.upper()}"
     sn = ScenarioNaming(sets)
     
     # Create project folder if it doesn't exist
@@ -867,8 +868,8 @@ def PostprocessResults(sets, fls):
     file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}{sn.erf_part}"
             
     # Save the results and temperature statistics
-    paf.to_csv(sn.out_path / file_name + ".csv")
-    paf_counterfactual.to_csv(sn.out_path / file_name + "_counter.csv")  
+    paf.to_csv(f"{sn.out_path}/{file_name}{sn.draw}.csv")
+    paf_counterfactual.to_csv(f"{sn.out_path}/{file_name}_counter{sn.draw}.csv")
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
@@ -882,7 +883,7 @@ def PostprocessResults(sets, fls):
     
     # Calculate mortality from PAF in the counterfactual scenario
     sn.counter = "_counterfactual"
-    p2m.PAF2Mortality(sets, fls, paf, sets.causes.values(), sn)
+    p2m.PAF2Mortality(sets, fls, paf_counterfactual, sets.causes.values(), sn)
     
     print("Model ran succesfully!")
     
