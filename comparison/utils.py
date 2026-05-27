@@ -179,6 +179,44 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
 
 
 
+def LoadBurkartMortality(wdir, filename, years, region, temp_type, unit, age_group, cause):
+    
+    """
+    Load mortality draws from Burkart et al., (2022) for a specific region, 
+    temperature type, age group and cause of death
+    """
+    
+    draws={}
+    i=1
+    
+    for draw in range(1,35):
+        for val_mor in ["lower", "mean", "upper"]:
+            burkart_counter = f"{filename}_{draw}"
+            draws[i] = LoadMortality(wdir, burkart_counter, years, region, temp_type, unit, age_group, cause, val_mor, None)
+            i += 1
+            # print(i)
+            
+    burkart_df = pd.concat(draws.values(), ignore_index=True)
+    
+    b_mean = burkart_df.quantile(q=0.5, axis=0, interpolation="linear")
+    b_p025 = burkart_df.quantile(q=0.025, axis=0, interpolation="linear")
+    b_p975 = burkart_df.quantile(q=0.975, axis=0, interpolation="linear")
+    
+    return b_mean, b_p025, b_p975
+        
+        
+# wdir = "X:\\user\\liprandicn\\mt-comparison\\"
+# temp_type = "heat"
+# unit = "total"
+# age_group = "oldest"
+# region = "World"
+# years = range(1980,2024)
+# cause = "All causes"
+# burkart_counter = "burkart2022/output/ComparisonBurkart/MOR_ComparisonBurkart_SSP2_ERA5_IMAGE_1980-2023_counterfactual"
+
+# burkart_counter = LoadBurkartMortality(wdir, burkart_counter, years, region, temp_type, unit, age_group, cause)
+
+
 def LoadBallesterScatter(wdir):
     
     # Open ballester results
