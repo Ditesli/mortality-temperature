@@ -25,6 +25,7 @@ def CalculateMortality(
     scenario: str,
     adaptation: bool,
     counterfactual: bool,
+    draw: any,
     reporting_tool: bool
 ):
 
@@ -37,6 +38,7 @@ def CalculateMortality(
         years=years,
         adaptation=adaptation,
         counterfactual=counterfactual,
+        draw=draw,
         reporting_tool=reporting_tool
     )
 
@@ -56,6 +58,7 @@ class ModelSettings:
     years: list
     adaptation: bool
     counterfactual: bool
+    draw: any
     reporting_tool: bool
     age_groups: list = field(default_factory=lambda: ["young", "older", "oldest"])
     T: np.ndarray = field(default_factory=lambda: np.arange(-20, 40.1, 0.1).round(1))
@@ -225,7 +228,7 @@ class LoadInputData:
         
         results_image, results_iso3 = FinalDataframe(sets, region_class)
         
-        gamma_coeffs = ImportGammaCoefficients(sets.wdir)
+        gamma_coeffs = ImportGammaCoefficients(sets)
         
         population = ImportPopulationData(sets, ir)    
     
@@ -281,7 +284,7 @@ class BaselineERFsInputs:
     def from_sets(sets, fls):
         
         # Import present day covariates
-        print("[1.4] Loading 'present day' covariates climtas and loggdppc...")
+        print("[1.5] Loading 'present day' covariates climtas and loggdppc...")
         
         climtas_t0, loggdppc_t0 = ImportCovariates(
             sets=sets, 
@@ -302,7 +305,7 @@ class BaselineERFsInputs:
             counterfactual=None
             ) 
         
-        print("[1.5] Loading 'present-day' temperature data...")
+        print("[1.6] Loading 'present-day' temperature data...")
         
         # Import present day temperatures
         if re.search(r"comparison", sets.project.lower()):
@@ -485,12 +488,14 @@ def FinalDataframe(sets, region_class):
 
 
 
-def ImportGammaCoefficients(wdir):    
+def ImportGammaCoefficients(sets):    
     
     """
     Import gamma coefficients from the paper's Suplementary Material and convert 
     them to the right format to be multiplied later on by the covariates
     (climtas y loggdppc).
+    The settings have the option to choose between the mean estimations or to draw
+    from the distribution of the gamma coefficients using the variance-covariance matrix.
     
     Returns:
     ----------
@@ -504,7 +509,15 @@ def ImportGammaCoefficients(wdir):
         2 --> multiply by the covariate loggdppc
     """
     
-    with open(wdir+"/data/CarletonSM/Agespec_interaction_response.csvv") as f:
+    if sets.draw == "mean":
+        print("[1.3] Loading gamma coefficients - Mean estimates")
+    else:
+        print(f"[1.3] Loading gamma coefficients - Random draw from the normal distribution")
+    
+    with open(sets.wdir+"/data/CarletonSM/Agespec_interaction_response.csvv") as f:
+        
+        # Initialize nupt array of 36x36
+        vcv = np.zeros((36,36))
         
         # Extract relevant lines
         for i, line in enumerate(f, start=1):
@@ -519,6 +532,11 @@ def ImportGammaCoefficients(wdir):
             if i == 23:
                 # Extract gamma coefficients
                 gammas = np.array([float(x) for x in line.strip().split(", ")])
+            
+            if i in range(25,61):
+                vcv[i-25] = np.array([float(x) for x in line.strip().split(", ")])
+                
+    gammas = np.random.multivariate_normal(mean=gammas, cov=vcv, size=1) if sets.draw != "mean" else gammas
                 
     return gammas.reshape(3,12), covar_idx.reshape(3,12)
 
@@ -526,7 +544,7 @@ def ImportGammaCoefficients(wdir):
 
 def ImportPopulationData(sets, ir):
     
-    print(f"[1.3] Loading Population data for {sets.scenario} scenario at the impact regions level...")
+    print(f"[1.4] Loading Population data for {sets.scenario} scenario at the impact regions level...")
     
     # Extract SSP from scenario string
     match = re.search(r"(?i)\bssp\d+", sets.scenario)
@@ -1660,6 +1678,10 @@ def PostprocessResults(sets, fls):
         project = f"{sets.project}"
     else:
         project = ""
+    if sets.draw == "mean":
+        draw = "MEAN"
+    else: 
+        draw = f"_{sets.draw}"
         
     output_iso3_dir = sets.wdir + "/output/" + f"{sets.project}" + "/ISO3" 
     os.makedirs(output_iso3_dir, exist_ok=True)   
@@ -1668,8 +1690,8 @@ def PostprocessResults(sets, fls):
     
     # Save results to CSV                
     results_image.to_csv(output_image_dir +
-                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv") 
+                   f"/MOR_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.csv") 
     results_iso3.to_csv(output_iso3_dir +
-                   f"/MOR_{project}_{sets.scenario}_{adaptation}_{sets.years[0]}-{sets.years[-1]}.csv")
+                   f"/MOR_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.csv")
     
     print("Scenario ran successfully!")
