@@ -203,6 +203,26 @@ def LoadBurkartMortality(wdir, filename, years, region, temp_type, unit, age_gro
     b_p975 = burkart_df.quantile(q=0.975, axis=0, interpolation="linear")
     
     return b_mean, b_p025, b_p975
+
+
+
+def LoadCarletonMortality(wdir, filename, years, region, temp_type, unit, age_group, cause):
+    
+    draws = {}
+    i = 1
+    
+    for draw in range(1,5):
+        carleton_counter = f"{filename}_{draw}"
+        draws[i] = LoadMortality(wdir, carleton_counter, years, region, temp_type, unit, age_group, cause, None, None)
+        i += 1
+        
+    carleton_df = pd.concat(draws.values(), ignore_index=True)
+    
+    c_mean = carleton_df.mean(axis=0)
+    c_p025 = carleton_df.quantile(q=0.025, axis=0, interpolation="linear")
+    c_p975 = carleton_df.quantile(q=0.975, axis=0, interpolation="linear")
+    
+    return c_mean, c_p025, c_p975
         
         
 # wdir = "X:\\user\\liprandicn\\mt-comparison\\"
@@ -212,9 +232,10 @@ def LoadBurkartMortality(wdir, filename, years, region, temp_type, unit, age_gro
 # region = "World"
 # years = range(1980,2024)
 # cause = "All causes"
-# burkart_counter = "burkart2022/output/ComparisonBurkart/MOR_ComparisonBurkart_SSP2_ERA5_IMAGE_1980-2023_counterfactual"
+# # burkart_counter = "burkart2022/output/ComparisonBurkart/MOR_ComparisonBurkart_SSP2_ERA5_IMAGE_1980-2023_counterfactual"
+# carleton_file = "carleton2022/output/ComparisonCarletonCounter/IMAGE/MOR_ComparisonCarletonCounter_SSP2_ERA5_NoAdap_1980-2023"
 
-# burkart_counter = LoadBurkartMortality(wdir, burkart_counter, years, region, temp_type, unit, age_group, cause)
+# carleton_counter = LoadCarletonMortality(wdir, carleton_file, years, region, temp_type, unit, age_group, cause)
 
 
 def LoadBallesterScatter(wdir):
