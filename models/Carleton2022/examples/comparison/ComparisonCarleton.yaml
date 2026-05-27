@@ -3,11 +3,12 @@ temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
 gdp_dir: None
 
 start_year: 1980
-end_year: 2022
+end_year: 2023
 
 project: ComparisonCarleton
 scenario: "SSP2_ERA5"
 adaptation: False
 counterfactual: False
+draw: "mean"
 
 reporting_tool: False
