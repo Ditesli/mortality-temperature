@@ -46,17 +46,21 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
     era5_daily = xr.open_dataset(era5_dir+f"/era5_t2m_{temp_type}_day_{year}.nc")
     
     # Shift longitudinal coordinates  
-    era5_daily = era5_daily.assign_coords(longitude=((era5_daily.coords["longitude"] + 180) % 360 - 180)).sortby("longitude")
+    era5_daily = era5_daily.assign_coords(
+        longitude=((era5_daily.coords["longitude"] + 180) % 360 - 180)
+        ).sortby("longitude")
     
     # Convert to Celsius 
     era5_daily -= 273.15
     
     if pop_map is not None:
         # Match grid with population data. Nearest neighbor interpolation
-        era5_daily = era5_daily.interp(latitude=np.clip(pop_map.latitude, 
-                                                        era5_daily.latitude.min().item(), 
-                                                        era5_daily.latitude.max().item()), 
-                                    method="nearest")
+        era5_daily = era5_daily.interp(
+            latitude=np.clip(pop_map.latitude, 
+            era5_daily.latitude.min().item(), 
+            era5_daily.latitude.max().item()), 
+            method="nearest"
+            )
         
     # Swap axes to match required format
     if to_array:
@@ -71,10 +75,57 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
         num_days = 365
     
     return daily_temp, num_days
-        
+
+
+
+def DailyTemperatureFromEmulator(em, year):
+    
+    """
+    Generate daily temperature data for a given year from the monthly statistics (std) 
+    that the EERIE emulator produces for that year, assuming a normal distribution.
+    """
+    
+    
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+        NUMBER_DAYS = 366
+    else:
+        NUMBER_DAYS = 365
+    
+    # Run emulator to get monthly mean and std data for the year
+    temperature_mean, temperature_std = em.run_emulator(year)
+    
+    # Generate monthly dates (15th OR 16th of each month)
+    monthly_dates = pd.date_range(
+        start=f"15/12/{year-1}", 
+        end=f"15/2/{year+1}", freq="ME"
+        ) - pd.DateOffset(days=15)
+    
+    # Interpolate to daily data
+    temperature_mean = (
+        temperature_mean
+        .assign_coords(month=monthly_dates) # Change monthly coordinates to datetime
+        .rename({"month": "valid_time"}) 
+        .drop_vars("time") # Drop original time coordinate
+        .resample(valid_time="1D")
+        .interpolate("slinear") # Interpolate to daily data
+        .sel(valid_time=slice(f"{year}-01-01", f"{year}-12-31")) # Keep selected year
+    )
+
+    temperature_std = temperature_std.rename({"month":"NM"})
+
+    daily_temperature = DailyTemperatureFromNormalPDF(
+        time=year, 
+        number_days=NUMBER_DAYS, 
+        temp_daily_mean=temperature_mean, 
+        temp_std=temperature_std, 
+        std_factor=1
+        )
+    
+    return daily_temperature
+    
     
 
-def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarray=False):
+def DailyFromMonthlyTemperature(temp_dir, year, temp_type, std_factor, to_xarray=False):
     
     """
     Generate daily temperature data fro a given year from monthly statistics assuming 
@@ -95,23 +146,13 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     """
     
     # Define num_days for leap year/non-leap year
-    # ---------- Importing single year -------------
-    if isinstance(years, int):
-        mid_year = years
-        years = [years]
-        if (mid_year % 4 == 0 and mid_year % 100 != 0) or (mid_year % 400 == 0):
-            NUMBER_DAYS = 366
-        else:
-            NUMBER_DAYS = 365
-            
-    # ---------- Importing mean of multiple years ---------
-    else: 
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
         NUMBER_DAYS = 366
-        mid_year = 2000
-        years = years
-        
+    else:
+        NUMBER_DAYS = 365
+    
     # Read monthly statistics
-    temperature_monthly_mean, temperature_monthly_std = OpenMontlhyTemperatures(
+    temperature_mean, temperature_monthly_std = OpenMontlhyTemperatures(
         temp_dir=temp_dir, 
         temp_type=temp_type
         )
@@ -119,82 +160,71 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     # Select std data and get the mean of the specific year
     temperature_monthly_std = (
         temperature_monthly_std
-        .sel(time=slice(f"{years[0]}-01-01", f"{years[-1]}-01-01"))
+        .sel(time=slice(f"{year}-01-01", f"{year}-01-01"))
         .mean(dim="time")
     )
     
     # Prepare monthly mean data including December of previous year and January of next year
-    temeprature_monthly_mean_present = []
-    
-    temeprature_monthly_mean_present.append(
-        temperature_monthly_mean
-        .sel(time=f"{years[0]-1}-01-01")
-        .isel(NM=11)
-    )   
-    
-    for y in years:
-        temeprature_monthly_mean_present.append(
-            temperature_monthly_mean
-            .sel(time=f"{y}-01-01")
-        )
-    
-    if years[-1] == 2100:
-        final_year = years[-1]
-    else:
-        final_year = years[-1]+1
-        
-    temeprature_monthly_mean_present.append(
-        temperature_monthly_mean
-        .sel(time=f"{final_year}-01-01")
-        .isel(NM=0)
+    temperature_mean_present = []
+    # Repeat 2100 for January 2101
+    final_year = 2100 if year == 2100 else year+1
+
+    # Append December of previous year, January of selected year, and January of next year for interpolation
+    temperature_mean_present.append(
+        temperature_mean.sel(time=f"{year-1}-01-01").isel(NM=-1)
+    ).append(
+        temperature_mean.sel(time=f"{year}-01-01")
+    ).append(
+        temperature_mean.sel(time=f"{final_year}-01-01").isel(NM=0)
     )
 
     # Concatenate December of previous year and January of next year for smooth transition
     dec_years_jan = xr.concat(
-        temeprature_monthly_mean_present, 
+        temperature_mean_present, 
         dim="NM",
         coords="different",
         compat="equals"
     )
     
     # Generate monthly dates (15th OR 16th of each month)
-    monthly_dates = pd.date_range(start=f"15/12/{years[0]-1}", 
-                                  end=f"15/2/{years[-1]+1}", freq="ME") - pd.DateOffset(days=15)
+    monthly_dates = pd.date_range(
+        start=f"15/12/{year-1}", 
+        end=f"15/2/{year+1}", freq="ME"
+        ) - pd.DateOffset(days=15)
     
     # Change NM data to monthly data and rename variable
-    dec_years_jan = (
-        dec_years_jan
-        .assign_coords(NM=monthly_dates)
-        .rename({"NM": "valid_time"}).drop_vars("time")
-    )
-    
-    # Interpolation (slinear for now) of the existing years and calculate daily mean over all years (or single year)
     temperature_interpolated = (
         dec_years_jan
+        .assign_coords(NM=monthly_dates)  # Change monthly coordinates to datetime
+        .rename({"NM": "valid_time"})
+        .drop_vars("time") # Drop original time coordinate
         .resample(valid_time="1D")
-        .interpolate("slinear")
-        .sel(valid_time=slice(f"{years[0]}-01-01", f"{years[-1]}-12-31"))
-        .groupby("valid_time.dayofyear")
-        .mean("valid_time")
+        .interpolate("slinear") # Interpolate to daily data
+        .sel(valid_time=slice(f"{year}-01-01", f"{year}-12-31")) # Keep selcted year
     )
     
+    
     # Generate daily temperature data from monthly STD statistics
-    daily_temperature = DailyTemperatureFromNormalPDF(year=mid_year, 
-                                                      number_days=NUMBER_DAYS, 
-                                                      temp_daily_mean=temperature_interpolated, 
-                                                      temp_std=temperature_monthly_std, 
-                                                      std_factor=std_factor)
+    daily_temperature = DailyTemperatureFromNormalPDF(
+        time=year, 
+        number_days=NUMBER_DAYS, 
+        temp_daily_mean=dec_years_jan, 
+        temp_std=temperature_monthly_std, 
+        std_factor=std_factor
+        )
     
     if to_xarray == True:
         # Convert to xarray DataArray
-        daily_dates = pd.date_range(f"{mid_year}-01-01", f"{mid_year}-12-31", freq="D")
+        daily_dates = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D")
         
         # Create xarray DataArray with original coordinates
-        daily_temperature = xr.DataArray(daily_temperature,
-                               coords={"latitude": temperature_interpolated.latitude,
-                                       "longitude": temperature_interpolated.longitude,
-                                       "valid_time":daily_dates},
-                              dims=["latitude", "longitude", "valid_time"])
+        daily_temperature = xr.DataArray(
+            daily_temperature,
+            coords={"latitude": temperature_interpolated.latitude,
+                    "longitude": temperature_interpolated.longitude,
+                    "valid_time":daily_dates},
+            dims=["latitude", "longitude", "valid_time"]
+            )
     
     return daily_temperature, NUMBER_DAYS
 
@@ -204,7 +234,7 @@ def OpenMontlhyTemperatures(temp_dir, temp_type):
     
     """
     Read monthly statistics of daily temperature data (mean and standard deviation)
-    according to the temeprature type (temp_type):
+    according to the temperature type (temp_type):
     - temp_type = "MEAN": mean and std of daily mean temperatures
     - temp_type = "MAX": mean and std of daily maximum temperatures
     
@@ -239,7 +269,7 @@ def OpenMontlhyTemperatures(temp_dir, temp_type):
 
 
 
-def DailyTemperatureFromNormalPDF(year, number_days, temp_daily_mean, temp_std, std_factor):
+def DailyTemperatureFromNormalPDF(time, number_days, temp_daily_mean, temp_std, std_factor):
     
     """
     Generate daily temperature data from monthly statistics assuming normal distribution.
@@ -253,12 +283,12 @@ def DailyTemperatureFromNormalPDF(year, number_days, temp_daily_mean, temp_std, 
     """
     
     # Generate daily dates for the year
-    daily_dates = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D")
+    daily_dates = pd.date_range(f"{time}-01-01", f"{time}-12-31", freq="D")
 
     lats = 360
     lons = 720
-    day_idx=0
-    
+    day_idx = 0
+
     synthetic_daily = np.empty((lats, lons, number_days))
     
     for i, m in enumerate(temp_std.NM.values):
@@ -268,7 +298,7 @@ def DailyTemperatureFromNormalPDF(year, number_days, temp_daily_mean, temp_std, 
         n_days = np.sum(daily_dates.month == month)
         
         # Get mean and std for the month
-        sigma = temp_std.sel(NM= m).values
+        sigma = temp_std.sel(NM=m).values
         mean = temp_daily_mean.values[..., day_idx:day_idx+n_days]
         
         #Create array of zeros with same shape as mean to use as mu
@@ -276,6 +306,9 @@ def DailyTemperatureFromNormalPDF(year, number_days, temp_daily_mean, temp_std, 
         
         # Adjust std to change daily variability
         sigma = std_factor*sigma 
+        
+        # Change any negative and nan std values to a small positive number to avoid issues with normal distribution
+        sigma = np.where(sigma <= 0, 0.1, sigma)     
 
         # Generate random daily variability from normal distribution
         vals = np.random.normal(mu, sigma, size=(n_days, lats, lons))
@@ -304,11 +337,13 @@ def error_daily_stats(year, daily_temp, temp_mean, temp_std):
     
     daily_dates = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D")
     
-    daily_temp_xr = xr.DataArray(daily_temp,
-                               coords={"latitude":temp_mean.latitude,
-                                       "longitude":temp_mean.longitude,
-                                       "time":daily_dates},
-                              dims=["latitude", "longitude", "time"])
+    daily_temp_xr = xr.DataArray(
+        daily_temp,
+        coords={"latitude":temp_mean.latitude,
+                "longitude":temp_mean.longitude,
+                "time":daily_dates},
+        dims=["latitude", "longitude", "time"]
+        )
     # Calculate monthly mean and std from generated daily data
     monthly_mean = daily_temp_xr.resample(time="1M").mean()
     monthly_std = daily_temp_xr.resample(time="1M").std()
