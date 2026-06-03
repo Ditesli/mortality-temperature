@@ -9,7 +9,9 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import re, sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils_common import temperature as tmp
+from utils_common import climate_emulator as ce
 import prism
+
 
 
 
@@ -26,7 +28,8 @@ def CalculateMortality(
     adaptation: bool,
     counterfactual: bool,
     draw: any,
-    reporting_tool: bool
+    reporting_tool: bool,
+    emulator: any
 ):
 
     sets = ModelSettings(
@@ -39,7 +42,8 @@ def CalculateMortality(
         adaptation=adaptation,
         counterfactual=counterfactual,
         draw=draw,
-        reporting_tool=reporting_tool
+        reporting_tool=reporting_tool,
+        emulator=emulator
     )
 
     model = MortalityModel(sets=sets)
@@ -60,19 +64,23 @@ class ModelSettings:
     counterfactual: bool
     draw: any
     reporting_tool: bool
+    emulator: any
     age_groups: list = field(default_factory=lambda: ["young", "older", "oldest"])
     T: np.ndarray = field(default_factory=lambda: np.arange(-20, 40.1, 0.1).round(1))
     
     def __post_init__(self):
+        
         self.years = self.validate_years()
         self.temp_dir = self.climate_dir()
-    
+
     
     def climate_dir(self) -> str:
+        
         """
         Set path to climate data depending on the scenario type 
         (IMAGE or other scenarios)
         """
+        
         if self.temp_dir == self.gdp_dir:
             return (
                 f"{self.temp_dir}/"
@@ -81,6 +89,7 @@ class ModelSettings:
             )
         else:
             return self.temp_dir
+        
         
     def __post_init__(self):
         
@@ -208,7 +217,9 @@ class LoadInputData:
     results_iso3: pd.DataFrame
     gammas: any
     pop: pd.DataFrame
+    run_emulator: any
     base_years: list=range(2001,2011)
+    
 
     @classmethod
     def from_files(cls, sets):
@@ -231,6 +242,13 @@ class LoadInputData:
         gamma_coeffs = ImportGammaCoefficients(sets)
         
         population = ImportPopulationData(sets, ir)    
+        
+        # Initialize the emulator
+        if sets.emulator is not None:
+            print(f"[1.5] Initializing climate emulator for {sets.scenario} scenario...")
+            run_emulator = ce.Run_Emulator(sets)
+        else: 
+            run_emulator = None
     
         return cls(
             spatial_relation=spatial_relation,
@@ -239,7 +257,8 @@ class LoadInputData:
             results_image=results_image,
             results_iso3=results_iso3,
             gammas = gamma_coeffs,
-            pop = population
+            pop = population,
+            run_emulator = run_emulator
         )
     
 
@@ -284,7 +303,7 @@ class BaselineERFsInputs:
     def from_sets(sets, fls):
         
         # Import present day covariates
-        print("[1.5] Loading 'present day' covariates climtas and loggdppc...")
+        print("[1.6] Loading 'present day' covariates climtas and loggdppc...")
         
         climtas_t0, loggdppc_t0 = ImportCovariates(
             sets=sets, 
@@ -305,7 +324,7 @@ class BaselineERFsInputs:
             counterfactual=None
             ) 
         
-        print("[1.6] Loading 'present-day' temperature data...")
+        print("[1.7] Loading 'present-day' temperature data...")
         
         # Import present day temperatures
         if re.search(r"comparison", sets.project.lower()):
@@ -315,9 +334,8 @@ class BaselineERFsInputs:
             
         daily_temp_t0 = ImportPresentDayTemperatures(
             sets=sets, 
+            fls=fls,
             base_years=years_range, 
-            ir=fls.ir, 
-            spatial_relation=fls.spatial_relation
             )
         
         # Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
@@ -381,45 +399,54 @@ def GridRelationship(sets):
             (lon + lon_size, lat + lat_size),
             (lon, lat + lat_size)
         ])
+    
+    
+    if sets.emulator is None:
 
-    # --------------------- Read climate data ----------------------
-    
-    # ---------- If ERA5 data ----------
-    if re.search(r"ERA5", sets.scenario):
-        # Use function located in the utils_common folder to import ERA5 data in the right format
-        grid,_ = tmp.DailyTemperatureERA5(
-            era5_dir=sets.temp_dir, 
-            year=sets.years[0], 
-            temp_type="mean", 
-            pop_map=None, 
-            to_array=False
-            )
-    
-    # --------- If Monthly Statistics (MS) data ----------  
-    else:
-        # Directory to IMAGE Land output
-        temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
-        # Use function to import monthly statistics (MS) of daily temperature data in the right format
-        grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=temperature_directory, 
-            years=sets.years[0], 
-            temp_type="MEAN", 
-            std_factor=1, 
-            to_xarray=True
-            )
+        # --------------------- Read climate data ----------------------
         
+        # ---------- If ERA5 data ----------
+        if re.search(r"ERA5", sets.scenario):
+            # Use function located in the utils_common folder to import ERA5 data in the right format
+            grid,_ = tmp.DailyTemperatureERA5(
+                era5_dir=sets.temp_dir, 
+                year=sets.years[0], 
+                temp_type="mean", 
+                pop_map=None, 
+                to_array=False
+                )
+        
+        # --------- If Monthly Statistics (MS) data ----------  
+        else:
+            # Directory to IMAGE Land output
+            temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
+            # Use function to import monthly statistics (MS) of daily temperature data in the right format
+            grid,_ = tmp.DailyFromMonthlyTemperature(
+                temp_dir=temperature_directory, 
+                years=sets.years[0], 
+                temp_type="MEAN", 
+                std_factor=1, 
+                to_xarray=True
+                )
+            
 
-    # Extract coordinates
-    def FindCoordinateName(possible_names, coord_names, temperature):
-    
-        for name in possible_names:
-            if name in coord_names:
-                return temperature[name].values
-        raise KeyError(f"No coordinate was found among: {possible_names}")
-    
-    coord_names = grid.coords.keys()
-    lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, grid)
-    lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, grid)
+        # Extract coordinates
+        def FindCoordinateName(possible_names, coord_names, temperature):
+        
+            for name in possible_names:
+                if name in coord_names:
+                    return temperature[name].values
+            raise KeyError(f"No coordinate was found among: {possible_names}")
+        
+        coord_names = grid.coords.keys()
+        lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, grid)
+        lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, grid)
+        
+    else:
+        # Asign as lot and lan vals the emulator grid with 0.5 egree resolution
+        lon_vals = np.arange(-180, 180, 0.5)
+        lat_vals = np.arange(-90, 90, 0.5)
+        
 
     # Create meshgrid 
     lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)  
@@ -510,9 +537,9 @@ def ImportGammaCoefficients(sets):
     """
     
     if sets.draw == "mean":
-        print("[1.3] Loading gamma coefficients - Mean estimates")
+        print("[1.3] Loading gamma coefficients - Mean estimates...")
     else:
-        print(f"[1.3] Loading gamma coefficients - Random draw from the normal distribution")
+        print(f"[1.3] Loading gamma coefficients - Random draw from the normal distribution...")
     
     with open(sets.wdir+"/data/CarletonSM/Agespec_interaction_response.csvv") as f:
         
@@ -1141,10 +1168,71 @@ def MonotonicityERF(T, erf, tmin_g):
     erf_final = np.maximum(erf_final, 0)
     
     return erf_final     
+
+
+
+def ImportPresentDayTemperatures(sets, fls, base_years):
+    
+    """
+    The function will import the daily temperatures from 2000 to 2010, either precalculated
+    ERA5 data or climate data from prescribed scenario. The output is a dictionary of numpy 
+    arrays with the daily temperature per impact region and year.
+    """
+    
+    t0_mean = {}
+    for year in base_years:
+     
+    # ------------------ ERA5 ------------------
+        if re.search(r"SSP[1-5]_ERA5", sets.scenario):      
+            
+            # Read ERA5 daily temperature data for a specific year
+            era5_t0 = pd.read_csv(
+                sets.wdir +
+                f"/data/ClimateData/PresentDayTemperatures/ERA5_T0_{year}.csv"
+                )
+            
+            # Store in dictionary as numpy arrays
+            t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
+            
+            
+    # -------------- Emulator data --------------
+        if sets.emulator is not None:
+            
+            # Import daily temperature data from emulator for a specific year
+            daily_temperature = tmp.DailyTemperatureFromEmulator(fls.run_emulator, year)
+            
+            # Aggregate daily temperature data to impact region level
+            t0_mean[year] = MSTemperature2IR(
+                temp=daily_temperature, 
+                time=year,
+                spatial_relation=fls.spatial_relation).iloc[:,1:].to_numpy()
+        
+            
+    # -------------- Scenario data --------------
+        else: 
+        
+            temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
+            
+            # Read daily temperature data generated from monthly statistics
+            daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
+                temp_dir=temperature_directory, 
+                years=base_years,
+                temp_type="MEAN",
+                std_factor=1, 
+                to_xarray=False
+            )
+
+            # Aggregate daily temperature data to impact region level
+            t0_mean[year] = MSTemperature2IR(
+                temp=daily_temperature, 
+                time=year,
+                spatial_relation=fls.spatial_relation).iloc[:,1:].to_numpy()
+        
+    return t0_mean
     
     
         
-def DailyTemperature2IR(sets, year, ir, spatial_relation):
+def DailyTemperature2IR(sets, fls, year):
     
     """
     Convert daily temperature data of one year to temeprature values at the impact region 
@@ -1157,7 +1245,23 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
     if "ERA5" in sets.scenario:
         
         # Open daily temperature data from ERA5
-        daily_temperature = ERA5Temperature2IR(sets.temp_dir, year, spatial_relation)
+        daily_temperature = ERA5Temperature2IR(
+            sets.temp_dir, 
+            year, 
+            fls.spatial_relation
+            )
+        
+    if sets.emulator is not None:
+        
+        # Load daily temperature produced by the emulator and assuming normal distribution
+        daily_temperature = tmp.DailyTemperatureFromEmulator(fls.run_emulator, year)
+        
+        # Aggregate daily temperature data to impact region level
+        daily_temperature = MSTemperature2IR(
+            temp=daily_temperature, 
+            time=year, 
+            spatial_relation=fls.spatial_relation
+            )
         
     else:
                 
@@ -1168,14 +1272,15 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
             years=year, 
             temp_type="MEAN", 
             std_factor=1,
-            to_xarray=False)
+            to_xarray=False
+            )
         
         # Aggregate daily temperature data to impact region level
         daily_temperature = MSTemperature2IR(
             temp=daily_temperature, 
-            year=year, 
-            ir=ir, 
-            spatial_relation=spatial_relation)
+            time=year, 
+            spatial_relation=fls.spatial_relation
+            )
     
     # Convert dataframe to numpy array    
     daily_temperature = daily_temperature.to_numpy()
@@ -1184,7 +1289,7 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
 
 
 
-def MSTemperature2IR(temp, year, ir, spatial_relation):
+def MSTemperature2IR(temp, time, spatial_relation):
     
     """
     Import gridded daily temperature data of one year from montlhy statistics and convert 
@@ -1193,7 +1298,7 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
     """
     
     # Create a list of dates for the specified year
-    date_list = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
+    date_list = pd.date_range(f"{time}-01-01", f"{time}-12-31", freq="D").astype(str)
     
     # Temporarily store daily temperatures in a dictionary
     temperature_dic = {}
@@ -1277,9 +1382,8 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
     # Read daily temperature data from specified source
     daily_temperature = DailyTemperature2IR(
         sets=sets, 
+        fls=fls,
         year=year, 
-        ir=fls.ir, 
-        spatial_relation=fls.spatial_relation
         )
     
     print(f"[2.2] Calculating marginal mortality for year {year}...")
@@ -1402,50 +1506,6 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
             group=group)
             
     return mor_all, mor_heat, mor_cold
-
-
-
-def ImportPresentDayTemperatures(sets, base_years, ir, spatial_relation):
-    
-    """
-    The function will import the daily temperatures from 2000 to 2010, either precalculated
-    ERA5 data or climate data from prescribed scenario. The output is a dictionary of numpy 
-    arrays with the daily temperature per impact region and year.
-    """
-     
-    # ------------------ ERA5 ------------------
-    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
-        
-        t0_mean = {}
-        for year in base_years:
-            
-            era5_t0 = pd.read_csv(sets.wdir+
-                                  f"/data/ClimateData/PresentDayTemperatures/ERA5_T0_{year}.csv")
-            # Store in dictionary as numpy arrays
-            t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
-            
-    # -------------- Scenario data --------------
-    else: 
-        
-        temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
-        daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=temperature_directory, 
-            years=base_years,
-            temp_type="MEAN",
-            std_factor=1, 
-            to_xarray=False
-        )
-
-        t0_mean = MSTemperature2IR(
-            temp=daily_temperature, 
-            year=2000, # Dummy year
-            ir=ir, 
-            spatial_relation=spatial_relation)
-        
-        # Convert "Present-day" temepratures dataframe to numpy array    
-        t0_mean = t0_mean.iloc[:,1:].to_numpy()
-        
-    return t0_mean
 
     
 
