@@ -172,9 +172,13 @@ def DailyFromMonthlyTemperature(temp_dir, year, temp_type, std_factor, to_xarray
     # Append December of previous year, January of selected year, and January of next year for interpolation
     temperature_mean_present.append(
         temperature_mean.sel(time=f"{year-1}-01-01").isel(NM=-1)
-    ).append(
+    )
+
+    temperature_mean_present.append(
         temperature_mean.sel(time=f"{year}-01-01")
-    ).append(
+    )
+
+    temperature_mean_present.append(
         temperature_mean.sel(time=f"{final_year}-01-01").isel(NM=0)
     )
 
@@ -208,7 +212,7 @@ def DailyFromMonthlyTemperature(temp_dir, year, temp_type, std_factor, to_xarray
     daily_temperature = DailyTemperatureFromNormalPDF(
         time=year, 
         number_days=NUMBER_DAYS, 
-        temp_daily_mean=dec_years_jan, 
+        temp_daily_mean=temperature_interpolated, 
         temp_std=temperature_monthly_std, 
         std_factor=std_factor
         )
