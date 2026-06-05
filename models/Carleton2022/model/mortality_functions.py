@@ -74,21 +74,21 @@ class ModelSettings:
         self.temp_dir = self.climate_dir()
 
     
-    def climate_dir(self) -> str:
+    # def climate_dir(self) -> str:
         
-        """
-        Set path to climate data depending on the scenario type 
-        (IMAGE or other scenarios)
-        """
+    #     """
+    #     Set path to climate data depending on the scenario type 
+    #     (IMAGE or other scenarios)
+    #     """
         
-        if self.temp_dir == self.gdp_dir:
-            return (
-                f"{self.temp_dir}/"
-                f"{self.project}/3_IMAGE_land/scen/"
-                f"{self.scenario}/netcdf/"
-            )
-        else:
-            return self.temp_dir
+        # if self.temp_dir == self.gdp_dir:
+        #     return (
+        #         f"{self.temp_dir}/"
+        #         f"{self.project}/3_IMAGE_land/scen/"
+        #         f"{self.scenario}/netcdf/"
+        #     )
+        # else:
+        #     return self.temp_dir
         
         
     def __post_init__(self):
@@ -244,11 +244,13 @@ class LoadInputData:
         population = ImportPopulationData(sets, ir)    
         
         # Initialize the emulator
-        if sets.emulator is not None:
+        if sets.emulator == False:
+            run_emulator = None
+            
+        else: 
             print(f"[1.5] Initializing climate emulator for {sets.scenario} scenario...")
             run_emulator = ce.Run_Emulator(sets)
-        else: 
-            run_emulator = None
+            
     
         return cls(
             spatial_relation=spatial_relation,
@@ -330,7 +332,7 @@ class BaselineERFsInputs:
         if re.search(r"comparison", sets.project.lower()):
             years_range = range(1980,1990)
         else:
-            years_range = range(2001,2011)
+            years_range = range(2000,2010)
             
         daily_temp_t0 = ImportPresentDayTemperatures(
             sets=sets, 
@@ -401,7 +403,7 @@ def GridRelationship(sets):
         ])
     
     
-    if sets.emulator is None:
+    if sets.emulator == False:
 
         # --------------------- Read climate data ----------------------
         
@@ -418,12 +420,10 @@ def GridRelationship(sets):
         
         # --------- If Monthly Statistics (MS) data ----------  
         else:
-            # Directory to IMAGE Land output
-            temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
             # Use function to import monthly statistics (MS) of daily temperature data in the right format
             grid,_ = tmp.DailyFromMonthlyTemperature(
-                temp_dir=temperature_directory, 
-                years=sets.years[0], 
+                temp_dir=sets.temp_dir, 
+                year=sets.years[0], 
                 temp_type="MEAN", 
                 std_factor=1, 
                 to_xarray=True
@@ -442,8 +442,9 @@ def GridRelationship(sets):
         lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, grid)
         lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, grid)
         
+        
     else:
-        # Asign as lot and lan vals the emulator grid with 0.5 egree resolution
+        # Asign as lot and lan vals the emulator grid with 0.5 degree resolution
         lon_vals = np.arange(-180, 180, 0.5)
         lat_vals = np.arange(-90, 90, 0.5)
         
@@ -793,15 +794,15 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
         # Load ERA5 climatology
         if re.search(r"ERA5", sets.scenario):
             climtas = ImportClimtasERA5(sets.wdir, year, fls.ir)
-            
+        
+        # TODO: Add climtas from emulator pattern scalling
         # Load climatology of selected year and scenario
         else:
-            temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
             # Load "present-day" climatology
             if counterfactual:
-                climtas = ImportClimtas(temperature_directory, None, fls.spatial_relation, present_day=True)
+                climtas = ImportClimtas(sets.temp_dir, None, fls.spatial_relation, present_day=True)
             else:
-                climtas = ImportClimtas(temperature_directory, year, fls.spatial_relation, present_day=False)
+                climtas = ImportClimtas(sets.temp_dir, year, fls.spatial_relation, present_day=False)
                 
         # log(GDPpc) ---------------------------    
         
@@ -986,29 +987,23 @@ def ReadOUTFiles(sets):
     prism_regions_world = prism.Dimension('region', _DIM_IMAGE_REGIONS + ["World"])
     
     listy = []
-
-    # Read GDPpc data path from specific scenario.
-    path_clim = (
-        sets.gdp_dir + "/" 
-        + sets.project + "/2_TIMER/outputlib/TIMER_3_4/" 
-        + sets.project + "/"
-        + sets.scenario + "/indicators/Economy/"
-        )
     
     # TODO: Change variable name as it is GDPpc with or without impacts depending on scenario
-    VAR = "GDPpc_incl_impacts"
+    # VAR = "/GDPpc_incl_impacts"
     
     # Create xarray dataset with the data from the OUT files. 
     datafile = prism.TimeVariable(
             timeline=Timeline,
             dims=[prism_regions_world],
-            file=path_clim+VAR+".OUT",
+            file=sets.gdp_dir,
         )
+    
+    var =  "GDP_pc"
     
     listy.append(xr.merge([datafile[i]
                            .rename('Value')
                            .expand_dims({"Time": [i]}) for i in np.arange(_DIM_TIME['start'], 2101)])
-                 .expand_dims({"Scenario": [sets.scenario], "Variable": [VAR]}))
+                 .expand_dims({"Scenario": [sets.scenario], "Variable": [var]}))
     xr_vars = xr.merge(listy)
  
     return xr_vars
@@ -1035,7 +1030,7 @@ def ImportClimtas(temp_dir, year, spatial_relation, present_day):
     """
     
     if present_day==True:
-        year = slice("2001-01-01", "2011-01-01") # The "present-day" climatology 
+        year = slice("2000-01-01", "2010-01-01") # The "present-day" climatology 
     else:
         year = slice(f"{year}-01-01", f"{year}-12-31")
     
@@ -1196,7 +1191,7 @@ def ImportPresentDayTemperatures(sets, fls, base_years):
             
             
     # -------------- Emulator data --------------
-        if sets.emulator is not None:
+        if sets.emulator != False:
             
             # Import daily temperature data from emulator for a specific year
             daily_temperature = tmp.DailyTemperatureFromEmulator(fls.run_emulator, year)
@@ -1210,23 +1205,22 @@ def ImportPresentDayTemperatures(sets, fls, base_years):
             
     # -------------- Scenario data --------------
         else: 
-        
-            temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
             
             # Read daily temperature data generated from monthly statistics
             daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-                temp_dir=temperature_directory, 
-                years=base_years,
+                temp_dir=sets.temp_dir, 
+                year=year,
                 temp_type="MEAN",
                 std_factor=1, 
                 to_xarray=False
             )
 
-            # Aggregate daily temperature data to impact region level
+            # Aggregate daily temperature data to impact region level and convert to array
             t0_mean[year] = MSTemperature2IR(
                 temp=daily_temperature, 
                 time=year,
-                spatial_relation=fls.spatial_relation).iloc[:,1:].to_numpy()
+                spatial_relation=fls.spatial_relation
+                ).to_numpy()
         
     return t0_mean
     
@@ -1251,7 +1245,7 @@ def DailyTemperature2IR(sets, fls, year):
             fls.spatial_relation
             )
         
-    if sets.emulator is not None:
+    if sets.emulator != False:
         
         # Load daily temperature produced by the emulator and assuming normal distribution
         daily_temperature = tmp.DailyTemperatureFromEmulator(fls.run_emulator, year)
@@ -1266,10 +1260,9 @@ def DailyTemperature2IR(sets, fls, year):
     else:
                 
         # Read daily temperature data generated from monthly statistics
-        temperature_directory = sets.temp_dir+"/"+sets.project+"/3_IMAGE_land/scen/"+sets.scenario+"/netcdf"
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=temperature_directory, 
-            years=year, 
+            temp_dir=sets.temp_dir, 
+            year=year, 
             temp_type="MEAN", 
             std_factor=1,
             to_xarray=False
@@ -1687,6 +1680,7 @@ def Append2ReportingTool(results, sets):
         ).str.rstrip("|")
     df_rt["Unit"] = np.where(results["units"] == "Relative Mortality", "-", "thousand")
 
+    # TODO: Fix path for when running scenarios with the RT, need to go few folders up
     rt_path = f"{sets.gdp_dir}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
     wb = load_workbook(rt_path)
     rt_data = wb["data"]
@@ -1703,6 +1697,7 @@ def Append2ReportingTool(results, sets):
     #     f"output/{sets.project}/RT" 
     # )
     # os.makedirs(output_dir, exist_ok=True)
+    #TODO: Same here
     wb.save(sets.gdp_dir+"/"+sets.project+"/7_Reporting_Tool/outxlsx/including_health_impacts/"+sets.scenario+".xlsx")
     
 
