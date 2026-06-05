@@ -9,6 +9,3 @@ regions_class: ""
 
 # Path to LandScan population rasters
 landscan_path: ""
-
-# Path to population projections from IMAGE nc files
-pop_dir: ""
