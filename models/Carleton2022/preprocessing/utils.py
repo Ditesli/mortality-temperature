@@ -8,53 +8,8 @@ from rasterio.features import rasterize
 import country_converter as coco
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-# from Carleton2022.model import mortality_functions as mf
+from Carleton2022.model import mortality_functions as mf
 
-
-def RegionClassificationFile(
-    wdir: str,
-    regions_class: str
-    ) -> None:
-    
-    """
-    Generate a region classification CSV linking impact regions to IMAGE and GBD region codes.
-
-    This function reads:
-    - the Carleton et al. (2022) *impact regions* shapefile, and
-    - an IMAGE region classification Excel file created manually,
-
-    and combines them to produce a mapping between `hierid` codes, ISO3 country codes,
-    and IMAGE/GBD regional classifications. The resulting file is exported as
-    `region_classification.csv` in the specified working directory.
-
-    Parameters
-    ----------
-    wdir : str
-        Working directory path containing the Carleton model files.
-        Must include a subdirectory `CarletonSM/ir_shp/` with `impact-region.shp`.
-    regions_file : str
-        Path to the IMAGE region classification Excel file.
-        The Excel file must contain a sheet named `"regions"` with, a column `"ISO3"`
-        and the corresponding regions information.
-
-    Returns
-    -------
-    None
-        The function writes the merged dataset to disk as a CSV file.
-    """
-    
-    print("Generating region classification file...")
-    
-    # Read IMAGE csv file
-    image_regions = pd.read_excel(regions_class+"region_classification.csv", sheet_name="regions")
-
-    # Read impact regions shapefile and extract regions names
-    impact_regions = gpd.read_file(wdir+"data/CarletonSM/ir_shp/impact-region.shp")
-    impact_regions["ISO3"] = impact_regions["hierid"].str[:3]
-
-    # Merge with IMAGE regions to get IMAGE region codes
-    df = pd.merge(impact_regions[["hierid", "ISO3"]], image_regions, on="ISO3", how="left")
-    df.to_csv(wdir+"data/regions/region_classification.csv", index=False)
         
 
 
