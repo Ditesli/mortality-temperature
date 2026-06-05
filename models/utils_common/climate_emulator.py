@@ -64,9 +64,12 @@ class Pattern_Scaling:
 
 
         #  ----------- Load global IMAGE temperature change -----------
+        
+        final_year =  sets.years[-1]+1 if sets.years[-1] < 2100 else 2100
+        
         timeline = prism.Timeline(
                 start=prism.Q_(1980,"year"), # Can be changed
-                end=prism.Q_(sets.years[-1],"year"),
+                end=prism.Q_(final_year,"year"),
                 stepsize=prism.Q_(1, "year")
                 )
 
@@ -92,13 +95,13 @@ class Pattern_Scaling:
     def ApplyPatternScalling(self, time):
         
         FIRST_SCENARIO_YEAR = 2020
-        
+
         temperature_extended = []
-        
-        for year in [time-1, time, time+1]:
-            
-            # En sure the year is not higher that 2100
-            year = 2100 if year > 2100 else year
+
+        # Ensure the year is not higher that 2100
+        years_to_loop = [time - 1, time, time] if time == 2100 else [time - 1, time, time + 1]
+
+        for i, year in enumerate(years_to_loop):
 
             # Convert time to datetime (time historic ends in scenario year)
             time_historic = np.minimum(year, FIRST_SCENARIO_YEAR)
@@ -125,28 +128,28 @@ class Pattern_Scaling:
                 temperature.loc[
                                 dict(
                                     longitude=self.temperature_variability[year]["longitude"],
-                                latitude=self.temperature_variability[year]["latitude"],
-                                month = MONTH_NAMES[m]
+                                    latitude=self.temperature_variability[year]["latitude"],
+                                    month = MONTH_NAMES[m]
                                 )
                         ] += (self.temperature_variability[year]["tas_interp"].isel(time=m))
 
-            
-            if year == time-1:
+
+            if i==0:
                 # Add December of the previous year
                 temperature_extended.append(temperature.sel(month="Dec"))
-            
-            if year == time:
+
+            if i==1:
                 # Separate single year to apply the emulator to the correct year
                 temperature_2_emulator = temperature
                 # Add to extended dataset 
                 temperature_extended.append(temperature)
                 
-            if year == time+1:
+            if i==2:
                 # Add January of the next year
                 temperature_extended.append(temperature.sel(month="Jan"))
-            
-                # Concatenate the three years to create the extended dataset
-                temperature_extended = xr.concat(temperature_extended, dim="month", coords="different", compat="equals")
+
+        # Concatenate the three years to create the extended dataset
+        temperature_extended = xr.concat(temperature_extended, dim="month", coords="different", compat="equals")
 
         return temperature_2_emulator, temperature_extended
 
