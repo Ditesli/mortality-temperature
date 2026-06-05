@@ -70,28 +70,14 @@ def PopulationHistorical(
     calculates the total population per impact region for each year from 2000 to 2022,
     reshapes the data into long format, merges it with UN population share data per country 
     and age group, and generates population share CSV files for different age groups.
-
-    Parameters
-    ----------
-    wdir : str
-        Working directory where input and output files are stored.
-    landscan_file : str
-        Path to the LandScan population raster (`.tif` file).
-    impact_regions : str
-        Path to the shapefile containing impact regions (`impact-region.shp`).
-
-    Returns
-    -------
-    None
-        This function does not return a Python object. Instead, it generates CSV files per age group
-        in the working directory.
-
     """
     
     print("Generating historical population per impact region and age group...")
     
     # Open impact regions shapefile
-    impact_regions = gpd.read_file(wdir+"/CarletonSM/ir_shp/impact-region.shp").to_crs("EPSG:4326")
+    impact_regions = gpd.read_file(
+        wdir+"/data/CarletonSM/ir_shp/impact-region.shp"
+        ).to_crs("EPSG:4326")
     
     # Get UN population shares per country and year
     population_shares = ProcessUNPopulation5years(wdir)
@@ -99,7 +85,10 @@ def PopulationHistorical(
     # Calculate population per impact region for each year from 2000 to 2022
     for year in range(2000,2023):
         # Open LandScan population raster
-        landscan_pop = rasterio.open(landscan_path + f"landscan-global-{year}-assets/landscan-global-{year}.tif")
+        landscan_pop = rasterio.open(
+            landscan_path 
+            + f"/landscan-global-{year}-assets/landscan-global-{year}.tif"
+            )
         impact_regions = Raster2ImpactRegionPopulation(landscan_pop, impact_regions, year)
         print(f"Population calculated for year: {year}")
 
@@ -108,22 +97,28 @@ def PopulationHistorical(
         impact_regions
         .drop(columns=["gadmid", "color", "AREA", "PERIMETER", "geometry"])
         .melt(id_vars=["hierid", "ISO",], var_name="Time", value_name="Value")
-        .merge(population_shares, on=["ISO", "Time"], how="left")
+        .rename(columns={"Time":"Year", "ISO":"ISO3"})
+        .merge(population_shares, on=["ISO3", "Year"], how="left")
     )
+    
+    # Calculate population share per age group
+    impact_regions_pop[f"pop"] = impact_regions_pop["Value"] * impact_regions_pop["share"]
     
     for age_group in ["young", "older", "oldest"]:
         
-        # Calculate population share per age group
-        impact_regions_pop[f"pop_{age_group}"] = impact_regions_pop["Value"] * impact_regions_pop[f"share_{age_group}"]
-
         # Pivot to wide format and save
         (
             impact_regions_pop
-            [["hierid", "Time", f"pop_{age_group}"]]
-            .pivot(index="hierid", columns="Time", values=f"pop_{age_group}")
+            [impact_regions_pop["group"] == age_group]
+            [["hierid", "Year", f"pop"]]
+            .pivot(index="hierid", columns="Year", values=f"pop")
             .reset_index()
             .set_index("hierid")
-            .to_csv(wdir+"/population/pop_historical/pop_historical_"+age_group+".csv")
+            .to_csv(
+                wdir+"/data/Population/Population_Historical/pop_historical_"+age_group+".csv",
+                float_format='%.2f',
+                index=False
+                )
         )
         
         print(f"Population share file generated for age group: {age_group}")
@@ -142,42 +137,24 @@ def Raster2ImpactRegionPopulation(
     This function assigns raster pixels from the LandScan population dataset to impact regions,
     sums the population values within each region, and adds the results as a new column to
     the input GeoDataFrame.
-
-    Parameters
-    ----------
-    landscan_pop : rasterio.io.DatasetReader
-        Opened LandScan population raster (e.g., from `rasterio.open("landscan_pop.tif")`).
-        One band containing population counts.
-    impact_regions : geopandas.GeoDataFrame
-        GeoDataFrame containing impact region polygons.
-    year : int
-        Year for which the population is being calculated (e.g., 2000, 2010).
-
-    Returns
-    -------
-    impact_regions : geopandas.GeoDataFrame
-        Updated GeoDataFrame with a new column named after `year` containing
-        total population per impact region.
-
     """
 
-    # Read raster data and affine
+    # Read raster data
     raster_data = landscan_pop.read(1)
-    raster_data = landscan_pop.transform
 
     # Mask no data values
     nodata_val = -2147483647
     valid_mask = raster_data != nodata_val
 
     # Create mask to assign pixels to impact regions
-    shapes_and_ids = ((geom, idx) for idx, geom in enumerate(impact_regions.geometry, start=1))
+    shapes_and_ids = [(geom, idx) for idx, geom in enumerate(impact_regions.geometry, start=1)]
 
     pixel_owner = rasterize(
         shapes_and_ids,
         out_shape=raster_data.shape,
-        transform=raster_data,
+        transform=landscan_pop.transform,
         fill=0,          # 0 = without region
-        all_touched=False,
+        all_touched=True, # Consider pixels touched by the geometry as part of the region
         dtype="int32"
     )
 

@@ -8,4 +8,4 @@ era5_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
 regions_class: ""
 
 # Path to LandScan population rasters
-landscan_path: ""
+landscan_path: "X:/user/liprandicn/mt-comparison/data/LandScan_Global"
