@@ -179,7 +179,7 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
 
 
 
-def LoadBurkartMortality(wdir, filename, years, region, temp_type, unit, age_group, cause):
+def LoadBurkartMortality(wdir, filename, years, region, temp_type, unit, age_group, cause,n_draws):
     
     """
     Load mortality draws from Burkart et al., (2022) for a specific region, 
@@ -189,7 +189,7 @@ def LoadBurkartMortality(wdir, filename, years, region, temp_type, unit, age_gro
     draws={}
     i=1
     
-    for draw in range(1,35):
+    for draw in range(1,n_draws):
         for val_mor in ["lower", "mean", "upper"]:
             burkart_counter = f"{filename}_{draw}"
             draws[i] = LoadMortality(wdir, burkart_counter, years, region, temp_type, unit, age_group, cause, val_mor, None)
