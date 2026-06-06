@@ -310,7 +310,7 @@ def LoadTemperatureZones(sets):
     
     # Import ERA5 temperature zones
     era5_tz = (
-        xr.open_dataset(f"{sets.wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+        xr.open_dataset(f"{sets.wdir}/data/Temperature_Zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
         .t2m.values
     )
     
@@ -345,7 +345,7 @@ def LoadExposureResponseFunctions(sets):
     for cause in list(sets.causes.keys()):
         # Open file for selected cause of death
         erf_cause = pd.read_csv(
-            f"{sets.wdir}/data/burkart_sm/ERF/{cause}_curve_samples.csv", index_col=[0,1]
+            f"{sets.wdir}/data/BurkartSM/ERF/{cause}_curve_samples.csv", index_col=[0,1]
             )
         erf_cause.index = pd.MultiIndex.from_arrays(
             [erf_cause.index.get_level_values(0), erf_cause.index.get_level_values(1).round(1)]
@@ -611,7 +611,7 @@ def LoadExposureResponseFunctionsAll(sets):
     for cause in list(sets.causes.keys()):
         # Open file for selected cause of death
         erf_cause = pd.read_csv(
-            f"{sets.wdir}/data/burkart_sm/ERF/{cause}_curve_samples.csv", index_col=[0,1]
+            f"{sets.wdir}/data/BurkartSM/ERF/{cause}_curve_samples.csv", index_col=[0,1]
             )
         
         erf_cause = (
@@ -676,25 +676,32 @@ def CalculateCounterPAF(sets, fls):
     print("[2.0] Calculating counterfactual PAFs...")
     
     if re.search(r"SSP[1-5]_ERA5", sets.scenario):
-
-        BASE_YEARS = range(1980, 1990)
         
-        for year in BASE_YEARS:
+                        
+        if re.search("replication", sets.project.lower()):
+            print("[2.0.0] Counterfactual PAFs for replication scenario not calculated...")
+            fls.paf_counter[:] = 0
             
-            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
+        else:
+
+            BASE_YEARS = range(1980, 1990)
             
-            daily_temp, num_days = tmp.LoadDailyTemperatures(
-                temp_dir=sets.temp_dir,
-                scenario=sets.scenario,
-                temp_type="mean",
-                year=year, 
-                pop_map=fls.pop_map,
-                std_factor=1
-                )
-            
-            for region in fls.regions_range:
-                CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter=True)
-            
+            for year in BASE_YEARS:
+                
+                print(f"[2.0.1] Counterfactual PAFs for year {year}...")
+                
+                daily_temp, num_days = tmp.LoadDailyTemperatures(
+                    temp_dir=sets.temp_dir,
+                    scenario=sets.scenario,
+                    temp_type="mean",
+                    year=year, 
+                    pop_map=fls.pop_map,
+                    std_factor=1
+                    )
+                
+                for region in fls.regions_range:
+                    CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter=True)
+
         
         
 def CalculatePAFYear(sets, fls, year):
@@ -840,7 +847,7 @@ def MaskTemperatureDataRegionally(daily_temp, valid_mask, pop_array, num_days):
 
 def PostprocessResults(sets, fls):
         
-    print("[3] Model run complete. Saving results...")
+    print("[3] Model run complete. Postprocessing results...")
     
     # Stack dataframe to leave only years in columns 
     paf = fls.paf.stack([1,2], future_stack=True).reorder_levels([1,2,0]).sort_index()
@@ -868,8 +875,8 @@ def PostprocessResults(sets, fls):
     file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}{sn.erf_part}"
             
     # Save the results and temperature statistics
-    paf.to_csv(f"{sn.out_path}/{file_name}{sn.draw}.csv")
-    paf_counterfactual.to_csv(f"{sn.out_path}/{file_name}_counter{sn.draw}.csv")
+    paf.to_csv(f"{sn.out_path}/{file_name}{sn.draw}.csv", float_format='%.2f')
+    paf_counterfactual.to_csv(f"{sn.out_path}/{file_name}_counter{sn.draw}.csv", float_format='%.2f')
     
     print("[3.1] Calculating attributable mortality and saving results...")
     
