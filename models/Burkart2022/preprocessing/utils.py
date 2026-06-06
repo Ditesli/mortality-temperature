@@ -28,7 +28,7 @@ def GenerateTemperatureZones(wdir, era5_path):
     print("[1] Loading population data to create mask...")
 
     # Open and preprocess population data and set mask for ALL cells with population
-    mask_pop = pop.get_all_population_data(wdir, "ERA5", return_pop=False)    
+    mask_pop = pop.LoadAllPopulationData(wdir, "ERA5", return_pop=False)    
     
     print("[2] Loading ERA5 historical temperature data and computing climatologies...")
 
@@ -92,7 +92,7 @@ def GenerateRasterGBDLocations(wdir):
     print("[1] Loading population data to create mask...")
     
     # Load population xarray and mask
-    mask_pop = pop.get_all_population_data(wdir, "ERA5", return_pop=False)
+    mask_pop = pop.LoadAllPopulationData(wdir, "ERA5", return_pop=False)
     
     print("[2] Loading GBD location shapefile and rasterize it...")
 
@@ -225,7 +225,7 @@ def ImportTMRELsFiles(wdir, year):
     for loc_id in loc_ids:
 
         tmrel = (
-            pd.read_csv(wdir+f"/data/burkart_sm/TMRELs/tmrel_{loc_id}.csv",
+            pd.read_csv(wdir+f"/data/BurkartSM/TMRELs/tmrel_{loc_id}.csv",
                         index_col=[0, 1, 2])
             .xs(year, axis=0, level=1) # Filter selected year ---> 1990, 2010, 2020
         )
@@ -251,8 +251,12 @@ def GenerateTMRELsRasters(wdir):
     
     print("[1] Importing GBD locations, TMRELs and temperature zones...")
     
-    # Import population mask
-    mask_pop = pop.get_all_population_data(wdir, return_pop=False)
+    # Import population mask, select ERA5 scenario to get ERA5 resolution
+    mask_pop = pop.LoadAllPopulationData(
+        wdir=wdir,
+        scenario="SSP2_ERA5",
+        return_pop=False
+        )
     
     # Import Temperature Zones
     temperature_zones = (
@@ -267,7 +271,7 @@ def GenerateTMRELsRasters(wdir):
         # Import TMRELs
         gbd_rasterized, gbd_tmrel = ImportTMRELsFiles(wdir, year)    
         
-        print("[2.1] Assigning each GBD location and temeprature zone its corresponding TMREL...")
+        print("[2.1] Assigning each GBD location and temperature zone its corresponding TMREL...")
         
         # Create empty 3D array for TMRELs with predefined resolution
         tmrel_array = np.empty((720, 1440, 100))
@@ -306,10 +310,22 @@ def GenerateTMRELsRasters(wdir):
         name= "tmrel"
         )
 
-        # Interpolate TMREL to areas with NaN but population is positive (maily coasts and islands)
-        interpolated_tmrel = FillMissingWithNearest(tmrel_xarray, mask_pop.GPOP)
+        # Interpolate TMREL to areas with NaN but population is positive (mainly coasts and islands)
+        interpolated_tmrel = FillMissingWithNearest(
+            xarray_dataset=tmrel_xarray, 
+            mask_positive_pop=mask_pop.GPOP
+            )
 
-        # Save file in GBD_Data folder
-        interpolated_tmrel.to_netcdf(wdir+f"/data/TMRELs_nc/TMRELs_{year}.nc")
+        # Save file in GBD_Data folder        
+        interpolated_tmrel.to_netcdf(
+                wdir+f"/data/TMRELs_nc/TMRELs_{year}.nc",
+                encoding={
+                    interpolated_tmrel.name:{
+                        "dtype": "float32",
+                        'zlib': True,
+                        'complevel': 6
+                        }
+                    }
+            )
         
     print("TMRELs generated and saved.")

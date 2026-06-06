@@ -19,7 +19,7 @@ image_index = {
 
 
 
-def get_all_population_data(wdir, scenario, return_pop=False):
+def LoadAllPopulationData(wdir, scenario, return_pop=False):
     
     '''
     Create a dataset with population data for all SSP scenarios 
@@ -56,8 +56,10 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     '''
     
     # Open IMAGE SSP population data
-    wdir_up = os.path.dirname(wdir)
-    pop = xr.open_dataset(f'{wdir_up}/data/IMAGE/IMAGE_population/{ssp}/GPOP.nc')
+    pop = xr.open_dataset(
+        os.path.dirname(wdir) + # Move to general folder
+        f'/data/IMAGE/IMAGE_population/{ssp}/GPOP.nc'
+        )
     
     if re.search(r"ERA5", scenario):
         # Reduce resolution to 15 min to match ERA5 data
@@ -100,7 +102,9 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_map)
     
         # Read in IMAGE region data and interpolate to match files resolution
         regions = (
-            xr.open_dataset(wdir+'/data/region_classification/GREG_30MIN.nc')
+            xr.open_dataset(
+                os.path.dirname(wdir) + #Move to general folder
+                '/data/IMAGE/IMAGE_Regions_Map/GREG_30MIN.nc')
             .mean(dim="time") # Mean over time dimension
             .interp(longitude=temp_grid.longitude,  # Match temperature data resolution 
                     latitude=temp_grid.latitude, 
