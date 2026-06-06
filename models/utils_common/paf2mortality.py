@@ -433,4 +433,7 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
         
     
     # Save the dataframe as a csv file
-    mor_rel_mor.to_csv(f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", index=False) 
+    mor_rel_mor.to_csv(
+        f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", 
+        float_format='%.1f',
+        index=False) 
