@@ -505,14 +505,16 @@ def DailyTemperaturesERA5PresentDay(wdir, era5_dir, years):
         years=years,
         adaptation=False,
         counterfactual=False,
-        reporting_tool=False
+        reporting_tool=False,
+        draw="mean",
+        emulator=False
     )
     
     # Get spatial relationship between ERA5 grid and impact regions
-    spatial_relation, ir = mf.GridRelationship(sets)
+    spatial_relation, _ = mf.GridRelationship(sets)
     
     # Create directory if it doesn't exist
-    out_path = Path(wdir) / "data" / "ClimateData" / "PresentDayTemperatures"
+    out_path = Path(wdir) / "data" / "ClimateData" / "BaselineTemperatures"
     out_path.mkdir(parents=True, exist_ok=True)
     
     # Calculate T_0 for each year and save as CSV
@@ -521,7 +523,27 @@ def DailyTemperaturesERA5PresentDay(wdir, era5_dir, years):
         print(f"Calculating T_0 for year: {year}...")
         
         t_0 = mf.ERA5Temperature2IR(era5_dir, year, spatial_relation)
-        t_0.to_csv(out_path + f"/ERA5_T0_{year}.csv")
+        
+        # Convert to xarray and save as netCDF
+        t0_xarray = (
+            t_0
+            .stack()
+            .to_xarray()
+            .rename(level_1="date")
+        )
+        t0_xarray.name = "tmean0"
+        
+        # Save and compress file
+        t0_xarray.to_netcdf(
+                f"{out_path}/ERA5_tmean0_{year}.nc",
+                encoding={
+                    t0_xarray.name:{
+                        "dtype": "float32",
+                        'zlib': True,
+                        'complevel': 6
+                        }
+                    }
+            )
         
         
 
@@ -529,13 +551,14 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     
     # Get spatial relationship between ERA5 grid and impact regions
     class Settings:
-        def __init__(self, wdir, scenario, era5_dir, years):
+        def __init__(self, wdir, scenario, era5_dir, years, emulator=False):
             self.wdir = wdir
             self.scenario = scenario
-            self.temp_path = era5_dir
+            self.temp_dir = era5_dir
             self.years = years
+            self.emulator = emulator
             
-    sets = Settings(wdir=wdir, scenario="ERA5", era5_dir=era5_dir, years=years)
+    sets = Settings(wdir=wdir, scenario="ERA5", era5_dir=era5_dir, years=years, emulator=False)
 
     spatial_relation, ir = mf.GridRelationship(sets)
     
@@ -548,7 +571,7 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     for y in range(years[0]-period, years[-1]):
         print("Calculating annual mean temperature for year:", y)
 
-        with xr.open_dataset(f"{era5_dir}era5_t2m_mean_day_{y}.nc") as ds:
+        with xr.open_dataset(f"{era5_dir}/era5_t2m_mean_day_{y}.nc") as ds:
             annual_temperatures[y] = ds["t2m"].mean(dim="valid_time")  - 273.15
             annual_temperatures[y] = (
                 annual_temperatures[y]
@@ -560,6 +583,7 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     climatologies_dic = { }
     
     for year in years:
+        
         print("Calculating climatology for year:", year)
 
         years30 = range(year-period, year)
@@ -572,6 +596,7 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     
     # Apply spatial relationship to get climatology values at the impact region level 
     climatologies_df = pd.DataFrame(climatologies_dic, index=spatial_relation["index_right"])
+    
     # Average them if multiple grid cells correspond to the same region
     climatologies_df = climatologies_df.groupby("index_right").mean()
     
@@ -580,5 +605,5 @@ def ClimatologiesERA5(wdir, era5_dir, years):
     out_path = Path(wdir) / "data" / "ClimateData" / "Climatologies"
     out_path.mkdir(parents=True, exist_ok=True)
     
-    climatologies_df.to_csv(out_path+f"/ERA5_CLIMTAS_{years[0]}-{years[-1]}.csv",
+    climatologies_df.to_csv(out_path+f"/ERA5_climtas_{years[0]}-{years[-1]}.csv",
                             index=False)

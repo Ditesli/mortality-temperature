@@ -19,7 +19,7 @@ def main():
         lambda: utils.PopulationHistorical(wdir, config["landscan_path"]),
         lambda: utils.PopulationIMAGE(wdir),
         lambda: utils.DailyTemperaturesERA5PresentDay(wdir, config["era5_dir"], range(1980,1990)),
-        lambda: utils.DailyTemperaturesERA5PresentDay(wdir, config["era5_dir"], range(2000,2010)),
+        lambda: utils.DailyTemperaturesERA5PresentDay(wdir, config["era5_dir"], range(2000,2011)),
         lambda: utils.ClimatologiesERA5(wdir, config["era5_dir"], range(2000, 2026)),
     ]
 
