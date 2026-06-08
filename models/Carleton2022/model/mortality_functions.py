@@ -73,22 +73,6 @@ class ModelSettings:
         self.years = self.validate_years()
         self.temp_dir = self.climate_dir()
 
-    
-    # def climate_dir(self) -> str:
-        
-    #     """
-    #     Set path to climate data depending on the scenario type 
-    #     (IMAGE or other scenarios)
-    #     """
-        
-        # if self.temp_dir == self.gdp_dir:
-        #     return (
-        #         f"{self.temp_dir}/"
-        #         f"{self.project}/3_IMAGE_land/scen/"
-        #         f"{self.scenario}/netcdf/"
-        #     )
-        # else:
-        #     return self.temp_dir
         
         
     def __post_init__(self):
@@ -161,6 +145,10 @@ class MortalityModel:
         print("----------------------------------------------------------------")
         print(f"Running Mortality-Temperature model (Carleton et al., 2022 version)")
         print(f"for project: {self.sets.project}, scenario: {self.sets.scenario}, and years: {self.sets.years[0]}-{self.sets.years[-1]}...")
+        if self.sets.adaptation == True:
+            print("Adaptation is ON: ERFs will be generated with adaptation.")
+        if self.sets.emulator != False:
+            print(f"Using climate emulator with parameters: {self.sets.emulator}")
         print("----------------------------------------------------------------")
         self.load_inputs()
 
@@ -232,8 +220,10 @@ class LoadInputData:
         print("[1] Loading input files and defining parameters...")    
         
         print(f"[1.1] Loading region classification...")
-        region_class = pd.read_csv(f"{sets.wdir}/data/regions/region_classification.csv")
-        region_class = region_class[["hierid", "ISO3", "IMAGE26"]]
+        region_class = pd.read_csv(
+            os.path.dirname(sets.wdir) +
+            f"/data/RegionClassification/region_classification.csv"
+            )[["hierid", "ISO3", "IMAGE26"]].iloc[:24378] # Keep only impact regions
         
         spatial_relation, ir = GridRelationship(sets)
         
@@ -334,18 +324,16 @@ class BaselineERFsInputs:
         else:
             years_range = range(2000,2010)
             
-        daily_temp_t0 = ImportPresentDayTemperatures(
+        daily_temp_t0 = ImportBaselineTemperatures(
             sets=sets, 
             fls=fls,
             base_years=years_range, 
             )
         
-        # Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
-        
+        # Read GDP shares for scenarios that do not use Carleton's socioeconomic data
         if sets.adaptation:
                 
             print("[1.6] Loading GDPpc shares at the impact region level...")
-            # Generate GDPpc shares of regions within a country and IMAGE region
             image_shares, country_shares = GenerateGDPpcShares(wdir=sets.wdir, fls=fls)
             image_gdppc = None
             
@@ -401,6 +389,15 @@ def GridRelationship(sets):
             (lon + lon_size, lat + lat_size),
             (lon, lat + lat_size)
         ])
+        
+        
+    # Extract coordinates
+    def FindCoordinateName(possible_names, coord_names, temperature):
+    
+        for name in possible_names:
+            if name in coord_names:
+                return temperature[name].values
+        raise KeyError(f"No coordinate was found among: {possible_names}")
     
     
     if sets.emulator == False:
@@ -429,15 +426,8 @@ def GridRelationship(sets):
                 to_xarray=True
                 )
             
-
-        # Extract coordinates
-        def FindCoordinateName(possible_names, coord_names, temperature):
         
-            for name in possible_names:
-                if name in coord_names:
-                    return temperature[name].values
-            raise KeyError(f"No coordinate was found among: {possible_names}")
-        
+        # Find the names of the longitude and latitude coordinates in the dataset and extract their values
         coord_names = grid.coords.keys()
         lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, grid)
         lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, grid)
@@ -572,6 +562,11 @@ def ImportGammaCoefficients(sets):
 
 def ImportPopulationData(sets, ir):
     
+    """
+    Import IMAGE population data at the grid cell level. If Carleton scenario is selected, 
+    import population data from the paper instead.
+    """
+    
     print(f"[1.4] Loading Population data for {sets.scenario} scenario at the impact regions level...")
     
     # Extract SSP from scenario string
@@ -643,29 +638,21 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
 def ImportIMAGEPopulationData(sets, ssp, years, ir):
     
     """
-    Read precalculated IMAGE population data at the impact region level for a
-    given SSP.
-
-    Returns:
-    ----------
-    pop_ssp : dict
-        Dictionary with population data per age group
+    Import precalculated IMAGE population data at the impact region level for a
+    given SSP. The data is located in wdir/data/population/pop_ssp/ and is stored in csv files
+    per age group and SSP scenario. The data was constructed in the preprocessing step
+    by using the 5min grid cell population data from the IMAGE model and aggregating 
+    it to the impact region level. The downscalling to age groups was done by using UN
+    historical population data and SSP projections.
     """
-    
-    if re.search("comparison", sets.project.lower()):
-        folder = "pop_historical"
-        model = "_image"
-        scenario = "historical"
-    else:
-        folder = "pop_ssp"
-        model = ""
-        scenario = ssp.lower()
         
     pop_ssp = {}
 
     for age_group in sets.age_groups:
         pop_ssp_group = (
-            pd.read_csv(f"{sets.wdir}/data/population/{folder}/pop_{scenario}_{age_group}{model}.csv")
+            pd.read_csv(
+                sets.wdir +
+                f"/data/Population/Population_IMAGE/pop_{ssp.lower()}_{age_group}.csv")
             .pipe(lambda df: df.filter(
                 ["hierid"] +
                 [c for c in df.columns if c.isdigit() and int(c) in years]
@@ -1013,8 +1000,13 @@ def ReadOUTFiles(sets):
 def ImportClimtasERA5(wdir, year, ir):
     
     # Read climatology data from ERA5 and reindex according to ir dataframe
-    climtas = pd.read_csv(wdir+f"data/ClimateData/Climatologies/ERA5_CLIMTAS_2000-2025.csv")
-    climtas = climtas.set_index("hierid").reindex(ir)[str(year)].values
+    climtas = (
+        pd.read_csv(wdir+f"data/ClimateData/Climatologies/ERA5_climtas_2000-2025.csv")
+        .set_index("hierid")
+        .reindex(ir)
+        [str(year)]
+        .values
+    )
 
     return climtas
 
@@ -1166,45 +1158,28 @@ def MonotonicityERF(T, erf, tmin_g):
 
 
 
-def ImportPresentDayTemperatures(sets, fls, base_years):
+def ImportBaselineTemperatures(sets, fls, base_years):
     
     """
     The function will import the daily temperatures from 2000 to 2010, either precalculated
     ERA5 data or climate data from prescribed scenario. The output is a dictionary of numpy 
     arrays with the daily temperature per impact region and year.
     """
-    
     t0_mean = {}
     for year in base_years:
      
     # ------------------ ERA5 ------------------
         if re.search(r"SSP[1-5]_ERA5", sets.scenario):      
             
-            # Read ERA5 daily temperature data for a specific year
-            era5_t0 = pd.read_csv(
+            # Read ERA5 daily temperature data for a specific year at the ir level           
+            t0_mean[year] = xr.open_dataset(
                 sets.wdir +
-                f"/data/ClimateData/PresentDayTemperatures/ERA5_T0_{year}.csv"
-                )
-            
-            # Store in dictionary as numpy arrays
-            t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
+                f"/data/ClimateData/BaselineTemperatures/ERA5_tmean0_{year}.nc",
+                ).tmean0.values
             
             
-    # -------------- Emulator data --------------
-        if sets.emulator != False:
-            
-            # Import daily temperature data from emulator for a specific year
-            daily_temperature = tmp.DailyTemperatureFromEmulator(fls.run_emulator, year)
-            
-            # Aggregate daily temperature data to impact region level
-            t0_mean[year] = MSTemperature2IR(
-                temp=daily_temperature, 
-                time=year,
-                spatial_relation=fls.spatial_relation).iloc[:,1:].to_numpy()
-        
-            
-    # -------------- Scenario data --------------
-        else: 
+    # -------------- IMAGE scenario data --------------
+        if sets.emulator == False:
             
             # Read daily temperature data generated from monthly statistics
             daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
@@ -1216,6 +1191,20 @@ def ImportPresentDayTemperatures(sets, fls, base_years):
             )
 
             # Aggregate daily temperature data to impact region level and convert to array
+            t0_mean[year] = MSTemperature2IR(
+                temp=daily_temperature, 
+                time=year,
+                spatial_relation=fls.spatial_relation
+                ).to_numpy()
+        
+            
+    # -------------- Emulator data --------------
+        else: 
+            
+            # Import daily temperature data from emulator for a specific year
+            daily_temperature = tmp.DailyTemperatureFromEmulator(fls.run_emulator, year)
+            
+            # Aggregate daily temperature data to impact region level
             t0_mean[year] = MSTemperature2IR(
                 temp=daily_temperature, 
                 time=year,
@@ -1304,7 +1293,7 @@ def MSTemperature2IR(temp, time, spatial_relation):
         .groupby("index_right")
         .mean() # Calculate mean temperature per impact region
         .fillna(20) # Fill in nan with 20 degrees C (conservative choice)
-        .round(1) # Round to 1 decimal place
+        .round(1) # Round to 1 decimal
     )
    
     return daily_temperatures_df
@@ -1396,38 +1385,27 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
     if sets.counterfactual == True:
 
         # Calculate counterfactual mortality (second term of equations 2' or 2a' from the paper)
-        if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+        if re.search("comparison", sets.project.lower()):
+            BASE_YEARS = range(1980, 1990) 
+        else:        
+            BASE_YEARS = range(2000, 2010)
             
-            if re.search("comparison", sets.project.lower()):
-                BASE_YEARS = range(1980, 1990) 
-            else:        
-                BASE_YEARS = range(2001, 2011)
-                
-            mor_all_dic, mor_heat_dic, mor_cold_dic = {}, {}, {}
-            
-            for pd_year in BASE_YEARS:
-                mor_all_dic[pd_year], mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
-                    sets=sets, 
-                    year=pd_year,
-                    daily_temp=baseline.daily_temp_t0[pd_year],  
-                    fls=fls,
-                    baseline=baseline,
-                    counterfactual=True
-                    )    
-                
-            mor_all_sub = {group: np.mean([mor_all_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-            mor_heat_sub = {group: np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-            mor_cold_sub = {group: np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-
-        else:
-            mor_all_sub, mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
+        mor_all_dic, mor_heat_dic, mor_cold_dic = {}, {}, {}
+        
+        for pd_year in BASE_YEARS:
+            mor_all_dic[pd_year], mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
                 sets=sets, 
-                year=year,
-                daily_temp=baseline.daily_temp_t0,  
+                year=pd_year,
+                daily_temp=baseline.daily_temp_t0[pd_year],  
                 fls=fls,
                 baseline=baseline,
                 counterfactual=True
-            )
+                )    
+                
+        mor_all_sub = {group: np.mean([mor_all_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+        mor_heat_sub = {group: np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+        mor_cold_sub = {group: np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
+
     
     elif sets.counterfactual == False:
         mor_all_sub = {group: np.zeros_like(mor_all_min[group]) for group in sets.age_groups}
@@ -1569,7 +1547,12 @@ def Mortality2Regions(year, group, mor, results, regions, mode, fls):
     regions_df["pop"] = fls.pop[group][year].values
     
     # Group total mortality per selected region definition
-    regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
+    regions_df = (
+        regions_df
+        .drop(columns=["hierid"])
+        .groupby(regions)
+        .sum()
+    )
     
     # Calculate relative mortality per 100,000 people
     regions_df["rel_mor"] = regions_df["mor"] * 1e5 / regions_df["pop"]
@@ -1734,7 +1717,7 @@ def PostprocessResults(sets, fls):
     else:
         project = ""
     if sets.draw == "mean":
-        draw = "MEAN"
+        draw = "_MEAN"
     else: 
         draw = f"_{sets.draw}"
         
