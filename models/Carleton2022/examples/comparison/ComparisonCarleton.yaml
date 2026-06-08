@@ -12,3 +12,5 @@ counterfactual: False
 draw: "mean"
 
 reporting_tool: False
+
+climate_emulator: False
