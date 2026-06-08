@@ -1,19 +1,31 @@
-# Settings to run the Carleton default scenario SSP1_M
-
+# Working directory with data on ERFs and where output will be stored
 wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
+
+# Temperature directory. If emulator is used, path can be set to None
 temp_dir: "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/IMP-SSP1-REF-GDPIMP-15/netcdf"
+
+# GDP directory to IMAGE GDP or Carleton's GDP for replication scenarios
 gdp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_4/IMPACTS/IMP-SSP1-REF-GDPIMP-15/indicators/Economy/GDPpc_incl_impacts.OUT
 
-
+# Time settings for the emulator run
 start_year: 2000
-end_year: 2020
+end_year: 2025
 
+# Project and scenario settings
 project: EMULATOR
+
+# Put "ERA5" in scenario name if ERA5 data is used
 scenario: "IMP-SSP1-REF-GDPIMP-15"
-adaptation: True
+
+# Adaptation will make functions evolve with time 
+adaptation: False
+# Counterfactual setting will calculate attributable mortality to climate change
 counterfactual: True
+# Select mean of ERFs or set any integer for random draw of ERFs
 draw: "mean"
 
+# Convert results to reporting tool format
 reporting_tool: False
 
+# Climate emulator set to False or provide settings for the emulator
 climate_emulator: False
