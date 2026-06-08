@@ -4,12 +4,12 @@ wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
 temp_dir: None
 gdp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_4/IMPACTS/IMP-SSP1-REF-GDPIMP-15/indicators/Economy/GDPpc_incl_impacts.OUT
 
-start_year: 2100
-end_year: 2100
+start_year: 2000
+end_year: 2025
 
 project: IMPACTS
 scenario: "IMP-SSP1-REF-GDPIMP-15"
-adaptation: True
+adaptation: False
 counterfactual: True
 draw: "mean"
 
