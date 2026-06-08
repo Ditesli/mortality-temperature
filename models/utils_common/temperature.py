@@ -152,45 +152,53 @@ def DailyFromMonthlyTemperature(temp_dir, year, temp_type, std_factor, to_xarray
         NUMBER_DAYS = 365
     
     # Read monthly statistics
-    temperature_mean, temperature_monthly_std = OpenMontlhyTemperatures(
+    temperature_mean, temperature_std = OpenMontlhyTemperatures(
         temp_dir=temp_dir, 
         temp_type=temp_type
         )
     
     # Select std data and get the mean of the specific year
-    temperature_monthly_std = (
-        temperature_monthly_std
+    temperature_std = (
+        temperature_std
         .sel(time=slice(f"{year}-01-01", f"{year}-01-01"))
         .mean(dim="time")
     )
     
-    # Prepare monthly mean data including December of previous year and January of next year
-    temperature_mean_present = []
+    # Prepare monthly mean data 
+    temperature_mean_year = []
+    
     # Repeat 2100 for January 2101
     final_year = 2100 if year == 2100 else year+1
 
-    # Append December of previous year, January of selected year, and January of next year for interpolation
-    temperature_mean_present.append(
-        temperature_mean.sel(time=f"{year-1}-01-01").isel(NM=-1)
+    # Append December of previous year
+    temperature_mean_year.append(
+        temperature_mean
+        .sel(time=f"{year-1}-01-01")
+        .isel(NM=-1)
     )
 
-    temperature_mean_present.append(
-        temperature_mean.sel(time=f"{year}-01-01")
+    # Append year of interest
+    temperature_mean_year.append(
+        temperature_mean
+        .sel(time=f"{year}-01-01")
     )
 
-    temperature_mean_present.append(
-        temperature_mean.sel(time=f"{final_year}-01-01").isel(NM=0)
+    # Append January of next year
+    temperature_mean_year.append(
+        temperature_mean
+        .sel(time=f"{final_year}-01-01")
+        .isel(NM=0)
     )
 
     # Concatenate December of previous year and January of next year for smooth transition
     dec_years_jan = xr.concat(
-        temperature_mean_present, 
+        temperature_mean_year, 
         dim="NM",
         coords="different",
         compat="equals"
     )
     
-    # Generate monthly dates (15th OR 16th of each month)
+    # Generate monthly dates for interpolation
     monthly_dates = pd.date_range(
         start=f"15/12/{year-1}", 
         end=f"15/2/{year+1}", freq="ME"
@@ -213,9 +221,10 @@ def DailyFromMonthlyTemperature(temp_dir, year, temp_type, std_factor, to_xarray
         time=year, 
         number_days=NUMBER_DAYS, 
         temp_daily_mean=temperature_interpolated, 
-        temp_std=temperature_monthly_std, 
+        temp_std=temperature_std, 
         std_factor=std_factor
         )
+    
     
     if to_xarray == True:
         # Convert to xarray DataArray
@@ -253,11 +262,13 @@ def OpenMontlhyTemperatures(temp_dir, temp_type):
     - temp_std: xarray DataArray of monthly standard deviation of temperatures
     """
     
-    # Read temperature mean and std files of from scenario 
+    # Read mean temperature files from scenario 
     if temp_type.upper() == "MEAN":
         temp_mean = xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
     else: 
         temp_mean = xr.open_dataset(temp_dir+f"/GTMP_{temp_type}_30MIN.nc")
+    
+    # Read std temperature files from scenario 
     temp_std = xr.open_dataset(temp_dir+f"/GTMP_STD_30MIN.nc")
     
     # Select temperature variable depending on type
@@ -316,7 +327,7 @@ def DailyTemperatureFromNormalPDF(time, number_days, temp_daily_mean, temp_std, 
 
         # Generate random daily variability from normal distribution
         vals = np.random.normal(mu, sigma, size=(n_days, lats, lons))
-        vals = vals + mean.swapaxes(1,2).swapaxes(1,0)
+        vals += mean.swapaxes(1,2).swapaxes(1,0)
 
         # Assign generated values to the correct days in the year
         synthetic_daily[..., day_idx:day_idx+n_days] = vals.swapaxes(0,1).swapaxes(1,2)
