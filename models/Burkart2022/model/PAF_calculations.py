@@ -310,7 +310,9 @@ def LoadTemperatureZones(sets):
     
     # Import ERA5 temperature zones
     era5_tz = (
-        xr.open_dataset(f"{sets.wdir}/data/Temperature_Zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+        xr.open_dataset(
+            sets.wdir + 
+            f"/data/TemperatureZones/ERA5_mean_1980-2019_land_t2m_tz.nc")
         .t2m.values
     )
     
@@ -493,7 +495,7 @@ def LoadTMRELsMap(sets, year):
             
     print("[1.6] Loading Theoretical Minimum Risk Exposure Levels (TMRELs)...")
     
-    tmrel = xr.open_dataset(f"{sets.wdir}/data/TMRELs_nc/TMRELs_{year}.nc")
+    tmrel = xr.open_dataset(f"{sets.wdir}/data/TMRELsMaps/TMRELs_{year}.nc")
     
     if not re.search(r"SSP[1-5]_ERA5", sets.scenario):
         # Reduce resolution to 0.5x0.5 degrees
