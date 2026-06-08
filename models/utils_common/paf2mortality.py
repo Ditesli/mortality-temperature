@@ -10,13 +10,12 @@ def LoadRegionClassificationDicts(wdir):
     Load regions name from GBD and its corresponding ISO3 country code
     and IMAGE26 region name as dictionaries to map locations later on.
     """
-        
-    # Move one level up to access all-model data and region classification file
-    wdir_up = os.path.dirname(wdir)
     
     # Create dictionaries to map location ids to ISO3 codes
     region_names = (
-        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        pd.read_csv(
+            os.path.dirname(wdir) +
+            f"/data/Region_Classification/region_classification.csv")
         [["gbd_location_id", "ISO3"]]
         .drop_duplicates()
         .dropna()
@@ -28,7 +27,8 @@ def LoadRegionClassificationDicts(wdir):
     
     # Dictionary to map location ids to IMAGE region names
     region_names = (
-        pd.read_csv(f"{wdir_up}/data/region_classification.csv")
+        pd.read_csv(os.path.dirname(wdir) +
+            f"/data/Region_Classification/region_classification.csv")
         [["IMAGE26", "ISO3"]]
         .drop_duplicates()
         .dropna()
