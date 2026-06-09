@@ -1,7 +1,5 @@
 The preprocessing part serves to generate only once data used in the main model. This saves computation time. The preprocessing part can be skipped if the Carleton2022/data folder is copied entirely, as necessary input data is already located there.
 
-## Region Classification File
-Generate the region classification file to include the impact region classification (24,378 regions) and their corresponding ISO3 code, IMAGE region and WHO region classification.
 
 ## Population Data
 ### Historical Data
@@ -12,7 +10,7 @@ To run the function, the code needs:
 
   - <em> carleton_sm\1_estimation\2_csvv\Agespec_interaction_response.csvv </em>
   - <em> data\2_projection\3_impacts\main_specification\raw\single\rcp85\CCSM4\low\SSP3\mortality-allpreds.csv </em>
-     (Only present day (2015) covariates were saved to use less storage).
+     (Only present day (2015) covariates were saved to use less storage space).
   - <em> data\2_projection\2_econ_vars </em> (folder).
   - <em> data\2_projection\1_regions\ir_shp </em> (folder).
 
