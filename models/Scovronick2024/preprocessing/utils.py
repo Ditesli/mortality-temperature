@@ -43,7 +43,16 @@ def ERA5TemperaturePercentiles(wdir, era5_dir, years):
     
     print("Saving percentiles to NetCDF file...")
     percentile_aligned.to_netcdf(
-        wdir + f"/data/Percentiles_Maps/ERA5_Tmean_Percentiles_{years[0]}-{years[-1]+1}.nc")
+        wdir + 
+        f"/data/Percentiles_Maps/ERA5_tmean_percentiles_{years[0]}-{years[-1]+1}.nc",
+        encoding={
+                percentile_aligned.name:{
+                    "dtype": "float32",
+                    'zlib': True,
+                    'complevel': 6
+                    }
+                }
+        )
     
     
     
