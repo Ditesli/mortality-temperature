@@ -15,7 +15,7 @@ def LoadRegionClassificationDicts(wdir):
     region_names = (
         pd.read_csv(
             os.path.dirname(wdir) +
-            f"/data/Region_Classification/region_classification.csv")
+            f"/data/RegionClassification/region_classification.csv")
         [["gbd_location_id", "ISO3"]]
         .drop_duplicates()
         .dropna()
@@ -28,7 +28,7 @@ def LoadRegionClassificationDicts(wdir):
     # Dictionary to map location ids to IMAGE region names
     region_names = (
         pd.read_csv(os.path.dirname(wdir) +
-            f"/data/Region_Classification/region_classification.csv")
+            f"/data/RegionClassification/region_classification.csv")
         [["IMAGE26", "ISO3"]]
         .drop_duplicates()
         .dropna()
