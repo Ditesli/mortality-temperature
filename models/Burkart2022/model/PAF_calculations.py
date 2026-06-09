@@ -233,7 +233,7 @@ class LoadInputData:
         
         print(f"[1.3] Calculating population per impact region for SSP: {ssp}...")
         pop_region = pop.IMAGEPopulation2Regions(
-            shp_dir=sets.wdir+"/data/GBD_locations/gbd_shapefiles/", 
+            shp_dir=os.path.dirname(sets.wdir)+"/data/GBD/GBD_locations/gbd_shapefiles/", 
             shp_name="GBD_shapefile",
             pop_dir=os.path.dirname(sets.wdir)+"/data", 
             ssp="SSP2",
