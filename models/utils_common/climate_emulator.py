@@ -152,6 +152,52 @@ class Pattern_Scaling:
         temperature_extended = xr.concat(temperature_extended, dim="month", coords="different", compat="equals")
 
         return temperature_2_emulator, temperature_extended
+    
+    
+    def ClimatologyFromPatternScalling(self, time):
+        
+        FIRST_SCENARIO_YEAR = 2020
+
+        years = time if type(time)==range else [time]
+
+        # Years to create the climatology
+        years_to_loop = range(years[0]-30, years[-1])
+
+        temperature_data = []
+
+        for year_clim in years_to_loop:
+
+            # Convert time to datetime (time historic ends in scenario year)
+            time_historic = np.minimum(year_clim, FIRST_SCENARIO_YEAR)
+
+            # Historical data: Apply the (running-mean) historic data
+            temperature = self.temperature_historic.interp(
+                dict(time = np.datetime64(datetime(time_historic,1,1))))
+
+            # Future: Apply scenario-historical data + pattern scaled with historical
+            if year_clim > FIRST_SCENARIO_YEAR:
+                temperature += (
+                    self.temperature_scalling
+                    * prism.M_(
+                        (
+                            self.global_temperature[prism.Q_(year_clim,"year")] 
+                            - self.global_temperature[prism.Q_(FIRST_SCENARIO_YEAR,"year")]
+                        )
+                        / self.delta_global_temperature
+                    )
+                )
+            
+            # Append annual temperature data to the list
+            temperature_data.append(temperature.mean(dim="month"))
+
+        # Calculate the climatology by averaging across the years
+        climatology = (
+            xr.concat(temperature_data, dim="time", coords="different", compat="equals")
+            .mean(dim="time")
+        )
+
+        return climatology
+        
 
 
 @dataclass
