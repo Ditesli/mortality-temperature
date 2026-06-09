@@ -119,7 +119,9 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_map)
         
         # Read in GBD LEVEL 3 region data: countries and territories
         regions = (
-            xr.open_dataset(wdir+'/data/GBD_locations/GBD_locations_level3.nc')
+            xr.open_dataset(
+                os.path.dirname(wdir)
+                +'/data/GBD/GBD_locations/GBD_locations_level3.nc')
             .interp(longitude=temp_grid.longitude, 
                                      latitude=temp_grid.latitude, 
                                      method='nearest')
