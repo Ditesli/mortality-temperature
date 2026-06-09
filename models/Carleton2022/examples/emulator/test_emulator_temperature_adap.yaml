@@ -7,7 +7,7 @@ gdp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_4/
 start_year: 2000
 end_year: 2025
 
-project: IMPACTS
+project: EMULATOR
 scenario: "IMP-SSP1-REF-GDPIMP-15"
 adaptation: True
 counterfactual: True
