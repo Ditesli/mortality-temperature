@@ -328,7 +328,10 @@ def DailyTemperatureFromNormalPDF(time, number_days, temp_daily_mean, temp_std, 
         # Generate random daily variability from normal distribution
         vals = np.random.normal(mu, sigma, size=(n_days, lats, lons))
         vals += mean.swapaxes(1,2).swapaxes(1,0)
-
+        
+        # Sort data per pixel to avoid impact region temperature be the mean of very high and low pixels (and thus removing extremes)
+        vals = np.sort(vals, axis=0)
+        
         # Assign generated values to the correct days in the year
         synthetic_daily[..., day_idx:day_idx+n_days] = vals.swapaxes(0,1).swapaxes(1,2)
         day_idx += n_days
