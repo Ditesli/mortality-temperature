@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import glob
+import xarray as xr
 import matplotlib.pyplot as plt
 
 
@@ -56,17 +58,6 @@ causes = {
     'inj_suicide':'Self-harm', 
     'inj_trans_other':'Other transport injuries', 
     'inj_trans_road':'Road injuries', 
-    'resp_copd':'Chronic obstructive pulmonary disease', 
-    'lri':'Lower respiratory infections'
-    }
-
-relevant_causes = {
-    'ckd':'Chronic kidney disease', 
-    'cvd_cmp':'Cardiomyopathy and myocarditis', 
-    'cvd_htn':'Hypertensive heart disease', 
-    'cvd_ihd':'Ischemic heart disease', 
-    'cvd_stroke':'Stroke',
-    'diabetes':'Diabetes mellitus',
     'resp_copd':'Chronic obstructive pulmonary disease', 
     'lri':'Lower respiratory infections'
     }
@@ -179,30 +170,30 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
 
 
 
-def LoadBurkartMortality(wdir, filename, years, region, temp_type, unit, age_group, cause,n_draws):
+def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
     
-    """
-    Load mortality draws from Burkart et al., (2022) for a specific region, 
-    temperature type, age group and cause of death
-    """
+    files = wdir + "/" + filename + ".nc"
+    file_list = sorted(glob.glob(files))
+
+    if file_list:
+        ds = xr.open_mfdataset(file_list, combine="nested", concat_dim="draw")
+    else:
+        print("Files not found.")
     
-    draws={}
-    i=1
+    da_selected = ds.sel(
+    region_type=region_type,
+    region=region,
+    t_type=t_type,
+    cause=cause,
+    age_group=age_group
+    )[variable]
+
+
+    da_mean = da_selected.mean(dim=["draw", "var_mor"])
+    da_p025 = da_selected.quantile(0.025, dim=["draw", "var_mor"])
+    da_p975 = da_selected.quantile(0.975, dim=["draw", "var_mor"])
     
-    for draw in range(1,n_draws):
-        for val_mor in ["lower", "mean", "upper"]:
-            burkart_counter = f"{filename}_{draw}"
-            draws[i] = LoadMortality(wdir, burkart_counter, years, region, temp_type, unit, age_group, cause, val_mor, None)
-            i += 1
-            # print(i)
-            
-    burkart_df = pd.concat(draws.values(), ignore_index=True)
-    
-    b_mean = burkart_df.quantile(q=0.5, axis=0, interpolation="linear")
-    b_p025 = burkart_df.quantile(q=0.025, axis=0, interpolation="linear")
-    b_p975 = burkart_df.quantile(q=0.975, axis=0, interpolation="linear")
-    
-    return b_mean, b_p025, b_p975
+    return da_mean, da_p025, da_p975
 
 
 
