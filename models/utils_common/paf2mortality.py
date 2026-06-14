@@ -101,12 +101,7 @@ def LoadGBDmortality(sets, fls, causes, model):
         .set_index(["ISO3","cause","age_group","year"])
         .to_xarray()
     )
-    
-    # if sets.counterfactual == True:
-        
-    #     # Calculate the mean mortality for the years 1980-1990 to use as counterfactual mortality 
-    #     mean_mor = gbd_mor.sel(year=slice(1980, 1990)).mean(dim='year')
-    #     gbd_mor = mean_mor.expand_dims(year=gbd_mor.year)
+
 
     if model == "Burkart":
         
@@ -119,7 +114,7 @@ def LoadGBDmortality(sets, fls, causes, model):
             new_elem="oldest",
             exclude=True
             )
-        
+
         # Remove other age groups that are not included in the analysis
         gbd_mor = gbd_mor.where(
             ~gbd_mor.coords["age_group"]
@@ -206,6 +201,12 @@ def LoadGBDmortality(sets, fls, causes, model):
         coords=gbd_mor['ISO3'].coords, 
         dims=gbd_mor['ISO3'].dims
     ).astype(object)
+    
+    # Rename mean mortality estimation
+    gbd_mor = gbd_mor.rename({"val":"mean"})
+    
+    # Convert mortality uncertainty into coordinate
+    gbd_mor = gbd_mor.to_array(dim="var_mor", name="gbd_mor")
     
     # Sort by age group, ISO3 and cause
     gbd_mor = gbd_mor.sortby("age_group").sortby("ISO3").sortby("cause").sortby("year")
@@ -303,6 +304,8 @@ def LoadUNpopulationData(sets, model):
 
 def PAF2Mortality(sets, fls, paf, causes, sn):
     
+    ### ------------------- Merge files ----------------------------
+    
     # Load GBD mortality records
     gbd_mor = LoadGBDmortality(sets, fls, causes, sn.model)
     pop = LoadUNpopulationData(sets, sn.model)
@@ -323,10 +326,9 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     
     ### ----------------------- ISO3 -------------------------
     
+    
     # Calculate total mortality and relative mortality
-    paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['val']
-    paf_mor_pop["mor_upper"] = paf_mor_pop['paf'] * paf_mor_pop['upper']
-    paf_mor_pop["mor_lower"] = paf_mor_pop['paf'] * paf_mor_pop['lower']
+    paf_mor_pop["mor"] = paf_mor_pop['paf'] * paf_mor_pop['gbd_mor']
     
     if sn.model == "Burkart":
         # Calculate total mortality and relative mortality for "All causes" category
@@ -336,92 +338,55 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     
     # Calculate relative mortality per 100,000 people
     paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
-    paf_mor_pop["rel_mor_upper"] = paf_mor_pop["mor_upper"] * 1e5 / paf_mor_pop["pop"]
-    paf_mor_pop["rel_mor_lower"] = paf_mor_pop["mor_lower"] * 1e5 / paf_mor_pop["pop"]
-
-    # Convert xarray to dataframe to save as csv files
-    ProcessXarray2csv(sets, paf_mor_pop, "ISO3", sn)
     
+    image_results = paf_mor_pop.copy()
+    
+    paf_mor_pop = (
+        paf_mor_pop
+        .drop_vars(["pop", "gbd_mor"])
+        .expand_dims(region_type=["ISO3"])
+        .rename({"ISO3": "region"})
+    )
+
     
     ### ----------------------- IMAGE -------------------------
+    
      
     # Map location ids to IMAGE region names
-    paf_mor_pop['ISO3'] = xr.DataArray(
-        [fls.image_dict[id] for id in paf_mor_pop['ISO3'].values], 
-        coords=paf_mor_pop['ISO3'].coords, 
-        dims=paf_mor_pop['ISO3'].dims
+    image_results['ISO3'] = xr.DataArray(
+        [fls.image_dict[id] for id in image_results['ISO3'].values], 
+        coords=image_results['ISO3'].coords, 
+        dims=image_results['ISO3'].dims
         )
 
     # Aggregate mortality and population data by IMAGE region
-    mor_image = paf_mor_pop.groupby("ISO3").sum().drop_vars(["paf", "rel_mor", "rel_mor_upper", "rel_mor_lower"])
+    image_results = image_results.groupby("ISO3").sum().drop_vars(["paf", "rel_mor"])
 
     # Calculate global mortality and population
-    mor_image = xr.concat([
-        mor_image,
-        mor_image.sum(dim='ISO3').assign_coords(ISO3="World")],
+    image_results = xr.concat([
+        image_results,
+        image_results.sum(dim='ISO3').assign_coords(ISO3="World")],
         dim='ISO3'
         )
 
     # Calcualte relative mortality and PAF for IMAGE regions
-    mor_image["rel_mor"] = mor_image["mor"] * 1e5 / mor_image["pop"]
-    mor_image["rel_mor_upper"] = mor_image["mor_upper"] * 1e5 / mor_image["pop"]
-    mor_image["rel_mor_lower"] = mor_image["mor_lower"] * 1e5 / mor_image["pop"]
-    mor_image["paf"] = mor_image["mor"] / mor_image["val"]
+    image_results["rel_mor"] = image_results["mor"] * 1e5 / image_results["pop"]
+    image_results["paf"] = image_results["mor"] / image_results["gbd_mor"]
 
-    # Convert xarray to dataframe to save as csv files
-    ProcessXarray2csv(sets, mor_image, "IMAGE", sn)
-
-
-
-def ProcessXarray2csv(sets, data_array, regions, sn):
+    image_results = (
+        image_results
+        .drop_vars(["pop", "gbd_mor"])
+        .rename({"ISO3": "IMAGE"})
+        .expand_dims(region_type=["IMAGE"])
+        .rename({"IMAGE":"region"})
+    )
     
-    """
-    Convert the xarray with mortality data to a dataframe and save it as a csv file. 
-    The xarray is pivoted to have the years as columns and the other coordinates as rows.
-    The unit of the mortality data is added as a column. The resulting dataframe 
-    is saved as a csv file in the output folder.
-    """
+    ### ---------------------- Save Final Dataframe ----------------------------
     
-    def ProcessMortalityData(sn, data_array, unit_name, val):
-        
-        if sn.model == "Scovronick":
-            index_df = ["ISO3", "t_type", "cause", "age_group", "val_erf"]
-        else:
-            index_df = ["ISO3", "t_type", "cause", "age_group"]
-    
-        df = (
-            data_array.to_dataframe()
-            .reset_index()
-            .pivot_table(
-                index=index_df,
-                columns='year', 
-                values=data_array.name)  # Uses the array name as the value column
-            .reset_index()
-            )
-        df["units"] = unit_name
-        df["val"] = val
-        
-        return df
-    
-    
-    if sn.model == "Scovronick":
-            cols_df = ["ISO3", "t_type", "cause", "age_group", "units", "val_erf" ,"val"]
-    else:
-            cols_df = ["ISO3", "t_type", "cause", "age_group", "units", "val"]
-    
-    
-    # Concatenate the results and save
-    mor_rel_mor = pd.concat(
-        [
-        ProcessMortalityData(sn, data_array["mor"], 'Total Mortality', "mean"),
-        ProcessMortalityData(sn, data_array["rel_mor"], 'Relative Mortality', "mean"),
-        ProcessMortalityData(sn, data_array["mor_upper"], 'Total Mortality', "upper"),
-        ProcessMortalityData(sn, data_array["rel_mor_upper"], 'Relative Mortality', "upper"),
-        ProcessMortalityData(sn, data_array["mor_lower"], 'Total Mortality', "lower"),
-        ProcessMortalityData(sn, data_array["rel_mor_lower"], 'Relative Mortality', "lower")
-        ] , axis=0)[
-            cols_df + sets.years
-    ].rename(columns={"ISO3": "region", "val":"val_mor"})
+    final_results = (
+        xr.concat([paf_mor_pop, image_results], dim="region", join="outer")
+        .rename({"mor":"mortality", "rel_mor":"relative_mortality"})
+    )
     
     # Create file name based on model and scenario characteristics
     if sn.model == "Scovronick":
@@ -429,11 +394,86 @@ def ProcessXarray2csv(sets, data_array, regions, sn):
     if sn.model == "Burkart":
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}{sn.counter}{sn.draw}"
     if sn.model == "Honda":
-        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}{sn.counter}"
+        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}{sn.counter}"   
+        
+    compresion_config= {
+                "dtype": "float32",       # Se guarda como entero en el disco
+                "zlib": True,
+                "complevel": 6,
+    } 
+    
+    encoding_total = {
+        var: compresion_config for var in final_results.data_vars
+    }
+        
+    final_results.to_netcdf(
+        f"{sn.out_path}/mortality_{sets.project}_{sets.scenario}{file_name}.nc",
+        encoding=encoding_total
+    )
+   
+
+
+# def ProcessXarray2csv(sets, data_array, regions, sn):
+    
+#     """
+#     Convert the xarray with mortality data to a dataframe and save it as a csv file. 
+#     The xarray is pivoted to have the years as columns and the other coordinates as rows.
+#     The unit of the mortality data is added as a column. The resulting dataframe 
+#     is saved as a csv file in the output folder.
+#     """
+    
+#     def ProcessMortalityData(sn, data_array, unit_name, val):
+        
+#         if sn.model == "Scovronick":
+#             index_df = ["ISO3", "t_type", "cause", "age_group", "val_erf"]
+#         else:
+#             index_df = ["ISO3", "t_type", "cause", "age_group"]
+    
+#         df = (
+#             data_array.to_dataframe()
+#             .reset_index()
+#             .pivot_table(
+#                 index=index_df,
+#                 columns='year', 
+#                 values=data_array.name)  # Uses the array name as the value column
+#             .reset_index()
+#             )
+#         df["units"] = unit_name
+#         df["val"] = val
+        
+#         return df
+    
+    
+#     if sn.model == "Scovronick":
+#             cols_df = ["ISO3", "t_type", "cause", "age_group", "units", "val_erf" ,"val"]
+#     else:
+#             cols_df = ["ISO3", "t_type", "cause", "age_group", "units", "val"]
+    
+    
+#     # Concatenate the results and save
+#     mor_rel_mor = pd.concat(
+#         [
+#         ProcessMortalityData(sn, data_array["mor"], 'Total Mortality', "mean"),
+#         ProcessMortalityData(sn, data_array["rel_mor"], 'Relative Mortality', "mean"),
+#         ProcessMortalityData(sn, data_array["mor_upper"], 'Total Mortality', "upper"),
+#         ProcessMortalityData(sn, data_array["rel_mor_upper"], 'Relative Mortality', "upper"),
+#         ProcessMortalityData(sn, data_array["mor_lower"], 'Total Mortality', "lower"),
+#         ProcessMortalityData(sn, data_array["rel_mor_lower"], 'Relative Mortality', "lower")
+#         ] , axis=0)[
+#             cols_df + sets.years
+#     ].rename(columns={"ISO3": "region", "val":"val_mor"})
+    
+#     # Create file name based on model and scenario characteristics
+#     if sn.model == "Scovronick":
+#         file_name = f"{sn.years_part}{sn.counter}"
+#     if sn.model == "Burkart":
+#         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}{sn.counter}{sn.draw}"
+#     if sn.model == "Honda":
+#         file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}{sn.counter}"
         
     
-    # Save the dataframe as a csv file
-    mor_rel_mor.to_csv(
-        f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", 
-        float_format='%.1f',
-        index=False) 
+#     # Save the dataframe as a csv file
+#     mor_rel_mor.to_csv(
+#         f"{sn.out_path}/MOR_{sets.project}_{sets.scenario}_{regions}{file_name}.csv", 
+#         float_format='%.1f',
+#         index=False) 
