@@ -874,16 +874,12 @@ def PostprocessResults(sets, fls):
             self.model = "Burkart"
             self.draw = f"_{sets.draw}" if isinstance(sets.draw, int) else f"_{sets.draw.upper()}"
     sn = ScenarioNaming(sets)
-    
-    # Create project folder if it doesn't exist
-    sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}{sn.erf_part}"
-            
-    # Save the results and temperature statistics
-    paf.to_csv(f"{sn.out_path}/{file_name}{sn.draw}.csv", float_format='%.2f')
-    paf_counterfactual.to_csv(f"{sn.out_path}/{file_name}_counter{sn.draw}.csv", float_format='%.2f')
+
     
     print("[3.1] Calculating attributable mortality and saving results...")
+    
+     # Create project folder if it doesn't exist
+    sn.out_path.mkdir(parents=True, exist_ok=True)
     
     # Reformat PAF df to xarray
     paf = ReformatPAF(sets, fls, paf)
