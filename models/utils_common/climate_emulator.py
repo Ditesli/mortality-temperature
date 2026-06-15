@@ -158,7 +158,7 @@ class Pattern_Scaling:
         
         FIRST_SCENARIO_YEAR = 2020
 
-        years = time if type(time)==range else [time]
+        years = time if type(time)==range else time
 
         # Years to create the climatology
         years_to_loop = range(years[0]-30, years[-1])
