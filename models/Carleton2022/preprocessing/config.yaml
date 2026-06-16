@@ -5,4 +5,4 @@ wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
 era5_dir: 'X:/user/liprandicn/Data/ERA5/t2m_daily'
 
 # Path to LandScan population rasters
-landscan_path: "X:/user/liprandicn/mt-comparison/data/LandScan_Global"
+landscan_path: "X:/user/liprandicn/mt-comparison/data/LandScanGlobal"
