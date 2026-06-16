@@ -70,9 +70,8 @@ def PopulationHistorical(
             .reset_index()
             .set_index("hierid")
             .to_csv(
-                wdir+"/data/Population/Population_Historical/pop_historical_"+age_group+".csv",
-                float_format='%.2f',
-                index=False
+                wdir+"/data/Population/PopulationHistorical/pop_historical_"+age_group+".csv",
+                float_format='%.2f'
                 )
         )
         
