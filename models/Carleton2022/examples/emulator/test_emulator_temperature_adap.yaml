@@ -2,7 +2,9 @@
 
 wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
 temp_dir: None
-gdp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_4/IMPACTS/IMP-SSP1-REF-GDPIMP-15/indicators/Economy/GDPpc_incl_impacts.OUT
+gdp_dir: "X:\\IMAGE\\scenario_wip\\Scenario_lib\\ScenarioMIP\\SSP1\\T2F\\exchange/gdp_pc.scn"
+#"X:\\IMAGE\\scenario_wip\\Scenario_lib\\ScenarioMIP\\SSP1\\T2I\\exchange\\GDP_PC.out"
+#X:/user/liprandicn/Data/IMAGE_temperature/IMP-SSP1-REF-GDPIMP-15/GDPpc_incl_impacts.OUT
 
 start_year: 2000
 end_year: 2025
@@ -19,7 +21,7 @@ climate_emulator:
 
     emulator_name: 'unet_EC-Earth3P-HR_GLO.keras'
     emulator_data: "X:/user/scherrenbm/ModelDevelopment/IMAGE_Development/EERIE/EERIE_Data/emulator/"
-    temperature_projection: "X:/user/dekkerm/IMAGE_environments/IMPACTS/3_IMAGE_land/scen/IMP-SSP1-REF-GDPIMP-15/output/climate_impacts/TEMPERATURE.OUT"
+    temperature_projection: X:/user/liprandicn/Data/IMAGE_temperature/IMP-SSP1-REF-GDPIMP-15/TEMPERATURE.OUT
     temperature_historical: "X:/IMAGE/data/processed/IMAGE/IMAGE_INPUT/climateCRU_30min/netcdf/"
     pattern_scalling: X:/user/scherrenbm/Data/PatternScaling_Netcdf/
     pattern_scalling_scenario: ENS_126
