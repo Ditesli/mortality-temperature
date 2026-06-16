@@ -421,16 +421,6 @@ def PostprocessResults(sets, fls):
     # Create project folder if it doesn't exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
     
-    # Save PAF results as csv file
-    paf.to_csv(
-        sn.out_path /
-        f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}.csv"
-        ) 
-    paf_counterfactual.to_csv(
-        sn.out_path /
-        f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}_counterfactual.csv"
-        ) 
-    
     print("[3.1] Calculating attributable mortality and saving results...")
     
     # Set causes of death to grab from GBD data
