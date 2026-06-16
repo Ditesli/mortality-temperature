@@ -161,7 +161,7 @@ class Pattern_Scaling:
         years = time if type(time)==range else time
 
         # Years to create the climatology
-        years_to_loop = range(years[0]-30, years[-1])
+        years_to_loop = range(years[0]-29, years[-1]+1)
 
         temperature_data = []
 
