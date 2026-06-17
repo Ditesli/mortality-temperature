@@ -334,7 +334,7 @@ class BaselineERFsInputs:
         if sets.adaptation:
                 
             print("[1.6] Loading GDPpc shares at the impact region level...")
-            image_shares, country_shares = GenerateGDPpcShares(wdir=sets.wdir, fls=fls)
+            image_shares, country_shares = GenerateGDPpcShares(sets=sets, fls=fls)
             image_gdppc = None
             
             if not re.search(r"SSP[1-5]_ERA5", sets.scenario) and "carleton" not in sets.scenario.lower():
@@ -610,7 +610,7 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
         
         # Read 'present-day' population data
         pop_historical = (
-            pd.read_csv(sets.wdir+f"/data/population/pop_historical/POP_historical_{age_group}.csv")
+            pd.read_csv(sets.wdir+f"/data/Population/PopulationHistorical/pop_historical_{age_group}.csv")
             .set_index("hierid")
         )
 
@@ -652,7 +652,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
         pop_ssp_group = (
             pd.read_csv(
                 sets.wdir +
-                f"/data/Population/Population_IMAGE/pop_{ssp.lower()}_{age_group}.csv")
+                f"/data/Population/PopulationIMAGE/pop_{ssp.lower()}_{age_group}.csv")
             .pipe(lambda df: df.filter(
                 ["hierid"] +
                 [c for c in df.columns if c.isdigit() and int(c) in years]
@@ -823,7 +823,7 @@ def ImportHistoricalLogGDPpc(wdir, ir, year, country_shares):
     
     # Read GDPpc
     gdppc = (
-        pd.read_csv(wdir + "/data/IncomeData/historical_gdppc/WB_WDI_NY_GDP_PCAP_KD.csv")
+        pd.read_csv(wdir + "/data/IncomeData/GDPpcHistorical/WB_WDI_NY_GDP_PCAP_KD.csv")
         [["REF_AREA", "TIME_PERIOD", "OBS_VALUE"]] # Relevan columns
         .sort_values(["REF_AREA", "TIME_PERIOD"])
         .assign( # Calculate 13 year rolling mean of log(GDPpc) per country
@@ -859,7 +859,7 @@ def ImportCarletonLogGDPpc(wdir, scenario, ir, year):
         
     # Read GDP per capita file
     gdppc = (
-        xr.open_dataset(wdir+f"data/CarletonSM/econ_vars/{scenario.upper()}.nc4")   
+        xr.open_dataset(wdir+f"/data/CarletonSM/econ_vars/{scenario.upper()}.nc4")   
         .gdppc
         .mean(dim='model')  # Mean across models
         .rolling(year=13, min_periods=1)  # 13 year rolling mean
@@ -902,54 +902,69 @@ def ImportIMAGEloggdppc(year, baseline):
     )
     
     # Merge IMAGE GDPpc with GDPpc shares
-    gdppc = baseline.image_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
+    gdppc_year = 2010 if year < 2010 else year
+    
+    # Merge IMAGE GDPpc with GDPpc shares
+    gdppc = image_gdppc.merge(
+        baseline.image_shares[["region", "IMAGE26", gdppc_year]],
+        right_on="IMAGE26", left_on="region", how="right"
+    )
+    # gdppc = baseline.image_shares.merge(image_gdppc, left_on="IMAGE26", right_on="region", how="left")
     
     # Calculate share of log(GDPpc) based on regional GDPpc
-    gdppc["gdppc"] = gdppc["Value"] * gdppc["gdppc_share"] 
+    gdppc["gdppc"] = gdppc["Value"] * gdppc[gdppc_year] 
     gdppc["loggdppc"] = np.log(gdppc["gdppc"])
     
     return gdppc["loggdppc"].values
 
  
 
-def GenerateGDPpcShares(wdir, fls):
-    
-    """
-    Generate the corresponding GDPpc shares per impact region within an IMAGE region and 
-    country. The function will read the GDPpc data from Carleton et al. (2022) and calculate 
-    the factor that downscales the GDPpc. The final output will be a dataframe with the GDPpc
-    shares per impact region.
-    """
+def GenerateGDPpcShares(sets, fls):
 
-    # Open GDP data (can be any SSP)
-    gdppc = (
-        xr.open_dataset(f"{wdir}/data/CarletonSM/econ_vars/SSP2.nc4")
+    ssp = re.search(r"SSP\d", sets.scenario).group()
+
+    # Open scenario GDP data
+    gdppc_shares = (
+        xr.open_dataset(f"{sets.wdir}/data/CarletonSM/econ_vars/{ssp}.nc4")
+        .mean(dim="model") # Mean between high and low economic models
         .to_dataframe() # Convert to dataframe
         .reset_index()
-        .merge(fls.region_class, left_on="region", right_on="hierid")
-        .query("model == 'high' and year == 2010") # Filter
-        .drop(["model", "year", "ssp"], axis=1)
-    )
-    
-    def compute_shares(df, group_var):
-        return (
-            df.assign(
-                gdppc_ir_shares=lambda d: d["gdppc"] / d.groupby(group_var)["gdppc"].transform("sum"),
-                gdppc_times_shares=lambda d: d["gdppc"] * d["gdppc_ir_shares"],
-                gdppc_country=lambda d: d.groupby(group_var)["gdppc_times_shares"].transform("sum"),
-                share_country_gdp=lambda d: d["gdppc_times_shares"] / d["gdppc_country"],
-                gdppc_share=lambda d: d["share_country_gdp"] / d["gdppc_ir_shares"]
-            )
-            [["region", group_var, "gdppc_share"]]
-            .set_index("region")
-            .reindex(fls.ir.values)
-            .reset_index()
+        .merge(fls.region_class, left_on="region", right_on="hierid") # Merge with region classification to get ISO3 codes
+        .drop(["ssp", "pop0to4", "pop5to64", "pop65plus", "hierid"], axis=1)
+        .assign( # Calculate GDPpc shares by dividing the regional GDPpc by the IMAGE GDPpc
+            gdppc_iso3 = 
+            lambda d: (d.groupby(['ISO3', "year"])["gdp"].transform("sum") / d.groupby(['ISO3', "year"])["pop"].transform("sum")),
+            gdppc_image = 
+            lambda d: (d.groupby(['IMAGE26', "year"])["gdp"].transform("sum") / d.groupby(["IMAGE26", "year"])["pop"].transform("sum")),
+            gdppc_shares_ir = # Calculate GDPpc shares at impact region level
+            lambda d: d["gdppc"] / d["gdppc_iso3"],
+            gdppc_shares_iso3 =  # Calculate GDPpc shares at country level
+            lambda d: d["gdppc_iso3"] / d["gdppc_image"],
+            gdppc_shares = # Calculate total shares
+            lambda d: d["gdppc_shares_ir"] * d["gdppc_shares_iso3"]
         )
-    
-    # Calculate IMAGE and country shares
-    image_shares = compute_shares(gdppc, "IMAGE26")
-    country_shares = compute_shares(gdppc, "ISO3")
-        
+    )
+
+    image_shares = (
+        gdppc_shares
+        [["region", "IMAGE26", "year", "gdppc_shares"]]
+        .pivot(index=["region", "IMAGE26"], columns="year", values="gdppc_shares")
+        .reset_index()
+        .set_index("region")
+        .reindex(fls.ir.values) # Reindex according to hierid
+        .reset_index()
+        )
+
+    country_shares = (
+        gdppc_shares
+        .query("year==2010")
+        [["region", "ISO3", "gdppc_shares_ir"]]
+        .rename(columns={"gdppc_shares_ir":"gdppc_share"})
+        .set_index("region")
+        .reindex(fls.ir.values) # Reindex according to hierid
+        .reset_index()
+    )
+
     return image_shares, country_shares
 
 
@@ -971,7 +986,8 @@ def ReadOUTFiles(sets):
     Timeline = prism.Timeline(start=_DIM_TIME['start'],
                             end=_DIM_TIME['end'],
                             stepsize=_DIM_TIME['stepsize'])
-    prism_regions_world = prism.Dimension('region', _DIM_IMAGE_REGIONS + ["World"])
+    extra_regions = ["dummy", "World"] if sets.gdp_dir[-3:] in ["scn", "dat"] else ["World"]
+    prism_regions_world = prism.Dimension('region', _DIM_IMAGE_REGIONS + extra_regions)
     
     listy = []
     
