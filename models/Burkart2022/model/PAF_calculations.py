@@ -233,7 +233,7 @@ class LoadInputData:
         
         print(f"[1.3] Calculating population per impact region for SSP: {ssp}...")
         pop_region = pop.IMAGEPopulation2Regions(
-            shp_dir=sets.wdir+"/data/GBD_locations/gbd_shapefiles/", 
+            shp_dir=os.path.dirname(sets.wdir)+"/data/GBD/GBD_locations/gbd_shapefiles/", 
             shp_name="GBD_shapefile",
             pop_dir=os.path.dirname(sets.wdir)+"/data", 
             ssp="SSP2",
@@ -310,7 +310,9 @@ def LoadTemperatureZones(sets):
     
     # Import ERA5 temperature zones
     era5_tz = (
-        xr.open_dataset(f"{sets.wdir}/data/temperature_zones/ERA5_mean_1980-2019_land_t2m_tz.nc")
+        xr.open_dataset(
+            sets.wdir + 
+            f"/data/TemperatureZones/ERA5_mean_1980-2019_land_t2m_tz.nc")
         .t2m.values
     )
     
@@ -345,7 +347,7 @@ def LoadExposureResponseFunctions(sets):
     for cause in list(sets.causes.keys()):
         # Open file for selected cause of death
         erf_cause = pd.read_csv(
-            f"{sets.wdir}/data/burkart_sm/ERF/{cause}_curve_samples.csv", index_col=[0,1]
+            f"{sets.wdir}/data/BurkartSM/ERF/{cause}_curve_samples.csv", index_col=[0,1]
             )
         erf_cause.index = pd.MultiIndex.from_arrays(
             [erf_cause.index.get_level_values(0), erf_cause.index.get_level_values(1).round(1)]
@@ -366,7 +368,7 @@ def LoadExposureResponseFunctions(sets):
         elif sets.draw == "random":
             draw = random.randint(0,999)
             erf[cause] = erf_dict[cause][f"draw_{draw}"]  
-        elif isinstance(sets.draw_type, int):
+        elif isinstance(sets.draw, int):
             erf[cause] = erf_dict[cause][f"draw_{sets.draw}"]
         
      
@@ -493,7 +495,7 @@ def LoadTMRELsMap(sets, year):
             
     print("[1.6] Loading Theoretical Minimum Risk Exposure Levels (TMRELs)...")
     
-    tmrel = xr.open_dataset(f"{sets.wdir}/data/TMRELs_nc/TMRELs_{year}.nc")
+    tmrel = xr.open_dataset(f"{sets.wdir}/data/TMRELsMaps/TMRELs_{year}.nc")
     
     if not re.search(r"SSP[1-5]_ERA5", sets.scenario):
         # Reduce resolution to 0.5x0.5 degrees
@@ -506,7 +508,10 @@ def LoadTMRELsMap(sets, year):
     elif isinstance(sets.draw, int):
         draw = sets.draw % 100 if sets.draw > 100 else sets.draw
         tmrel = tmrel.sel(draw=draw).tmrel.values
-        
+    
+    # Change to float64
+    tmrel = tmrel.astype(float)
+    
     return tmrel
 
 
@@ -611,7 +616,7 @@ def LoadExposureResponseFunctionsAll(sets):
     for cause in list(sets.causes.keys()):
         # Open file for selected cause of death
         erf_cause = pd.read_csv(
-            f"{sets.wdir}/data/burkart_sm/ERF/{cause}_curve_samples.csv", index_col=[0,1]
+            f"{sets.wdir}/data/BurkartSM/ERF/{cause}_curve_samples.csv", index_col=[0,1]
             )
         
         erf_cause = (
@@ -676,25 +681,32 @@ def CalculateCounterPAF(sets, fls):
     print("[2.0] Calculating counterfactual PAFs...")
     
     if re.search(r"SSP[1-5]_ERA5", sets.scenario):
-
-        BASE_YEARS = range(1980, 1990)
         
-        for year in BASE_YEARS:
+                        
+        if re.search("replication", sets.project.lower()):
+            print("[2.0.0] Counterfactual PAFs for replication scenario not calculated...")
+            fls.paf_counter[:] = 0
             
-            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
+        else:
+
+            BASE_YEARS = range(1980, 1990)
             
-            daily_temp, num_days = tmp.LoadDailyTemperatures(
-                temp_dir=sets.temp_dir,
-                scenario=sets.scenario,
-                temp_type="mean",
-                year=year, 
-                pop_map=fls.pop_map,
-                std_factor=1
-                )
-            
-            for region in fls.regions_range:
-                CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter=True)
-            
+            for year in BASE_YEARS:
+                
+                print(f"[2.0.1] Counterfactual PAFs for year {year}...")
+                
+                daily_temp, num_days = tmp.LoadDailyTemperatures(
+                    temp_dir=sets.temp_dir,
+                    scenario=sets.scenario,
+                    temp_type="mean",
+                    year=year, 
+                    pop_map=fls.pop_map,
+                    std_factor=1
+                    )
+                
+                for region in fls.regions_range:
+                    CalculateRegionalPAF(sets, fls, region, year, num_days, daily_temp, counter=True)
+
         
         
 def CalculatePAFYear(sets, fls, year):
@@ -840,7 +852,7 @@ def MaskTemperatureDataRegionally(daily_temp, valid_mask, pop_array, num_days):
 
 def PostprocessResults(sets, fls):
         
-    print("[3] Model run complete. Saving results...")
+    print("[3] Model run complete. Postprocessing results...")
     
     # Stack dataframe to leave only years in columns 
     paf = fls.paf.stack([1,2], future_stack=True).reorder_levels([1,2,0]).sort_index()
@@ -860,17 +872,14 @@ def PostprocessResults(sets, fls):
             self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
             self.out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
             self.model = "Burkart"
+            self.draw = f"_{sets.draw}" if isinstance(sets.draw, int) else f"_{sets.draw.lower()}"
     sn = ScenarioNaming(sets)
-    
-    # Create project folder if it doesn't exist
-    sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}{sn.erf_part}"
-            
-    # Save the results and temperature statistics
-    paf.to_csv(sn.out_path / file_name + ".csv")
-    paf_counterfactual.to_csv(sn.out_path / file_name + "_counter.csv")  
+
     
     print("[3.1] Calculating attributable mortality and saving results...")
+    
+     # Create project folder if it doesn't exist
+    sn.out_path.mkdir(parents=True, exist_ok=True)
     
     # Reformat PAF df to xarray
     paf = ReformatPAF(sets, fls, paf)
@@ -882,7 +891,7 @@ def PostprocessResults(sets, fls):
     
     # Calculate mortality from PAF in the counterfactual scenario
     sn.counter = "_counterfactual"
-    p2m.PAF2Mortality(sets, fls, paf, sets.causes.values(), sn)
+    p2m.PAF2Mortality(sets, fls, paf_counterfactual, sets.causes.values(), sn)
     
     print("Model ran succesfully!")
     

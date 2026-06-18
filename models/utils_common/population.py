@@ -13,13 +13,13 @@ image_index = {
     1:"CAN", 2:"USA", 3:"MEX", 4:"RCAM", 5:"BRA", 6:"RSAM", # America
     7:"NAF", 8:"WAF", 9:"EAF", 10:"SAF", # Africa
     11:"WEU", 12:"CEU", 13:"TUR", 14:"UKR", # Europe
-    15:"SEAS", 16:"RUS", 17:"ME", 18:"INDIA", 19:"KOR", 20:"CHN", 21:"SEAS", 22:"INDO", 23:"JAP", # Asia
+    15:"STAN", 16:"RUS", 17:"ME", 18:"INDIA", 19:"KOR", 20:"CHN", 21:"SEAS", 22:"INDO", 23:"JAP", # Asia
     24:"OCE", 25:"RSAS", 26:"RSAF" # Oceania + other
     } 
 
 
 
-def get_all_population_data(wdir, scenario, return_pop=False):
+def LoadAllPopulationData(wdir, scenario, return_pop=False):
     
     '''
     Create a dataset with population data for all SSP scenarios 
@@ -56,8 +56,10 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     '''
     
     # Open IMAGE SSP population data
-    wdir_up = os.path.dirname(wdir)
-    pop = xr.open_dataset(f'{wdir_up}/data/image_population/{ssp}/GPOP.nc')
+    pop = xr.open_dataset(
+        os.path.dirname(wdir) + # Move to general folder
+        f'/data/IMAGE/IMAGE_population/{ssp}/GPOP.nc'
+        )
     
     if re.search(r"ERA5", scenario):
         # Reduce resolution to 15 min to match ERA5 data
@@ -100,7 +102,9 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_map)
     
         # Read in IMAGE region data and interpolate to match files resolution
         regions = (
-            xr.open_dataset(wdir+'/data/region_classification/GREG_30MIN.nc')
+            xr.open_dataset(
+                os.path.dirname(wdir) + #Move to general folder
+                '/data/IMAGE/IMAGE_Regions_Map/GREG_30MIN.nc')
             .mean(dim="time") # Mean over time dimension
             .interp(longitude=temp_grid.longitude,  # Match temperature data resolution 
                     latitude=temp_grid.latitude, 
@@ -115,7 +119,9 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_map)
         
         # Read in GBD LEVEL 3 region data: countries and territories
         regions = (
-            xr.open_dataset(wdir+'/data/GBD_locations/GBD_locations_level3.nc')
+            xr.open_dataset(
+                os.path.dirname(wdir)
+                +'/data/GBD/GBD_locations/GBD_locations_level3.nc')
             .interp(longitude=temp_grid.longitude, 
                                      latitude=temp_grid.latitude, 
                                      method='nearest')
@@ -162,7 +168,7 @@ def IMAGEPopulation2Regions(shp_dir, shp_name, pop_dir, ssp, years):
     regions_shp = gpd.read_file(shp_dir+shp_name+".shp")
     
     # Read IMAGE SSP population nc file
-    pop_image = xr.open_dataset(pop_dir+f"/image_population/{ssp.upper()}/GPOP.nc")
+    pop_image = xr.open_dataset(pop_dir+f"/IMAGE/IMAGE_population/{ssp.upper()}/GPOP.nc")
     
     # Ensure CRS is set to EPSG:4326 and align with regions
     pop_image = pop_image.rio.write_crs("EPSG:4326", inplace=False)

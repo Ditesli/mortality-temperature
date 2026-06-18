@@ -421,16 +421,6 @@ def PostprocessResults(sets, fls):
     # Create project folder if it doesn't exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
     
-    # Save PAF results as csv file
-    paf.to_csv(
-        sn.out_path /
-        f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}.csv"
-        ) 
-    paf_counterfactual.to_csv(
-        sn.out_path /
-        f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}_counterfactual.csv"
-        ) 
-    
     print("[3.1] Calculating attributable mortality and saving results...")
     
     # Set causes of death to grab from GBD data
@@ -438,7 +428,8 @@ def PostprocessResults(sets, fls):
         "All causes", 
         "Cardiovascular diseases", 
         "Chronic respiratory diseases", 
-        "Respiratory infections and tuberculosis"
+        "Lower respiratory infections",
+        "Upper respiratory infections"
         ]
     
     # Change PAF format to xarray
@@ -468,7 +459,7 @@ def ReformatPAF(fls, paf):
 
     # Assign the age group and certainty level to separate columns in the dataframe
     paf["age"] = age_group_split.get_level_values(0)
-    paf['certainty'] = np.where(
+    paf['val_erf'] = np.where(
         age_group_split.get_level_values(2).isna(), 
         'medium', 
         age_group_split.get_level_values(2)
@@ -480,9 +471,9 @@ def ReformatPAF(fls, paf):
         .reset_index()
         .drop(columns=["age_group"])
         .rename(columns={"age":"age_group", "region":"ISO3"})
-        .melt(id_vars=["ISO3", "t_type", "cause", 'age_group', 'certainty'], var_name='year', value_name='paf')
+        .melt(id_vars=["ISO3", "t_type", "cause", 'age_group', 'val_erf'], var_name='year', value_name='paf')
         .assign(paf=lambda df: df['paf'].astype(float)) 
-        .set_index(["ISO3", "t_type", "cause", "age_group", "certainty", "year"])
+        .set_index(["ISO3", "t_type", "cause", "age_group", "val_erf", "year"])
         .to_xarray()
     )
 

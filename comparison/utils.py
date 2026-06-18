@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import glob
+import xarray as xr
 import matplotlib.pyplot as plt
 
 
@@ -60,20 +62,9 @@ causes = {
     'lri':'Lower respiratory infections'
     }
 
-relevant_causes = {
-    'ckd':'Chronic kidney disease', 
-    'cvd_cmp':'Cardiomyopathy and myocarditis', 
-    'cvd_htn':'Hypertensive heart disease', 
-    'cvd_ihd':'Ischemic heart disease', 
-    'cvd_stroke':'Stroke',
-    'diabetes':'Diabetes mellitus',
-    'resp_copd':'Chronic obstructive pulmonary disease', 
-    'lri':'Lower respiratory infections'
-    }
 
 
-
-def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cause):
+def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cause, val_mor, val_erf):
     
     """
     Load mortality from ANY calculation method as time series and constrained to 
@@ -104,6 +95,13 @@ def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cau
 
     # Condition for region
     filter &= df["region"] == region
+    
+    # Condition for value
+    if "val_mor" in df.columns:
+        filter &= df["val_mor"].str.lower() == val_mor.lower()
+        
+    if "val_erf" in df.columns:
+        filter &= df["val_erf"].str.lower() == val_erf.lower()
 
     # Condition for units
     if "units" in df.columns:
@@ -170,6 +168,65 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
     
     return final_df
 
+
+
+def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
+    
+    files = wdir + "/" + filename + ".nc"
+    file_list = sorted(glob.glob(files))
+
+    if file_list:
+        ds = xr.open_mfdataset(file_list, combine="nested", concat_dim="draw")
+    else:
+        print("Files not found.")
+    
+    da_selected = ds.sel(
+    region_type=region_type,
+    region=region,
+    t_type=t_type,
+    cause=cause,
+    age_group=age_group
+    )[variable]
+
+
+    da_mean = da_selected.mean(dim=["draw", "var_mor"])
+    da_p025 = da_selected.quantile(0.025, dim=["draw", "var_mor"])
+    da_p975 = da_selected.quantile(0.975, dim=["draw", "var_mor"])
+    
+    return da_mean, da_p025, da_p975
+
+
+
+def LoadCarletonMortality(wdir, filename, years, region, temp_type, unit, age_group, cause):
+    
+    draws = {}
+    i = 1
+    
+    for draw in range(1,5):
+        carleton_counter = f"{filename}_{draw}"
+        draws[i] = LoadMortality(wdir, carleton_counter, years, region, temp_type, unit, age_group, cause, None, None)
+        i += 1
+        
+    carleton_df = pd.concat(draws.values(), ignore_index=True)
+    
+    c_mean = carleton_df.mean(axis=0)
+    c_p025 = carleton_df.quantile(q=0.025, axis=0, interpolation="linear")
+    c_p975 = carleton_df.quantile(q=0.975, axis=0, interpolation="linear")
+    
+    return c_mean, c_p025, c_p975
+        
+        
+# wdir = "X:\\user\\liprandicn\\mt-comparison\\"
+# temp_type = "heat"
+# unit = "total"
+# age_group = "oldest"
+# region = "World"
+# years = range(1980,2024)
+# cause = "All causes"
+# # burkart_counter = "burkart2022/output/ComparisonBurkart/MOR_ComparisonBurkart_SSP2_ERA5_IMAGE_1980-2023_counterfactual"
+# carleton_file = "carleton2022/output/ComparisonCarletonCounter/IMAGE/MOR_ComparisonCarletonCounter_SSP2_ERA5_NoAdap_1980-2023"
+
+# carleton_counter = LoadCarletonMortality(wdir, carleton_file, years, region, temp_type, unit, age_group, cause)
 
 
 def LoadBallesterScatter(wdir):
