@@ -872,7 +872,7 @@ def PostprocessResults(sets, fls):
             self.years_part = f"_{sets.years[0]}-{sets.years[-1]}"
             self.out_path = Path(sets.wdir) / "output" / f"{sets.project}" 
             self.model = "Burkart"
-            self.draw = f"_{sets.draw}" if isinstance(sets.draw, int) else f"_{sets.draw.upper()}"
+            self.draw = f"_{sets.draw}" if isinstance(sets.draw, int) else f"_{sets.draw.lower()}"
     sn = ScenarioNaming(sets)
 
     
