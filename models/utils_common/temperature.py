@@ -78,53 +78,6 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
 
 
 
-def DailyTemperatureFromEmulator(em, year):
-    
-    """
-    Generate daily temperature data for a given year from the monthly statistics (std) 
-    that the EERIE emulator produces for that year, assuming a normal distribution.
-    """
-    
-    
-    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
-        NUMBER_DAYS = 366
-    else:
-        NUMBER_DAYS = 365
-    
-    # Run emulator to get monthly mean and std data for the year
-    temperature_mean, temperature_std = em.run_emulator(year)
-    
-    # Generate monthly dates (15th OR 16th of each month)
-    monthly_dates = pd.date_range(
-        start=f"15/12/{year-1}", 
-        end=f"15/2/{year+1}", freq="ME"
-        ) - pd.DateOffset(days=15)
-    
-    # Interpolate to daily data
-    temperature_mean = (
-        temperature_mean
-        .assign_coords(month=monthly_dates) # Change monthly coordinates to datetime
-        .rename({"month": "valid_time"}) 
-        .drop_vars("time") # Drop original time coordinate
-        .resample(valid_time="1D")
-        .interpolate("slinear") # Interpolate to daily data
-        .sel(valid_time=slice(f"{year}-01-01", f"{year}-12-31")) # Keep selected year
-    )
-
-    temperature_std = temperature_std.rename({"month":"NM"})
-
-    daily_temperature = DailyTemperatureFromNormalPDF(
-        time=year, 
-        number_days=NUMBER_DAYS, 
-        temp_daily_mean=temperature_mean, 
-        temp_std=temperature_std, 
-        std_factor=1
-        )
-    
-    return daily_temperature
-    
-    
-
 def DailyFromMonthlyTemperature(temp_dir, year, temp_type, std_factor, to_xarray=False):
     
     """
