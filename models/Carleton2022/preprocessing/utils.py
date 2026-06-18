@@ -245,7 +245,7 @@ def PopulationIMAGE(wdir):
         pop_young, pop_older, pop_oldest = (pivot_and_merge(g) for g in ["young", "older", "oldest"])
         
         # Create output directory if it doesn"t exist
-        out_path = Path(wdir) / "data" / "Population" / "Population_IMAGE"
+        out_path = Path(wdir) / "data" / "Population" / "PopulationIMAGE"
         out_path.mkdir(parents=True, exist_ok=True)
 
         # Multiply shares by total population to get absolute numbers
