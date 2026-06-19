@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
-import utils_common.population as pop
+import utils.population as pop
 from rasterio.features import rasterize
 from rasterio.transform import from_origin
 from scipy.ndimage import distance_transform_edt

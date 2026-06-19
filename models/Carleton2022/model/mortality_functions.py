@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import re, sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from utils_common import temperature as tmp
+from utils import temperature as tmp
 import prism
 
 
