@@ -7,9 +7,9 @@ from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from utils_common import temperature as tmp
-from utils_common import population as pop
-from utils_common import paf2mortality as p2m
+from utils import temperature as tmp
+from utils import population as pop
+from utils import paf2mortality as p2m
 
 
 def CalculatePAF(
