@@ -242,10 +242,6 @@ class BaselineERFsInputs:
     
     Attributes
     ----------
-    climtas_t0: np.ndarray
-        1D array with the 30 year climate mean (2001-2010) per impact region.
-    loggdppc_t0 : np.ndarray
-        1D array with the log of the 13 year gdppc mean (2001-2010) per impact region.
     erfs_t0: any
         Dictionary with each age group's ERFs per impact region.
     tmin_t0: any
@@ -259,9 +255,7 @@ class BaselineERFsInputs:
     daily_temp_t0: pd.DataFrame
         DataFrame with daily "present day" temperature data for the counterfactual part.
     """
-    
-    climtas_t0: np.ndarray
-    loggdppc_t0 : np.ndarray
+
     erfs_t0: any
     tmin_t0: any
     image_shares: any
@@ -273,18 +267,7 @@ class BaselineERFsInputs:
     def from_sets(sets, fls):
         
         # Import present day covariates
-        print("[1.4] Loading 'present day' covariates climtas and loggdppc...")
-        
-        climtas_t0, loggdppc_t0 = ImportCovariates(
-            sets=sets, 
-            fls=fls,
-            year=None, 
-            adaptation=False,
-            baseline = None,
-            counterfactual=None
-            )
-        
-        # Generate a single time 'present day' ERFs (no adaptation)
+        print("[1.4] Loading 'baseline' Exposure Response Functions...")
         erfs_t0, tmin_t0 = GenerateERFAll(
             sets=sets, 
             fls=fls,
@@ -325,14 +308,10 @@ class BaselineERFsInputs:
                 
         # Set to None when adaptation is off        
         else:  
-            image_shares = None
-            image_gdppc = None
-            country_shares = None
+            image_shares = None; image_gdppc = None; country_shares = None
             
             
         return BaselineERFsInputs(
-            climtas_t0=climtas_t0,
-            loggdppc_t0=loggdppc_t0,
             erfs_t0=erfs_t0,
             tmin_t0=tmin_t0,
             image_shares=image_shares,
@@ -540,12 +519,12 @@ def ImportGammaCoefficients(sets):
 
 def ImportPopulationData(sets, ir):
     
-    print(f"[1.3] Loading Population data for {sets.scenario} scenario at the impact regions level...")
-    
     # Extract SSP from scenario string
     match = re.search(r"(?i)\bssp\d+", sets.scenario)
     # Extract corresponding SSP scenario
     ssp = match.group().upper()
+    
+    print(f"[1.3] Loading Population data for {ssp} scenario at the impact regions level...")
     
     # Include ALWAYS population data from 2000 to 2010 (used in the subtrahend part)
     year = sorted(set(sets.years).union(range(2000, 2011)))
@@ -569,11 +548,6 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
     Read default population file for a given SSP scenario and age group
     and convert it to the right format (dataframe) to be used later on in the model in the 
     spatial aggregation of mortality. 
-    
-    Returns:
-    ----------
-    population_groups : dict
-        Dictionary with population dataframes per age group
     """
     
     population_groups = {}
@@ -613,11 +587,6 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
     """
     Read precalculated IMAGE population data at the impact region level for a
     given SSP.
-
-    Returns:
-    ----------
-    pop_ssp : dict
-        Dictionary with population data per age group
     """
         
     pop_ssp = {}
