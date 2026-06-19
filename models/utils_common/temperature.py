@@ -276,6 +276,9 @@ def DailyTemperatureFromNormalPDF(year, number_days, temp_daily_mean, temp_std, 
         
         # Adjust std to change daily variability
         sigma = std_factor*sigma 
+        
+        # Change any negative and nan std values to a small positive number to avoid issues with normal distribution
+        sigma = np.where(sigma <= 0, 0.1, sigma) 
 
         # Generate random daily variability from normal distribution
         vals = np.random.normal(mu, sigma, size=(n_days, lats, lons))
