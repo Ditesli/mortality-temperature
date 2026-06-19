@@ -193,8 +193,7 @@ class LoadInputData:
     spatial_relation: gpd.GeoDataFrame
     ir: pd.DataFrame
     region_class: pd.DataFrame
-    results_image: pd.DataFrame
-    results_iso3: pd.DataFrame
+    results: xr.Dataset
     gammas: any
     pop: pd.DataFrame
     base_years: list=range(2001,2011)
@@ -217,7 +216,7 @@ class LoadInputData:
         
         spatial_relation, ir = GridRelationship(sets)
         
-        results_image, results_iso3 = FinalDataframe(sets, region_class)
+        results = FinalResultsContainer(sets, region_class)
         
         gamma_coeffs = ImportGammaCoefficients(sets)
         
@@ -227,8 +226,7 @@ class LoadInputData:
             spatial_relation=spatial_relation,
             ir=ir,
             region_class=region_class,
-            results_image=results_image,
-            results_iso3=results_iso3,
+            results=results,
             gammas = gamma_coeffs,
             pop = population
         )
@@ -434,11 +432,11 @@ def GridRelationship(sets):
 
 
 
-def FinalDataframe(sets, region_class):
+def FinalResultsContainer(sets, region_class):
     
     """
-    Create results dataframe with multiindex for age groups, temperature types,
-    mortality types (total mortality and relative mortality) and regions.
+    Create xarray to store final results classified by age groups, temperature types,
+    mortality types (total mortality, relative mortality, paf) and regions.
     """
     
     regions_image = region_class["IMAGE26"].unique()
@@ -448,32 +446,41 @@ def FinalDataframe(sets, region_class):
     regions_iso3 = region_class["ISO3"].unique()
     regions_iso3 = regions_iso3[~pd.isna(regions_iso3)]
     
-    age_groups = np.append(sets.age_groups, "all population")
-    temperature_types = ["Heat", "Cold", "All"]
-    mortality_types = ["Total Mortality", "Relative Mortality"]
+    age_groups = np.append(sets.age_groups, "All ages")
+    temperature_types = ["heat", "cold", "all"]
     
-    # Create results multiindex dataframe
-    results_image = (
-        pd.DataFrame(
-            index=pd.MultiIndex.from_product(
-                [age_groups, temperature_types, mortality_types, regions_image],
-                names=["age_group", "t_type", "units", "region"]
-                ), 
-            columns=sets.years
-        ).sort_index()
+    # Create xarray
+    ds_image = xr.Dataset(
+        data_vars={
+            "mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_image), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
+            "relative_mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_image), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
+            "paf": (["region", "age_group", "t_type", "year"], np.full((len(regions_image), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
+        },
+        coords={
+            "region_type": "IMAGE", # Al pasar un solo valor, Xarray lo expande
+            "region": regions_image,
+            "age_group": age_groups,
+            "t_type": temperature_types,
+            "year": sets.years
+        }
     )
     
-    results_iso3 = (
-        pd.DataFrame(
-            index=pd.MultiIndex.from_product(
-                [age_groups, temperature_types, mortality_types, regions_iso3],
-                names=["age_group", "t_type", "units", "region"])
-            , 
-            columns=sets.years
-        ).sort_index()
+    ds_iso3 = xr.Dataset(
+        data_vars={
+            "mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_iso3), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
+            "relative_mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_iso3), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
+            "paf": (["region", "age_group", "t_type", "year"], np.full((len(regions_iso3), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
+        },
+        coords={
+            "region_type": "ISO3",
+            "region": regions_iso3,
+            "age_group": age_groups,
+            "t_type": temperature_types,
+            "year": sets.years
+        }
     )
     
-    return results_image, results_iso3
+    return xr.concat([ds_image, ds_iso3], dim="region_type")
 
 
 
