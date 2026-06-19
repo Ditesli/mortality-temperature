@@ -193,7 +193,8 @@ class LoadInputData:
     spatial_relation: gpd.GeoDataFrame
     ir: pd.DataFrame
     region_class: pd.DataFrame
-    results: xr.Dataset
+    results_image: pd.DataFrame
+    results_iso3: pd.DataFrame
     gammas: any
     pop: pd.DataFrame
     base_years: list=range(2001,2011)
@@ -216,7 +217,8 @@ class LoadInputData:
         
         spatial_relation, ir = GridRelationship(sets)
         
-        results = FinalResultsContainer(sets, region_class)
+        # results = FinalResultsContainer(sets, region_class)
+        results_image, results_iso3 = FinalDataframe(sets, region_class)
         
         gamma_coeffs = ImportGammaCoefficients(sets)
         
@@ -226,7 +228,8 @@ class LoadInputData:
             spatial_relation=spatial_relation,
             ir=ir,
             region_class=region_class,
-            results=results,
+            results_image=results_image,
+            results_iso3=results_iso3,
             gammas = gamma_coeffs,
             pop = population
         )
@@ -319,6 +322,48 @@ class BaselineERFsInputs:
             image_gdppc=image_gdppc,
             daily_temp_t0=daily_temp_t0
         )
+        
+        
+def FinalDataframe(sets, region_class):
+    
+    """
+    Create results dataframe with multiindex for age groups, temperature types,
+    mortality types (total mortality and relative mortality) and regions.
+    """
+    
+    regions_image = region_class["IMAGE26"].unique()
+    regions_image = regions_image[~pd.isna(regions_image)]
+    regions_image = np.append(regions_image, "World")
+    
+    regions_iso3 = region_class["ISO3"].unique()
+    regions_iso3 = regions_iso3[~pd.isna(regions_iso3)]
+    
+    age_groups = np.append(sets.age_groups, "all population")
+    temperature_types = ["Heat", "Cold", "All"]
+    mortality_types = ["Total Mortality", "Relative Mortality"]
+    
+    # Create results multiindex dataframe
+    results_image = (
+        pd.DataFrame(
+            index=pd.MultiIndex.from_product(
+                [age_groups, temperature_types, mortality_types, regions_image],
+                names=["age_group", "t_type", "units", "region"]
+                ), 
+            columns=sets.years
+        ).sort_index()
+    )
+    
+    results_iso3 = (
+        pd.DataFrame(
+            index=pd.MultiIndex.from_product(
+                [age_groups, temperature_types, mortality_types, regions_iso3],
+                names=["age_group", "t_type", "units", "region"])
+            , 
+            columns=sets.years
+        ).sort_index()
+    )
+    
+    return results_image, results_iso3
 
 
 
@@ -609,6 +654,52 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
         pop_ssp[age_group] = pop_ssp_group
     
     return pop_ssp
+
+
+
+def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
+    
+    """
+    The function will import the daily temperatures from 2000 to 2010, either precalculated
+    ERA5 data or climate data from prescribed scenario. The output is a dictionary of numpy 
+    arrays with the daily temperature per impact region and year.
+    """
+     
+    # ------------------ ERA5 ------------------
+    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
+        
+        t0_mean = {}
+        for year in base_years:
+            
+            era5_t0 = pd.read_csv(
+                sets.wdir +
+                f"/data/ClimateData/PresentDayTemperatures/ERA5_T0_{year}.csv"
+                )
+            # Store in dictionary as numpy arrays
+            t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
+            #TODO: checl this iloc
+            
+    # -------------- Scenario data --------------
+    else: 
+        
+        daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
+            temp_dir=sets.temp_dir, 
+            years=base_years,
+            temp_type="MEAN",
+            std_factor=1, 
+            to_xarray=False
+        )
+
+        t0_mean = MSTemperature2IR(
+            temp=daily_temperature, 
+            year=2000, # Dummy year
+            ir=ir, 
+            spatial_relation=spatial_relation)
+        
+        # Convert "Present-day" temepratures dataframe to numpy array    
+        t0_mean = t0_mean.to_numpy()
+        
+    return t0_mean
 
 
 
@@ -1285,7 +1376,7 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
             if re.search("comparison", sets.project.lower()):
                 BASE_YEARS = range(1980, 1990) 
             else:        
-                BASE_YEARS = range(2001, 2011)
+                BASE_YEARS = range(2000, 2010)
                 
             mor_all_dic, mor_heat_dic, mor_cold_dic = {}, {}, {}
             
@@ -1383,49 +1474,6 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
             group=group)
             
     return mor_all, mor_heat, mor_cold
-
-
-
-def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
-    
-    """
-    The function will import the daily temperatures from 2000 to 2010, either precalculated
-    ERA5 data or climate data from prescribed scenario. The output is a dictionary of numpy 
-    arrays with the daily temperature per impact region and year.
-    """
-     
-    # ------------------ ERA5 ------------------
-    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
-        
-        t0_mean = {}
-        for year in base_years:
-            
-            era5_t0 = pd.read_csv(sets.wdir+
-                                  f"/data/ClimateData/PresentDayTemperatures/ERA5_T0_{year}.csv")
-            # Store in dictionary as numpy arrays
-            t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
-            
-    # -------------- Scenario data --------------
-    else: 
-        
-        daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
-            years=base_years,
-            temp_type="MEAN",
-            std_factor=1, 
-            to_xarray=False
-        )
-
-        t0_mean = MSTemperature2IR(
-            temp=daily_temperature, 
-            year=2000, # Dummy year
-            ir=ir, 
-            spatial_relation=spatial_relation)
-        
-        # Convert "Present-day" temepratures dataframe to numpy array    
-        t0_mean = t0_mean.iloc[:,1:].to_numpy()
-        
-    return t0_mean
 
     
 
