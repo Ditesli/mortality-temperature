@@ -16,5 +16,6 @@ mf.CalculateMortality(
     scenario=config["scenario"], # Scenario name
     adaptation=config["adaptation"], # Adaptation on or off
     counterfactual=config["counterfactual"], # Counterfactual climate scenario
+    draw=config["draw"], # Mean or specific/random draw
     reporting_tool=config["reporting_tool"], # Report on or off
 )
