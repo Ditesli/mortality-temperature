@@ -910,48 +910,6 @@ def GenerateGDPpcShares(sets, fls):
 
     return image_shares, country_shares
 
- 
-
-def GenerateGDPpcSharesOld(sets, fls):
-    
-    """
-    Generate the corresponding GDPpc shares per impact region within an IMAGE region and 
-    country. The function will read the GDPpc data from Carleton et al. (2022) and calculate 
-    the factor that downscales the GDPpc. The final output will be a dataframe with the GDPpc
-    shares per impact region.
-    """
-
-    # Open GDP data (can be any SSP)
-    gdppc = (
-        xr.open_dataset(f"{sets.wdir}/data/CarletonSM/econ_vars/SSP2.nc4")
-        .to_dataframe() # Convert to dataframe
-        .reset_index()
-        .merge(fls.region_class, left_on="region", right_on="hierid")
-        .query("model == 'high' and year == 2010") # Filter
-        .drop(["model", "year", "ssp"], axis=1)
-    )
-    
-    def compute_shares(df, group_var):
-        return (
-            df.assign(
-                gdppc_ir_shares=lambda d: d["gdppc"] / d.groupby(group_var)["gdppc"].transform("sum"),
-                gdppc_times_shares=lambda d: d["gdppc"] * d["gdppc_ir_shares"],
-                gdppc_country=lambda d: d.groupby(group_var)["gdppc_times_shares"].transform("sum"),
-                share_country_gdp=lambda d: d["gdppc_times_shares"] / d["gdppc_country"],
-                gdppc_share=lambda d: d["share_country_gdp"] / d["gdppc_ir_shares"]
-            )
-            [["region", group_var, "gdppc_share"]]
-            .set_index("region")
-            .reindex(fls.ir.values)
-            .reset_index()
-        )
-    
-    # Calculate IMAGE and country shares
-    image_shares = compute_shares(gdppc, "IMAGE26")
-    country_shares = compute_shares(gdppc, "ISO3")
-        
-    return image_shares, country_shares
-
 
 
 def ReadTIMERFiles(sets):
