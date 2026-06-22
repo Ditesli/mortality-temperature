@@ -1,10 +1,9 @@
-wdir: "X:/user/liprandicn/mt-comparison/carleton2022"
-temp_dir: X:\\user\\scherrenbm\\ModelDevelopment\\IMAGE_Development\\EERIE\\IMAGE_EERIE_Coupling\\SSP1_M_CP\\netcdf\\
-# "X:\\user\\liprandicn\\Data\\IMAGE_temperature\\IMP-SSP1-REF-GDPIMP-15\\"
-gdp_dir: "X:\\IMAGE\\scenario_wip\\Scenario_lib\\ScenarioMIP\\SSP1_L\\T2MAT\\exchange\\Socioeconomic\\gdp_pc.scn"
+wdir: X:/user/liprandicn/mt-comparison/carleton2022
+temp_dir: X:\\user\\liprandicn\\Data\\IMAGE_temperature\\IMP-SSP1-REF-GDPIMP-15\\
+gdp_dir: X:\\IMAGE\\scenario_wip\\Scenario_lib\\ScenarioMIP\\SSP1_L\\T2MAT\\exchange\\Socioeconomic\\gdp_pc.scn
 
-start_year: 2000
-end_year: 2100
+start_year: 2050
+end_year: 2051
 
 project: ScenarioMIP
 scenario: test_SSP1_M_CP
@@ -12,4 +11,4 @@ adaptation: True
 counterfactual: True
 draw: "mean"
 
-reporting_tool: False
+reporting_tool: True
