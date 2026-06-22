@@ -122,9 +122,10 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
-        CalculateCounterPAF(self.sets, self.fls)
+        # Define years range including baseline period
+        years = sorted(set(self.sets.years).union(self.fls.base_years))
         
-        for year in self.sets.years:
+        for year in years:
             CalculatePAFYear(
                 sets=self.sets,
                 fls=self.fls,
@@ -168,6 +169,7 @@ class LoadInputData:
     image_dict: dict
     paf: pd.DataFrame
     paf_counter: pd.DataFrame 
+    base_years: list=range(1980,1990)
 
 
     @classmethod
@@ -181,12 +183,18 @@ class LoadInputData:
         print("[1] Loading input files...")
         
         print("[1.1] Loading SSP population data...")
+        
+        # Extract SSP from scenario name
         ssp = re.search(r"SSP\d", sets.scenario).group()
+        
+        # Extact years from scenario including baseline period
+        years = sorted(set(sets.years).union(cls.base_years))
+        
         pop_map = pop.LoadPopulationMap(
             wdir=sets.wdir,
             scenario=sets.scenario, 
             ssp=ssp, 
-            years=sets.years
+            years=years
             ) 
         
         print(f"[1.2] Loading region classification...")
@@ -198,13 +206,17 @@ class LoadInputData:
             pop_map=pop_map
             )
         
-        # Load Exposure Response Functions (ERF; 1 draw or mean) and set dicts of min and max temp.
-        erf, tmin, pmap = LoadExposureResponseFunctionsAndPercentiles(sets, range(1980,2011))
+        # Load ERF (draw or mean) and locate min temp and percentiles map.
+        erf, tmin, pmap = LoadERFandPercentiles(
+            sets=sets, 
+            years=range(1980,2011)
+            )
         
         print("[1.4] Loading region classification dictionaries...")
         region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
             
-        print("[1.5] Creating final dataframe to store results...")
+        print("[1.5] Creating final dataframes to store results...")
+        
         paf = pd.DataFrame(
             index=pd.MultiIndex.from_product([
                 regions_range, 
@@ -235,7 +247,7 @@ class LoadInputData:
    
 
 
-def LoadExposureResponseFunctionsAndPercentiles(sets, years):
+def LoadERFandPercentiles(sets, years):
     
     """
     Load ERF as provided by the authors and the percentiles map previously calculated
@@ -279,36 +291,6 @@ def LoadExposureResponseFunctionsAndPercentiles(sets, years):
 
 
 
-def CalculateCounterPAF(sets, fls):
-    
-    """
-    Calculate counterfactual PAFs using 1980-1990 the daily temperatures.
-    """
-    
-    print("[2.0] Calculating counterfactual PAFs...")
-    
-    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
-
-        BASE_YEARS = range(1980, 1990)
-        
-        for year in BASE_YEARS:
-            
-            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
-            
-            daily_temp, num_days = tmp.LoadDailyTemperatures(
-                temp_dir=sets.temp_dir,
-                scenario=sets.scenario,
-                temp_type="mean",
-                year=year, 
-                pop_map=fls.pop_map,
-                std_factor=1
-                )
-            
-            for region in fls.regions_range:
-                CalculateRegionalPAF(sets, fls, region, year, daily_temp, num_days, counter=True)
-            
-
-
 def CalculatePAFYear(sets, fls, year):
     
     print(f"[2.1] Loading daily temperature data for year {year}...") 
@@ -320,15 +302,40 @@ def CalculatePAFYear(sets, fls, year):
         pop_map=fls.pop_map,
         std_factor=1
         )
-
-    print(f"[2.2] Calculating Population Attributable Fractions for year {year}...")
     
-    for region in fls.regions_range:
-        CalculateRegionalPAF(sets, fls, region, year, daily_temp, num_days, counter=False)
+    # Calculate marginal PAF for the period in scenario
+    if year in sets.years:
         
+        print(f"[2.2] Calculating Population Attributable Fractions for year {year}...")
+    
+        for region in fls.regions_range:
+            CalculateRegionalPAF(
+                fls=fls, 
+                region=region, 
+                year=year, 
+                daily_temp=daily_temp, 
+                num_days=num_days, 
+                counter=False
+                )
+    
+    # Calculate counterfactual PAF for the baseline period
+    if year in fls.base_years:
+        
+        print(f"[2.3] Calculating counterfactual PAF for year {year}...")
+        
+        for region in fls.regions_range:
+            CalculateRegionalPAF(
+                fls=fls,
+                region=region,
+                year=year,
+                daily_temp=daily_temp,
+                num_days=num_days,
+                counter=True
+                )
+            
         
     
-def CalculateRegionalPAF(sets, fls, region, year, daily_temp, num_days, counter):
+def CalculateRegionalPAF(fls, region, year, daily_temp, num_days, counter):
     
     """
     Get the Population Atributable Fraction per region and year by:
@@ -459,7 +466,7 @@ def ReformatPAF(fls, paf):
 
     # Assign the age group and certainty level to separate columns in the dataframe
     paf["age"] = age_group_split.get_level_values(0)
-    paf['val_erf'] = np.where(
+    paf['var_erf'] = np.where(
         age_group_split.get_level_values(2).isna(), 
         'medium', 
         age_group_split.get_level_values(2)
@@ -471,9 +478,9 @@ def ReformatPAF(fls, paf):
         .reset_index()
         .drop(columns=["age_group"])
         .rename(columns={"age":"age_group", "region":"ISO3"})
-        .melt(id_vars=["ISO3", "t_type", "cause", 'age_group', 'val_erf'], var_name='year', value_name='paf')
+        .melt(id_vars=["ISO3", "t_type", "cause", 'age_group', 'var_erf'], var_name='year', value_name='paf')
         .assign(paf=lambda df: df['paf'].astype(float)) 
-        .set_index(["ISO3", "t_type", "cause", "age_group", "val_erf", "year"])
+        .set_index(["ISO3", "t_type", "cause", "age_group", "var_erf", "year"])
         .to_xarray()
     )
 
