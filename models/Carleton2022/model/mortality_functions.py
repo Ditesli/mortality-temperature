@@ -26,7 +26,7 @@ def CalculateMortality(
     adaptation: bool,
     counterfactual: bool,
     draw: any,
-    reporting_tool: bool
+    reporting_tool: any
 ):
 
     sets = ModelSettings(
@@ -59,7 +59,7 @@ class ModelSettings:
     adaptation: bool
     counterfactual: bool
     draw: any
-    reporting_tool: bool
+    reporting_tool: any
     age_groups: list = field(
         default_factory=lambda: ["young", "older", "oldest"]
         )
@@ -480,14 +480,12 @@ def ImportGammaCoefficients(sets):
 def ImportPopulationData(sets, ir):
     
     # Extract SSP from scenario string
-    match = re.search(r"(?i)\bssp\d+", sets.scenario)
-    # Extract corresponding SSP scenario
-    ssp = match.group().upper()
+    ssp = re.search(r"(?i)ssp\d+", sets.scenario).group().upper()
     
     print(f"[1.3] Loading Population data for {ssp} scenario at the impact regions level...")
     
-    # Include ALWAYS population data from 2000 to 2010 (used in the subtrahend part)
-    year = sorted(set(sets.years).union(range(2000, 2011)))
+    # Include ALWAYS population data from 2000 to 2010 (used in the counterfactual part)
+    year = sorted(set(sets.years).union(range(2000, 2010)))
         
     # Import population data based on scenario type
     if 'carleton' in sets.scenario.lower():
@@ -1637,10 +1635,9 @@ def PostprocessResults(sets, fls):
     results = AggregateRegionalMortality(sets, fls)
     
     
-    # if sets.reporting_tool == True:
-    #     # Export files in .OUT format
-    #     # ExportOUTFiles(results, sets)
-    #     Export2ReportingTool(results_image, sets)
+    if sets.reporting_tool != False:
+        # Append results to reporting tool of corresponding scenario
+        Export2ReportingTool(sets, results)
 
 
     # ------------------- Save results --------------------------------------
@@ -1686,15 +1683,31 @@ def PostprocessResults(sets, fls):
     
     
             
-def Export2ReportingTool(results, sets):
+def Export2ReportingTool(sets, results):
     
-    # Convert total mortality to thousands of deaths to match the format of the reporting tool
-    results.loc[results.xs("Total Mortality", level=2, drop_level=False).index, :] = (
-        results.xs("Total Mortality", level=2, drop_level=False) / 1000
+    # Select only IMAGE regions + World
+    results = (
+        results
+        .sel(region_type="IMAGE")
+        .drop_vars("region_type")
+        .rename_vars({"mortality":"Mortality", "relative_mortality": "Relative Mortality"})
+        .rolling(year=5, center=True, min_periods=1)
+        .mean() # Calculate 5-year rolling mean to smooth the results, avoiding aliasing effects
+        .to_dataframe()
+        .assign( # Convert mortality to thousands of deaths to match the format of the reporting tool
+            Mortality = lambda d: d["Mortality"] / 1000
+            ) 
+        .reset_index()
+        .melt( # Put Mortality and Relative Mortality as single column
+            id_vars=["age_group", "year", "t_type", "region"],
+            value_vars=["Mortality", "Relative Mortality"]
+            )
+        .pivot( # Put years in columns
+            index=["age_group", "t_type", "region", "variable"], 
+            columns="year", values="value"
+            )
+        .reset_index()
     )
-    
-    # Calculate 5-year rolling mean to smooth the results, avoiding aliasing effects
-    results = results.T.rolling(window=5, center=True, min_periods=1).mean().T
 
     # Dictionary to map age groups to the format of the reporting tool
     map_age = {
@@ -1703,9 +1716,6 @@ def Export2ReportingTool(results, sets):
         "oldest": "|Age 65+"
     }
 
-    # DataFrame to store data
-    results = results.reset_index()
-
     df_rt = pd.DataFrame(index=results.index)
 
     df_rt["Model"] = "IMAGE"
@@ -1713,13 +1723,15 @@ def Export2ReportingTool(results, sets):
     df_rt["Region"] = results["region"]
     df_rt["Variable"] = (
         "Health|Mortality|Non-Optimal Temperatures"
-        + np.where(results["t_type"] != "All", "|" + results["t_type"], "")
+        + np.where(results["t_type"].str.capitalize() != "All", "|" + results["t_type"].str.capitalize(), "")
         + results["age_group"].map(map_age).fillna("")
-        + np.where(results["units"] == "Relative Mortality", " [per 100,000 people]", "")
+        + np.where(results["variable"] == "Relative Mortality", " [per 100,000 people]", "")
         ).str.rstrip("|")
-    df_rt["Unit"] = np.where(results["units"] == "Relative Mortality", "-", "thousand")
+    df_rt["Unit"] = np.where(results["variable"] == "Relative Mortality", "-", "thousand")
 
-    rt_path = f"{sets.gdp_dir}/{sets.project}/7_Reporting_Tool/outxlsx/{sets.scenario}.xlsx"
+
+    # Load original reporting tool
+    rt_path = f"{sets.reporting_tool}/{sets.scenario}.xlsx"
     wb = load_workbook(rt_path)
     rt_data = wb["data"]
 
@@ -1730,9 +1742,4 @@ def Export2ReportingTool(results, sets):
     for row in dataframe_to_rows(df_rt, index=False, header=False):
         rt_data.append(row)
         
-    # output_dir = (
-    #     sets.wdir + 
-    #     f"output/{sets.project}/RT" 
-    # )
-    # os.makedirs(output_dir, exist_ok=True)
-    wb.save(sets.gdp_dir+"/"+sets.project+"/7_Reporting_Tool/outxlsx/including_health_impacts/"+sets.scenario+".xlsx")
+    wb.save(sets.reporting_tool+"/including_health_impacts/"+sets.scenario+".xlsx")
