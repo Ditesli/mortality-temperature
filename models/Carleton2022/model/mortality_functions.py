@@ -60,8 +60,14 @@ class ModelSettings:
     counterfactual: bool
     draw: any
     reporting_tool: bool
-    age_groups: list = field(default_factory=lambda: ["young", "older", "oldest"])
-    T: np.ndarray = field(default_factory=lambda: np.arange(-20, 40.1, 0.1).round(1))
+    age_groups: list = field(
+        default_factory=lambda: ["young", "older", "oldest"]
+        )
+    T: np.ndarray = field(
+        default_factory=lambda: np.arange(
+            -20, 40.1, 0.1, dtype=np.float32
+        ).round(1)
+    )
     
     def __post_init__(self):
         self.years = self.validate_years()
@@ -193,8 +199,7 @@ class LoadInputData:
     spatial_relation: gpd.GeoDataFrame
     ir: pd.DataFrame
     region_class: pd.DataFrame
-    results_image: pd.DataFrame
-    results_iso3: pd.DataFrame
+    rel_mor: np.array
     gammas: any
     pop: pd.DataFrame
     base_years: list=range(2001,2011)
@@ -213,12 +218,15 @@ class LoadInputData:
         region_class = pd.read_csv(
             os.path.dirname(sets.wdir) +
             f"/data/RegionClassification/region_classification.csv"
-            )[["hierid", "ISO3", "IMAGE26"]].iloc[:24378]
+            )[["hierid", "ISO3", "IMAGE26"]].iloc[:24378].rename(columns={"IMAGE26":"IMAGE"})
         
         spatial_relation, ir = GridRelationship(sets)
         
-        # results = FinalResultsContainer(sets, region_class)
-        results_image, results_iso3 = FinalDataframe(sets, region_class)
+        # Define empty array to store relative mortality
+        rel_mor = np.full(
+            (2, 3, 24378, len(sets.years)), np.nan, dtype=np.float32
+        )
+
         
         gamma_coeffs = ImportGammaCoefficients(sets)
         
@@ -228,8 +236,7 @@ class LoadInputData:
             spatial_relation=spatial_relation,
             ir=ir,
             region_class=region_class,
-            results_image=results_image,
-            results_iso3=results_iso3,
+            rel_mor=rel_mor,
             gammas = gamma_coeffs,
             pop = population
         )
@@ -283,11 +290,12 @@ class BaselineERFsInputs:
         print("[1.5] Loading 'present-day' temperature data...")
         
         # Import present day temperatures
-        if re.search(r"comparison", sets.project.lower()):
-            years_range = range(1980,1990)
-        else:
-            years_range = range(2000,2010)
-            
+        years_range = (
+            range(1980, 1990)
+            if "comparison" in sets.project.lower()
+            else range(2000, 2010)
+        )
+    
         daily_temp_t0 = ImportBaselineTemperatures(
             sets=sets, 
             base_years=years_range, 
@@ -322,48 +330,6 @@ class BaselineERFsInputs:
             image_gdppc=image_gdppc,
             daily_temp_t0=daily_temp_t0
         )
-        
-        
-def FinalDataframe(sets, region_class):
-    
-    """
-    Create results dataframe with multiindex for age groups, temperature types,
-    mortality types (total mortality and relative mortality) and regions.
-    """
-    
-    regions_image = region_class["IMAGE26"].unique()
-    regions_image = regions_image[~pd.isna(regions_image)]
-    regions_image = np.append(regions_image, "World")
-    
-    regions_iso3 = region_class["ISO3"].unique()
-    regions_iso3 = regions_iso3[~pd.isna(regions_iso3)]
-    
-    age_groups = np.append(sets.age_groups, "all population")
-    temperature_types = ["Heat", "Cold", "All"]
-    mortality_types = ["Total Mortality", "Relative Mortality"]
-    
-    # Create results multiindex dataframe
-    results_image = (
-        pd.DataFrame(
-            index=pd.MultiIndex.from_product(
-                [age_groups, temperature_types, mortality_types, regions_image],
-                names=["age_group", "t_type", "units", "region"]
-                ), 
-            columns=sets.years
-        ).sort_index()
-    )
-    
-    results_iso3 = (
-        pd.DataFrame(
-            index=pd.MultiIndex.from_product(
-                [age_groups, temperature_types, mortality_types, regions_iso3],
-                names=["age_group", "t_type", "units", "region"])
-            , 
-            columns=sets.years
-        ).sort_index()
-    )
-    
-    return results_image, results_iso3
 
 
 
@@ -373,7 +339,7 @@ def GridRelationship(sets):
     Create a DataFrame with the spatial relationship between temperature data points 
     and impact regions. It will assign each grid cell to the impact region it intersects with.
     If a grid cell it will be assigned multiple times. The function can work with any resolution 
-    of temeprature data. 
+    of temperature data. 
     Create a pandas series of the impact regions to align the order of the regions in the rest 
     of the dataframes with the same order as the spatial relationship dataframe. 
     """
@@ -452,59 +418,8 @@ def GridRelationship(sets):
     # Make spatial join
     relationship = gpd.sjoin(points_gdf, ir, how="inner", predicate="intersects")
 
-    return relationship[["geometry", "index_right", "hierid"]], ir["hierid"]
-
-
-
-def FinalResultsContainer(sets, region_class):
-    
-    """
-    Create xarray to store final results classified by age groups, temperature types,
-    mortality types (total mortality, relative mortality, paf) and regions.
-    """
-    
-    regions_image = region_class["IMAGE26"].unique()
-    regions_image = regions_image[~pd.isna(regions_image)]
-    regions_image = np.append(regions_image, "World")
-    
-    regions_iso3 = region_class["ISO3"].unique()
-    regions_iso3 = regions_iso3[~pd.isna(regions_iso3)]
-    
-    age_groups = np.append(sets.age_groups, "All ages")
-    temperature_types = ["heat", "cold", "all"]
-    
-    # Create xarray
-    ds_image = xr.Dataset(
-        data_vars={
-            "mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_image), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
-            "relative_mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_image), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
-            "paf": (["region", "age_group", "t_type", "year"], np.full((len(regions_image), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
-        },
-        coords={
-            "region_type": "IMAGE", # Al pasar un solo valor, Xarray lo expande
-            "region": regions_image,
-            "age_group": age_groups,
-            "t_type": temperature_types,
-            "year": sets.years
-        }
-    )
-    
-    ds_iso3 = xr.Dataset(
-        data_vars={
-            "mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_iso3), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
-            "relative_mortality": (["region", "age_group", "t_type", "year"], np.full((len(regions_iso3), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
-            "paf": (["region", "age_group", "t_type", "year"], np.full((len(regions_iso3), len(age_groups), len(temperature_types), len(sets.years)), np.nan)),
-        },
-        coords={
-            "region_type": "ISO3",
-            "region": regions_iso3,
-            "age_group": age_groups,
-            "t_type": temperature_types,
-            "year": sets.years
-        }
-    )
-    
-    return xr.concat([ds_image, ds_iso3], dim="region_type")
+    # Return corresponding ir per pixel (relationship) and order of regions to align imported data
+    return relationship[["index_right", "hierid"]], ir["hierid"]
 
 
 
@@ -558,7 +473,7 @@ def ImportGammaCoefficients(sets):
 
     gammas = np.random.multivariate_normal(mean=gammas, cov=vcv, size=1) if str(sets.draw).lower() != "mean" else gammas
                 
-    return gammas.reshape(3,12), covar_idx.reshape(3,12)
+    return gammas.reshape(3,12).astype(np.float32), covar_idx.reshape(3,12).astype(int)
 
 
 
@@ -621,7 +536,7 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
             .pipe(lambda df: df.reindex(sorted(df.columns, key=int), axis=1))
         )
         
-        population_groups[age_group] = pop_ssp
+        population_groups[age_group] = pop_ssp.astype(np.float32)
     
     return population_groups
 
@@ -651,7 +566,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
             .pipe(lambda df: df.set_axis(df.columns.astype(int), axis=1))
         )
 
-        pop_ssp[age_group] = pop_ssp_group
+        pop_ssp[age_group] = pop_ssp_group.astype(np.float32)
     
     return pop_ssp
 
@@ -671,13 +586,11 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
         t0_mean = {}
         for year in base_years:
             
-            era5_t0 = pd.read_csv(
+            # Load daily temperature files from ERA5 at ir level            
+            t0_mean[year]  = xr.open_dataset(
                 sets.wdir +
-                f"/data/ClimateData/PresentDayTemperatures/ERA5_T0_{year}.csv"
-                )
-            # Store in dictionary as numpy arrays
-            t0_mean[year] = era5_t0.iloc[:,2:].to_numpy()
-            #TODO: checl this iloc
+                f"/data/ClimateData/BaselineTemperatures/ERA5_tmean0_{year}.nc"
+                ).tmean0.values.astype(np.float32)
             
     # -------------- Scenario data --------------
     else: 
@@ -696,9 +609,10 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
             ir=ir, 
             spatial_relation=spatial_relation)
         
-        # Convert "Present-day" temepratures dataframe to numpy array    
-        t0_mean = t0_mean.to_numpy()
-        
+        # Convert "Present-day" temperatures dataframe to numpy array    
+        t0_mean = t0_mean.to_numpy().astype(np.float32)
+    
+    # TODO change this from the beginning
     return t0_mean
 
 
@@ -729,7 +643,9 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
         )
 
     # Covariates matrix
-    covariates = np.column_stack([np.ones(len(climtas)), climtas, loggdppc])   
+    covariates = np.column_stack(
+        [np.ones(len(climtas)), climtas, loggdppc]
+    ).astype(np.float32)
 
     # Generate arrays with erf and tmin per age group
     mor_np = {}; tmin = {} 
@@ -839,7 +755,7 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
         else: 
             loggdppc = ImportIMAGEloggdppc(year, baseline)
             
-    return climtas, loggdppc
+    return climtas.astype(np.float32), loggdppc.astype(np.float32)
 
 
 
@@ -939,8 +855,8 @@ def ImportIMAGEloggdppc(year, baseline):
     gdppc_year = 2010 if year < 2010 else year
     
     gdppc = image_gdppc.merge(
-        baseline.image_shares[["region", "IMAGE26", gdppc_year]], 
-        right_on="IMAGE26", 
+        baseline.image_shares[["region", "IMAGE", gdppc_year]], 
+        right_on="IMAGE", 
         left_on="region", 
         how="right"
         )
@@ -969,7 +885,7 @@ def GenerateGDPpcShares(sets, fls):
             gdppc_iso3 = 
             lambda d: (d.groupby(['ISO3', "year"])["gdp"].transform("sum") / d.groupby(['ISO3', "year"])["pop"].transform("sum")),
             gdppc_image = 
-            lambda d: (d.groupby(['IMAGE26', "year"])["gdp"].transform("sum") / d.groupby(["IMAGE26", "year"])["pop"].transform("sum")),
+            lambda d: (d.groupby(['IMAGE', "year"])["gdp"].transform("sum") / d.groupby(["IMAGE", "year"])["pop"].transform("sum")),
             gdppc_shares_ir = # Calculate GDPpc shares at impact region level
             lambda d: d["gdppc"] / d["gdppc_iso3"],
             gdppc_shares_iso3 =  # Calculate GDPpc shares at country level
@@ -981,8 +897,8 @@ def GenerateGDPpcShares(sets, fls):
 
     image_shares = (
         gdppc_shares
-        [["region", "IMAGE26", "year", "gdppc_shares"]]
-        .pivot(index=["region", "IMAGE26"], columns="year", values="gdppc_shares")
+        [["region", "IMAGE", "year", "gdppc_shares"]]
+        .pivot(index=["region", "IMAGE"], columns="year", values="gdppc_shares")
         .reset_index()
         .set_index("region")
         .reindex(fls.ir.values) # Reindex according to hierid
@@ -1220,7 +1136,7 @@ def MonotonicityERF(T, erf, tmin_g):
 def DailyTemperature2IR(sets, year, ir, spatial_relation):
     
     """
-    Convert daily temperature data of one year to temeprature values at the impact region 
+    Convert daily temperature data of one year to temperature values at the impact region 
     level. All grid cells intersecting an impact region are considered. Return
     a dataframe with mean daily temperature per impact region for the given year.
     """
@@ -1252,7 +1168,8 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
     # Convert dataframe to numpy array    
     daily_temperature = daily_temperature.to_numpy()
     
-    return daily_temperature
+    # TODO: Change this from the beginning
+    return daily_temperature.astype(np.float32)
 
 
 
@@ -1346,6 +1263,8 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
        append the results in the DataFrame called results.
     """
     
+    ### ---------------------- Import daily temperature -----------------------------------
+    
     # Read daily temperature data from specified source
     daily_temperature = DailyTemperature2IR(
         sets=sets, 
@@ -1354,10 +1273,13 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
         spatial_relation=fls.spatial_relation
         )
     
+    
+    ### ---------------------- Calculate marginal mortality --------------------------------
+    
     print(f"[2.2] Calculating marginal mortality for year {year}...")
     
     # Calculate marginal mortality (first term of equations 2' or 2a' from the paper)
-    mor_all_min, mor_heat_min, mor_cold_min = CalculateMarginalMortality(
+    mor_heat_min, mor_cold_min = CalculateMarginalMortality(
         sets=sets, 
         year=year,  
         daily_temp=daily_temperature, 
@@ -1366,6 +1288,9 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
         counterfactual=False
         )
     
+    
+    ### ---------------------- Calculate counterfactual mortality -----------------------------
+    
     print(f"[2.3] Calculating counterfactual mortality for year {year}...")
     
     if sets.counterfactual == True:
@@ -1373,29 +1298,14 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
         # Calculate counterfactual mortality (second term of equations 2' or 2a' from the paper)
         if re.search(r"SSP[1-5]_ERA5", sets.scenario):
             
-            if re.search("comparison", sets.project.lower()):
-                BASE_YEARS = range(1980, 1990) 
-            else:        
-                BASE_YEARS = range(2000, 2010)
-                
-            mor_all_dic, mor_heat_dic, mor_cold_dic = {}, {}, {}
-            
-            for pd_year in BASE_YEARS:
-                mor_all_dic[pd_year], mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
-                    sets=sets, 
-                    year=pd_year,
-                    daily_temp=baseline.daily_temp_t0[pd_year],  
-                    fls=fls,
-                    baseline=baseline,
-                    counterfactual=True
-                    )    
-                
-            mor_all_sub = {group: np.mean([mor_all_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-            mor_heat_sub = {group: np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-            mor_cold_sub = {group: np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0) for group in sets.age_groups}
-
+            mor_heat_sub, mor_cold_sub = CalculateERA5baselineMortality(
+                sets=sets, 
+                fls=fls, 
+                baseline=baseline
+                )
+        
         else:
-            mor_all_sub, mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
+            mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
                 sets=sets, 
                 year=year,
                 daily_temp=baseline.daily_temp_t0,  
@@ -1404,27 +1314,66 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
                 counterfactual=True
             )
     
+    # Results without counterfactual scenario will be substracted by zero
     elif sets.counterfactual == False:
-        mor_all_sub = {group: np.zeros_like(mor_all_min[group]) for group in sets.age_groups}
         mor_heat_sub = {group: np.zeros_like(mor_heat_min[group]) for group in sets.age_groups}
         mor_cold_sub = {group: np.zeros_like(mor_cold_min[group]) for group in sets.age_groups}
         
-    print("[2.4] Aggregating results to regions...")
+        
+    ### ---------------------- Locate annual results in array --------------------------------
+   
+    for i,group in enumerate(sets.age_groups): 
+        
+        # Locate mortality from heat in loc 0
+        fls.rel_mor[0, i, :, year-sets.years[0]] = mor_heat_min[group] - mor_heat_sub[group]
+        # Locate mortality from cold in loc 1
+        fls.rel_mor[1, i, :, year-sets.years[0]]= mor_cold_min[group] - mor_cold_sub[group]
+        
+        
+        
+def CalculateERA5baselineMortality(sets, fls, baseline):
     
-    # Calculate mortality difference per impact region 
-    for group in sets.age_groups: 
-        
-        mor_all = mor_all_min[group] - mor_all_sub[group]
-        mor_heat = mor_heat_min[group] - mor_heat_sub[group]
-        mor_cold = mor_cold_min[group] - mor_cold_sub[group]
-        
-        # Aggregate results to selected region classification and store in results dataframe
-        mortality = [mor_all, mor_heat, mor_cold]
-        
-        for mode, mor in zip(["All", "Heat", "Cold"], mortality):
-            Mortality2Regions(year, group, mor, fls.results_iso3, "ISO3", mode, fls)  
-            Mortality2Regions(year, group, mor, fls.results_image, "IMAGE26", mode, fls)  
-            
+    """
+    Calculate "baseline" mortality for a 10-year period, calculating first the annual
+    mortality and then averaging accross years. This approach avoids underestimating 
+    heat and cold extremes if the mean temperature of the 10-year period was calculated.
+    """
+    
+    # Define baseline years dependent on scenario
+    BASE_YEARS = (
+        range(1980, 1990) 
+        if re.search("comparison", sets.project.lower()) 
+        else range(2000, 2010)
+    )
+    
+    # Initialize dics to store annual mortality
+    mor_heat_dic, mor_cold_dic = {}, {}
+
+    # Calculate annual mortality using preloaded daily baseline temperatures
+    for pd_year in BASE_YEARS:
+        mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
+            sets=sets, 
+            year=pd_year,
+            daily_temp=baseline.daily_temp_t0[pd_year],  
+            fls=fls,
+            baseline=baseline,
+            counterfactual=True
+            )    
+
+    # Calculate mean mortality of the 10-year period
+    mor_heat_sub = {
+        group: 
+            np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0) 
+            for group in sets.age_groups
+        }
+    mor_cold_sub = {
+        group: 
+            np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0) 
+            for group in sets.age_groups
+            }
+    
+    return mor_heat_sub, mor_cold_sub
+
             
 
 def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfactual):
@@ -1440,6 +1389,7 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     min_temp = sets.T[0]
     max_temp = sets.T[-1]
     daily_temperature = np.clip(daily_temp, min_temp, max_temp)
+    
     # Create rows array for indexing
     rows = np.arange(daily_temperature.shape[0])[:, None]
     
@@ -1462,10 +1412,10 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
         
     # ------------------- Calculate annual mortality ------------------
     
-    mor_all, mor_heat, mor_cold = {}, {}, {}
+    mor_heat, mor_cold = {}, {}
     
     for group in sets.age_groups:      
-        mor_all[group], mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
+        mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
             daily_temp=daily_temperature, 
             rows=rows, 
             erfs=erfs_t, 
@@ -1473,14 +1423,14 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
             min_temp=min_temp, 
             group=group)
             
-    return mor_all, mor_heat, mor_cold
+    return mor_heat, mor_cold
 
     
 
 def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group):
     
     """
-    The code gets the temperature indices for heat (temepratures above tmin) and 
+    The code gets the temperature indices for heat (temperatures above tmin) and 
     cold (temperatures below tmin) to locate the corresponding mortality value from 
     the ERF array and sums the daily mortality values to the annual level. All 
     non-optimal temperatures mortality is the sum of heat and cold mortality.
@@ -1521,108 +1471,222 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp, group)
         .sum(axis=1)
     )
     
-    # Sum heat and cold mortality to get all-temperatures mortality
-    annual_mortality = annual_mortality_cold + annual_mortality_heat
-    
-    return annual_mortality, annual_mortality_heat, annual_mortality_cold     
+    return annual_mortality_heat, annual_mortality_cold     
 
 
-
-def Mortality2Regions(year, group, mor, results, regions, mode, fls):
+       
+def AggregateRegionalMortality(sets, fls):
     
     """
-    Aggregate spatially the annual relative mortality from the impact region 
-    level to the region classification chosen and locate the results of mortality 
-    from heat, cold and all-type mortality in the final results dataframe.
+    Use numpy array where annual relative mortality results where store and population data,
+    both at the impact region level to calculate first total mortality at the impact region
+    level and then aggregate both mortality and population at a bigger region level
+    (IMAGE regions and countries), including all ages results, all temperatures and global.
+    Mortality and population xarrays for both classificaiton regions are merged into a single 
+    dataset to recalculate relative mortality.
     """
     
-    # Create a copy of region classification dataframe
-    regions_df = fls.region_class[["hierid", regions]]
+    # Convert pop dataframes to arrays
+    pop = np.stack(
+        [fls.pop[age_group].loc[:, sets.years].to_numpy() for age_group in sets.age_groups], 
+        axis=0
+    )[None, :, :, :]
+        
+    # Calculate total mortality from relative mortality and population
+    mor = fls.rel_mor * pop / 1e5
     
-    # Add mortality and population to df
-    regions_df["mor"] = (mor * fls.pop[group][year].values / 1e5)
-    regions_df["pop"] = fls.pop[group][year].values
-    
-    # Group total mortality per selected region definition
-    regions_df = regions_df.drop(columns=["hierid"]).groupby(regions).sum()
-    
-    # Calculate relative mortality per 100,000 people
-    regions_df["rel_mor"] = regions_df["mor"] * 1e5 / regions_df["pop"]
-    
-    # Define index based on regions
-    if regions == "IMAGE26":
-        regions_idx = results.loc[(group, mode, "Total Mortality"), year].index[:-1]
-    else:
-        regions_idx = results.loc[(group, mode, "Total Mortality"), year].index
-    
-    # Locate results in dataframe
-    results.loc[(group, mode, "Total Mortality", regions_idx), year] = (regions_df["mor"].reindex(regions_idx)).values
-    results.loc[(group, mode, "Relative Mortality", regions_idx), year] = (regions_df["rel_mor"].reindex(regions_idx)).values
-    
-    # Locate global results in results dataframe
-    if regions == "IMAGE26":
-        results.loc[(group, mode, "Total Mortality", "World"), year] = regions_df["mor"].sum()
-        results.loc[(group, mode, "Relative Mortality", "World"), year] = (regions_df["mor"].sum() * 1e5 / regions_df["pop"].sum())
+    region_datasets = []
+        
+    for region in ["ISO3", "IMAGE"]:
+        
+        # Define region characteristics
+        regions, index_regions = np.unique(fls.region_class[region], return_inverse=True)
+        len_regions = len(regions)
 
+        # Define coordinates and dimension of dataset
+        coords = {
+            "t_type": ["heat", "cold", "all"],
+            "age_group": sets.age_groups + ["All ages"],
+            "region": regions,
+            "year": sets.years
+        }
 
+        dims = ["t_type", "age_group", "region", "year"]
 
-def AddMortalityAllAges(fls, sets, results, regions):
+        # Generate results at the region level and for all ages and all temperatures
+        mor_region = GroupImpactRegions2LargerRegion(
+            array=mor, 
+            region=region,
+            index_regions=index_regions, 
+            len_regions=len_regions, 
+            coords=coords, 
+            dims=dims, 
+            name="mortality")
+
+        pop_region = GroupImpactRegions2LargerRegion(
+            array=pop,
+            region=region,
+            index_regions=index_regions,
+            len_regions=len_regions,
+            coords=coords,
+            dims=dims,
+            name="population")
+
+        region_datasets.append(xr.merge([pop_region, mor_region]))
+    
+    # Merge all datasets from IMAGE and ISO3 regions
+    xarray_unit = xr.concat(region_datasets, dim="region").set_index(geo=["region", "region_type"])
+    
+    # Recalculate relative mortality in the final step (xarrray now includes global, all ages and all tempeeratures)
+    xarray_unit["relative_mortality"] = xarray_unit["mortality"] * 1e5 / xarray_unit["population"]
+    
+    # Return only mortality and relative mortality
+    return xarray_unit.drop_vars(["population"])
+
+ 
+ 
+def GroupImpactRegions2LargerRegion(array, region, index_regions, len_regions, coords, dims, name):
     
     """
-    Calculate total mortality and relative mortality for all-ages group 
-    by summing the results of the three age groups and dividing by the total 
-    population of the three age groups respectively. The funciton will also 
-    calculate the global relative mortality for the all-age group by dividing 
-    the global total mortality by the global population of all ages.
+    Take an array (mortality or populaiton) wiht annual results at the impact region level and
+    aggregate results to a larger region classification (IMAGE or country level [ISO3])
+    After merging to larger regions, results are aggregated to obtain mortality and
+    population for all tempeeratures and all ages and all-age population. For the 
+    IMAGE classification region, results are also merged to get global results. 
+    The resulting arrays are converted to xarray format for posterior merging.
     """
     
-    region_class = fls.region_class.set_index("hierid")
-    
-    # Aggregate population age groups
-    population_all = fls.pop["young"] + fls.pop["older"] + fls.pop["oldest"]
-    
-    population_all = (
-        population_all
-        .merge(region_class, right_index=True, left_index=True)
-        .groupby(regions) # Group by ISO3 OR IMAGE26
-        .sum()   # Sum population per region
-        .loc[:, lambda df: df.columns.isin([y for y in sets.years])]
-        .rename_axis(index={regions:"region"})
+    # Move regions axis at the end 
+    array_T = np.transpose(np.nan_to_num(array, nan=0), (0, 1, 3, 2))
+    shape_orig = array_T.shape
+
+    # Flatten all axis but regions axis
+    array_flatten = array_T.reshape(-1, shape_orig[-1])
+
+    # Sum values within a region
+    array_region = np.array([
+        np.bincount(index_regions, weights=row, minlength=len_regions) 
+        for row in array_flatten
+    ])
+
+    # Return to original shape
+    array_shaped = np.transpose(
+        array_region.reshape(shape_orig[:-1] + (len_regions,)),
+        (0, 1, 3, 2)
+    )
+
+    # Generate "all ages" age group for both mortality and population
+    array_shaped = np.concatenate(
+        [array_shaped, np.sum(array_shaped, axis=1, keepdims=True)], 
+        axis=1
     )
     
-    # Calculate total mortality and relative mortality for all-ages groups 
-    for mode in ["All", "Heat", "Cold"]:
+    if len_regions == 27:
         
-        # Calculate total mortality for all age groups
-        results.loc[("all population", mode, "Total Mortality")] = (
-            sum(results.loc[(age, mode, "Total Mortality")] for age in sets.age_groups)
-        ).values
+        # Generate World results
+        array_shaped = np.concatenate(
+            [array_shaped, np.sum(array_shaped, axis=2, keepdims=True)], 
+            axis=2
+        )
         
-        # Calculate relative mortality for all-age group  
-        if regions=="IMAGE26":      
-            regions_index = results.loc[("all population", mode, "Relative Mortality")].index[:-1]
-        else:      
-            regions_index = results.loc[("all population", mode, "Relative Mortality")].index
+        if "World" not in coords["region"]:
+            coords["region"] = np.append(coords["region"], "World")
         
-        results.loc[("all population", mode, "Relative Mortality", regions_index)] = (
-            results.loc[("all population", mode, "Total Mortality", regions_index)]
-            .mul(1e5)
-            .div(population_all.where(population_all.reindex(regions_index) != 0))
-        ).values
+    
+    # If data from mortality (heat and cold)
+    if array.shape[0] == 2:
         
-        # Calculate global relative mortality for all-age group 
-        if regions=="IMAGE26":
-            results.loc[("all population", mode, "Relative Mortality", "World")] = (
-                results.loc[("all population", mode, "Total Mortality", "World")]
-                .mul(1e5)
-                .div(population_all.sum(axis=0)) # Divide by global population of all ages
-            )
+        # Generate mortality data for all temperatures
+        array_shaped = np.concatenate(
+            [array_shaped, np.sum(array_shaped, axis=0, keepdims=True)], 
+            axis=0
+        )
+        
+    else:
+        # Remove t_type for population dataset
+        dims=dims[1:]
+        del coords["t_type"]
+        array_shaped = array_shaped[0]
+    
+    # Convert to dataset
+    var_dataset = xr.Dataset(
+        data_vars={
+            name: (dims, array_shaped)
+        },
+        coords=coords
+    )
+    
+    return  var_dataset.assign_coords(region_type=("region", [region] * len(var_dataset.region))) 
 
-    return results
+ 
+
+def PostprocessResults(sets, fls):
+    
+    """
+    Postprocess final results and save to CSV file in output folder.
+    1. Calculate total mortality and relative mortality for all-ages group, all temperatures and
+    global results by summing the results of the iteration.
+    2. If sets.reporting_tool is True, change the format of the results to match the IAM one for
+    the IMAGE classification regions.
+    3. Save results in main working directory.
+    """
+    
+    print("[3] Postprocessing and saving results...")
+    
+    # Calculate total mortality and relative mortality for all-ages group
+    results = AggregateRegionalMortality(sets, fls)
+    
+    
+    # if sets.reporting_tool == True:
+    #     # Export files in .OUT format
+    #     # ExportOUTFiles(results, sets)
+    #     Export2ReportingTool(results_image, sets)
+
+
+    # ------------------- Save results --------------------------------------
+
+    # Define naming parameters    
+    if sets.adaptation == True:
+        adaptation = ""
+    else:
+        adaptation = "_NoAdap"
+    if sets.project is not None:
+        project = f"{sets.project}"
+    else:
+        project = ""
+    if str(sets.draw).lower() == "mean":
+        draw = "_mean"
+    else: 
+        draw = f"_{sets.draw}"
         
+    # Create folder to sabe files if not there yet
+    output_dir = sets.wdir + "/output/" + f"{sets.project}"  
+    os.makedirs(output_dir, exist_ok=True)   
+
+                    
+    results = results.reset_index("geo")
+
+    compresion_config= {
+                "dtype": "float32",       
+                "zlib": True,
+                "complevel": 6,
+    } 
+
+    encoding_total = {
+        var: compresion_config for var in results.data_vars
+    }
         
-        
-def Append2ReportingTool(results, sets):
+    results.to_netcdf(
+        output_dir +
+        f"/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.nc",
+        encoding=encoding_total
+    )
+
+    print("Scenario ran successfully!")
+    
+    
+            
+def Export2ReportingTool(results, sets):
     
     # Convert total mortality to thousands of deaths to match the format of the reporting tool
     results.loc[results.xs("Total Mortality", level=2, drop_level=False).index, :] = (
@@ -1672,55 +1736,3 @@ def Append2ReportingTool(results, sets):
     # )
     # os.makedirs(output_dir, exist_ok=True)
     wb.save(sets.gdp_dir+"/"+sets.project+"/7_Reporting_Tool/outxlsx/including_health_impacts/"+sets.scenario+".xlsx")
-    
-
-
-
-def PostprocessResults(sets, fls):
-    
-    """
-    Postprocess final results and save to CSV file in output folder.
-    1. Calculate total mortality and relative mortality for all-ages group by summing the results
-    of the three age groups and dividing by the total population of the three age groups respectively.
-    2. If IAM format is on, change the format of the results to match the IAM one.
-    3. Save results in main working directory.
-    """
-    
-    print("[3] Postprocessing and saving results...")
-    
-    # Calculate total mortality and relative mortality for all-ages group
-    results_image = AddMortalityAllAges(fls, sets, fls.results_image, "IMAGE26")
-    results_iso3 = AddMortalityAllAges(fls, sets, fls.results_iso3, "ISO3")
-    
-    if sets.reporting_tool == True:
-        # Export files in .OUT format
-        # ExportOUTFiles(results, sets)
-        Append2ReportingTool(results_image, sets)
-
-    
-    if sets.adaptation == True:
-        adaptation = ""
-    else:
-        adaptation = "_NoAdap"
-    if sets.project is not None:
-        project = f"{sets.project}"
-    else:
-        project = ""
-    if str(sets.draw).lower() == "mean":
-        draw = "_mean"
-    else: 
-        draw = f"_{sets.draw}"
-        
-        
-    output_iso3_dir = sets.wdir + "/output/" + f"{sets.project}" + "/ISO3" 
-    os.makedirs(output_iso3_dir, exist_ok=True)   
-    output_image_dir = sets.wdir + "/output/" + f"{sets.project}" + "/IMAGE" 
-    os.makedirs(output_image_dir, exist_ok=True) 
-    
-    # Save results to CSV                
-    results_image.to_csv(output_image_dir +
-                    f"/MOR_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.csv") 
-    results_iso3.to_csv(output_iso3_dir +
-                    f"/MOR_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.csv")
-    
-    print("Scenario ran successfully!")
