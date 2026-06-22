@@ -340,7 +340,7 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     paf_mor_pop["rel_mor"] = paf_mor_pop["mor"] * 1e5 / paf_mor_pop["pop"]
     
     image_results = paf_mor_pop.copy()
-    
+
     paf_mor_pop = (
         paf_mor_pop
         .drop_vars(["pop", "gbd_mor"])
