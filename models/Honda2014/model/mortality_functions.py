@@ -168,7 +168,12 @@ class LoadInputData:
         for year in range(1980, 1990):
             if year not in sets.years:
                 years.append(year)
-        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, years.sort())
+        pop_ssp = pop.LoadPopulationMap(
+            wdir=sets.wdir, 
+            scenario=sets.scenario, 
+            ssp=ssp, 
+            years=years.sort()
+            )
         
         print(f"[1.2] Loading region classification...")
         regions, regions_range = pop.LoadRegionClassificationMap(
@@ -176,23 +181,36 @@ class LoadInputData:
             temp_dir=sets.temp_dir,
             region_class="countries", 
             scenario=sets.scenario,
-            pop_map=pop_ssp)
+            pop_map=pop_ssp
+            )
 
         # Load Exposure Response Function files for the relevant diseases
-        risks, temp_min, temp_max = LoadERF(sets.wdir, sets.project, sets.extrap_erf, sets.temp_max)
+        risks, temp_min, temp_max = LoadERF(
+            wdir=sets.wdir,
+            project=sets.project, 
+            extrap_erf=sets.extrap_erf, 
+            temp_max=sets.temp_max
+            )
         
         # Load file with optimal temperatures for 1980-2010
-        optimal_temperatures = LoadOptimalTemperatures(sets.wdir, sets.optimal_range, sets.scenario)
+        optimal_temperatures = LoadOptimalTemperatures(
+            wdir=sets.wdir,
+            optimal_range=sets.optimal_range,
+            scenario=sets.scenario
+            )
         
         print("[1.5] Loading region classification dictionaries...")
         region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
         
         print("[1.6] Creating final dataframe to store results...")
-        # Create final dataframes
-        paf = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
-                            columns=sets.years)  
-        paf_counter = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
-                            columns=range(1980, 1990))
+        paf = pd.DataFrame(
+            index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
+            columns=sets.years
+            )  
+        paf_counter = pd.DataFrame(
+            index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
+            columns=range(1980, 1990)
+            )
         
         return cls(
             pop_ssp=pop_ssp,
@@ -268,12 +286,17 @@ def ExtrapolateERF(erf, temp_max):
     zero_index = erf.index[erf["daily_temperature"]==0.][0]
             
     # Define interpolation with last range
-    interp = log_linear_interp(erf["daily_temperature"].loc[zero_index:].values, 
-                               erf["relative_risk"].loc[zero_index:].values)
+    interp = log_linear_interp(
+        erf["daily_temperature"].loc[zero_index:].values, 
+        erf["relative_risk"].loc[zero_index:].values
+        )
     
     # Define temperature values to interpolate
-    xx = np.round(np.linspace(erf["daily_temperature"].iloc[-1]+0.1, temp_max, 
-                    int((temp_max - erf["daily_temperature"].iloc[-1])/0.1)+1), 1)
+    xx = np.round(
+        np.linspace(erf["daily_temperature"].iloc[-1]+0.1, temp_max, 
+        int((temp_max - erf["daily_temperature"].iloc[-1])/0.1)+1),
+        1
+        )
 
     erf_extrap = pd.DataFrame({
         "daily_temperature": xx,
@@ -296,7 +319,10 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
     print("[1.4] Loading optimal temperatures...")
     
     # Load file with optimal temperatures for 1980-2010 period (default period)
-    optimal_temps = xr.open_dataset(wdir+f"/data/optimal_temperatures/era5_t2m_{optimal_range}.nc")
+    optimal_temps = xr.open_dataset(
+        wdir +
+        f"/data/optimal_temperatures/era5_t2m_{optimal_range}.nc"
+        )
     
     if not re.search(r"ERA5", scenario):
         # Reduce resolution to 0.5x0.5 degrees
@@ -333,7 +359,13 @@ def CalculateCounterfactualPAF(sets, fls):
                 std_factor=1
                 )
 
-            AnnualPAFperRegion(fls, year, num_days, daily_temp, counter=True)
+            AnnualPAFperRegion(
+                fls=fls,
+                year=year,
+                num_days=num_days,
+                daily_temp=daily_temp,
+                counter=True
+                )
 
 
 
@@ -356,7 +388,13 @@ def CalculatePAFYear(sets, fls, year):
     print(f"[2.2] Calculating Population Attributable Fraction for {year}...") 
     
     # Calcuate PAFs per region and corresponding year
-    AnnualPAFperRegion(fls, year, num_days, daily_temp, counter=False)
+    AnnualPAFperRegion(
+        fls=fls,
+        year=year,
+        num_days=num_days,
+        daily_temp=daily_temp,
+        counter=False
+        )
 
     
 
@@ -447,11 +485,6 @@ def PostprocessResults(sets, fls):
     
     # Create project folder if it doesn' exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}"
-            
-    # Save the results and temperature statistics
-    paf.to_csv(f"{sn.out_path}/{file_name}.csv")  
-    paf_counterfactual.to_csv(f"{sn.out_path}/{file_name}_counter.csv")  
     
     print("3.2 Calculating attributable mortality and saving results...")
     
