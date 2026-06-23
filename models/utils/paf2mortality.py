@@ -395,7 +395,7 @@ def PAF2Mortality(sets, fls, paf, causes, sn):
     if sn.model == "Burkart":
         file_name = f"{sn.years_part}{sn.extrap_part}{sn.erf_part}{sn.counter}{sn.draw}"
     if sn.model == "Honda":
-        file_name = f"{sn.years_part}{sn.extrap_part}_OT-{sets.optimal_range}{sn.counter}"   
+        file_name = f"{sn.years_part}{sn.extrap_part}_{sn.counter}"   
         
     compresion_config= {
                 "dtype": "float32",    # Save as float32 for las memory usage
