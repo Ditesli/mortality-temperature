@@ -1,0 +1,18 @@
+### ------------- Paths -------------- ###
+
+# Path to main directory
+wdir:
+# Path to ERA5 temperature files
+temp_dir: 
+
+### -------- Scenario settings -------- ###
+
+# Project name and name of final folder
+project: 
+
+# Scenario name (including SSP scenario)
+scenario:
+
+# Start and end year
+start_year:
+end_year:
