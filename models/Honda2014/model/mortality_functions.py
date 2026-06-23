@@ -100,8 +100,6 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
-        CalculateCounterfactualPAF(self.sets, self.fls)
-        
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
@@ -151,6 +149,7 @@ class LoadInputData:
     image_dict: dict
     paf: pd.DataFrame
     paf_counter: pd.DataFrame
+    base_years: list=range(1980,1990)
     
     @classmethod
     def from_files(cls, sets):
@@ -164,10 +163,8 @@ class LoadInputData:
         
         print("[1.1] Loading SSP population data...")
         ssp = re.search(r"SSP\d", sets.scenario).group()
-        years = sets.years
-        for year in range(1980, 1990):
-            if year not in sets.years:
-                years.append(year)
+        years = sorted(set(sets.years).union(cls.base_years))
+        
         pop_ssp = pop.LoadPopulationMap(
             wdir=sets.wdir, 
             scenario=sets.scenario, 
@@ -204,13 +201,13 @@ class LoadInputData:
         
         print("[1.6] Creating final dataframe to store results...")
         paf = pd.DataFrame(
-            index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
+            index=pd.MultiIndex.from_product([["cold", "heat", "all"], ["mean", "upper", "lower"], regions_range]), 
             columns=sets.years
-            )  
+            ).sort_index()
         paf_counter = pd.DataFrame(
-            index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
-            columns=range(1980, 1990)
-            )
+            index=pd.MultiIndex.from_product([["cold", "heat", "all"], ["mean", "upper", "lower"], regions_range]), 
+            columns=cls.base_years
+            ).sort_index()
         
         return cls(
             pop_ssp=pop_ssp,
@@ -238,7 +235,7 @@ def LoadERF(wdir, project, extrap_erf=False, temp_max=None):
     print("[1.3] Loading Exposure Response Function...")
     
     if re.search(r"honda", project.lower()):
-        function = "Honda2014"
+        function = "Honda"
     elif re.search(r"romanello", project.lower()):
         function = "Romanello2024"
         
@@ -258,7 +255,8 @@ def LoadERF(wdir, project, extrap_erf=False, temp_max=None):
     temp_max = risk_function["index_temperature"].max()
     
     # Prepare risk function lookup arrays
-    risks = risk_function["relative_risk"].to_numpy()
+    risks = risk_function[["relative_risk_mean", "relative_risk_upper", "relative_risk_lower"]].to_numpy()
+    
             
     return risks, temp_min, temp_max
 
@@ -286,10 +284,13 @@ def ExtrapolateERF(erf, temp_max):
     zero_index = erf.index[erf["daily_temperature"]==0.][0]
             
     # Define interpolation with last range
-    interp = log_linear_interp(
-        erf["daily_temperature"].loc[zero_index:].values, 
-        erf["relative_risk"].loc[zero_index:].values
-        )
+    interp={}
+    
+    for mode in ["mean", "upper", "lower"]:
+        interp[mode] = log_linear_interp(
+            erf["daily_temperature"].loc[zero_index:].values, 
+            erf[f"relative_risk_{mode}"].loc[zero_index:].values
+            )
     
     # Define temperature values to interpolate
     xx = np.round(
@@ -300,7 +301,9 @@ def ExtrapolateERF(erf, temp_max):
 
     erf_extrap = pd.DataFrame({
         "daily_temperature": xx,
-        "relative_risk": interp(xx)
+        "relative_risk_mean": interp["mean"](xx),
+        "relative_risk_upper": interp["upper"](xx),
+        "relative_risk_lower": interp["lower"](xx)
         })
     
     erf_extrap = pd.concat([erf, erf_extrap], ignore_index=True)
@@ -332,43 +335,6 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
 
 
 
-def CalculateCounterfactualPAF(sets, fls):
-    
-    """
-    Calculate counterfactual PAFs using 1980-1990 the daily temperatures.
-    """
-    
-    print("[2.0] Calculating counterfactual PAFs...")
-    
-    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
-        
-        BASE_YEARS = range(1980, 1990)
-        paf_hot, paf_cold, paf_all = {}, {}, {}
-        
-        for year in BASE_YEARS:
-            
-            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
-            
-            # Read in daily temperature data for the counterfactual period (1980-1990)
-            daily_temp, num_days = tmp.LoadDailyTemperatures(
-                temp_dir=sets.temp_dir,
-                scenario=sets.scenario,
-                temp_type="max",
-                year=year, 
-                pop_map=fls.pop_ssp,
-                std_factor=1
-                )
-
-            AnnualPAFperRegion(
-                fls=fls,
-                year=year,
-                num_days=num_days,
-                daily_temp=daily_temp,
-                counter=True
-                )
-
-
-
 def CalculatePAFYear(sets, fls, year):
     
     """
@@ -395,6 +361,18 @@ def CalculatePAFYear(sets, fls, year):
         daily_temp=daily_temp,
         counter=False
         )
+    
+    if year in fls.base_years:
+        
+        print(f"[2.3] Calculating counterfactual PAFs for year {year}...")
+    
+        AnnualPAFperRegion(
+                    fls=fls,
+                    year=year,
+                    num_days=num_days,
+                    daily_temp=daily_temp,
+                    counter=True
+                    )
 
     
 
@@ -415,49 +393,50 @@ def AnnualPAFperRegion(fls, year, num_days, daily_temp, counter):
     # Clip baseline temperatures to min and max values
     clip_baseline_temp = np.round(np.clip(baseline_temp*10, fls.temp_min, fls.temp_max), 0).astype(int)
 
-    # Initialize relative risks array
-    relative_risks = np.full_like(baseline_temp, np.nan, dtype=float)
-
     # Create mask for valid baseline temperatures
     mask = ~np.isnan(baseline_temp)
 
     # Get indices for lookup
     indices = (clip_baseline_temp[mask] - fls.temp_min).astype(int)
+    
+    for i,var in enumerate(["mean", "upper", "lower"]):
+    
+        # Initialize relative risks array
+        relative_risks = np.full_like(baseline_temp, np.nan, dtype=float)
 
-    # Get relative risks from risks lookup table    
-    relative_risks[mask] = fls.risks[indices]
-    
-    # Flatten arrays
-    regions_flat = np.nan_to_num(fls.regions.ravel()).astype(int)
-    pop_flat = np.nan_to_num(pop_year.ravel())
-    
-    for mode in ["cold", "heat", "all"]:
-        print(f"Calculating {mode} PAFs...")
+        # Get relative risks from risks lookup table    
+        relative_risks[mask] = fls.risks[:,i][indices]
         
-        paf = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
+        # Flatten arrays
+        regions_flat = np.nan_to_num(fls.regions.ravel()).astype(int)
+        pop_flat = np.nan_to_num(pop_year.ravel())
         
-        if mode == "cold":
-            paf = np.where(clip_baseline_temp<0, paf, 0)
-        if mode == "heat":
-            paf = np.where(clip_baseline_temp>0, paf, 0)
+        for mode in ["cold", "heat", "all"]:
+            
+            paf = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
+            
+            if mode == "cold":
+                paf = np.where(clip_baseline_temp<0, paf, 0)
+            if mode == "heat":
+                paf = np.where(clip_baseline_temp>0, paf, 0)
+            
+            # Aggregate PAFs over days
+            paf = np.sum(paf, axis=2) / num_days        
+            paf_flat = np.nan_to_num(paf.ravel())
+            
+            # Calculate weighted sum of PAFs per region
+            weighted_sum = np.bincount(regions_flat, weights=paf_flat * pop_flat)
+            weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
+            
+            # Calculate weighted average for specified regions
+            weighted_paf = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
         
-        # Aggregate PAFs over days
-        paf = np.sum(paf, axis=2) / num_days        
-        paf_flat = np.nan_to_num(paf.ravel())
+            # Locate results in paf dataframe
+            if counter == False:
+                fls.paf.loc[(mode, var), year] = weighted_paf
+            else:
+                fls.paf_counter.loc[(mode, var), year] = weighted_paf    
         
-        # Calculate weighted sum of PAFs per region
-        weighted_sum = np.bincount(regions_flat, weights=paf_flat * pop_flat)
-        weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
-        
-        # Calculate weighted average for specified regions
-        weighted_paf = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
-    
-        # Locate results in paf dataframe
-        if counter == False:
-            fls.paf.loc[mode.capitalize(), year] = weighted_paf
-        else:
-            fls.paf_counter.loc[mode.capitalize(), year] = weighted_paf    
-    
     
 
 def PostprocessResults(sets, fls):
@@ -465,10 +444,10 @@ def PostprocessResults(sets, fls):
     print("[3] Model run complete. Postprocessing...")
     
     paf = fls.paf
-    paf.index.names = ["t_type", "region"]
+    paf.index.names = ["t_type", "var_erf", "region"]
     
     paf_counter = fls.paf_counter.mean(axis=1)
-    paf.index.names = ["t_type", "region"]
+    paf.index.names = ["t_type", "var_erf", "region"]
     
     # Substract counterfactual PAFs
     paf_counterfactual = paf.sub(paf_counter, axis=0)
@@ -517,9 +496,9 @@ def ReformatPAF(fls, paf):
         paf
         .stack(future_stack=True)
         .reset_index()
-        .rename(columns={"level_2": "year", 0: "paf", "region": "ISO3"})
+        .rename(columns={"level_3": "year", 0: "paf", "region": "ISO3"})
         .assign(cause="All causes")
-        .set_index(["ISO3", "t_type", "cause", "year"])
+        .set_index(["ISO3", "t_type", "var_erf", "cause", "year"])
         .assign(paf=lambda df: df["paf"].astype(float)) 
         .to_xarray()
     )
@@ -531,6 +510,6 @@ def ReformatPAF(fls, paf):
         dims=paf["ISO3"].dims
     ).astype(object)
 
-    paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("year")
+    paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("var_erf").sortby("year")
     
     return paf
