@@ -170,7 +170,7 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
 
 
 
-def LoadMortalityDraw(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
+def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
     
     files = wdir + "/" + filename + ".nc"
     file_list = sorted(glob.glob(files))
@@ -195,10 +195,10 @@ def LoadMortalityDraw(wdir, filename, region_type, region, t_type, cause, age_gr
 
     if "carleton" in filename.lower():
         dims = ["draw"]
-    elif "scovronick" in filename.lower():
-        dims = ["draw", "var_mor", "var_erf"]
-    else:
+    elif "burkart" in filename.lower() or "romanello" in filename.lower():
         dims = ["draw", "var_mor"]
+    else:
+        dims = ["draw", "var_mor", "var_erf"]
 
     da_mean = da_selected.mean(dim=dims)
     da_p025 = da_selected.quantile(0.025, dim=dims)
