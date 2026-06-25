@@ -200,14 +200,12 @@ class LoadInputData:
         region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
         
         print("[1.6] Creating final dataframe to store results...")
-        paf = pd.DataFrame(
-            index=pd.MultiIndex.from_product([["cold", "heat", "all"], ["mean", "upper", "lower"], regions_range]), 
-            columns=sets.years
-            ).sort_index()
-        paf_counter = pd.DataFrame(
-            index=pd.MultiIndex.from_product([["cold", "heat", "all"], ["mean", "upper", "lower"], regions_range]), 
-            columns=cls.base_years
-            ).sort_index()
+        
+        paf, paf_counter = CreateResultsContainers(
+            sets=sets, 
+            base_years=cls.base_years,
+            regions_range=regions_range
+            )
         
         return cls(
             pop_ssp=pop_ssp,
@@ -237,10 +235,12 @@ def LoadERF(wdir, project, extrap_erf=False, temp_max=None):
     if re.search(r"honda", project.lower()):
         function = "Honda"
     elif re.search(r"romanello", project.lower()):
-        function = "Romanello2024"
+        function = "Romanello"
         
-    risk_function = (pd.read_csv(wdir+f"/data/risk_function/RiskFunction_{function}.csv")
-        .astype(float))
+    risk_function = (
+        pd.read_csv(wdir+f"/data/risk_function/RiskFunction_{function}.csv")
+        .astype(float)
+        )
     
     # Extrapolate risk_function
     if extrap_erf == True:
@@ -255,8 +255,10 @@ def LoadERF(wdir, project, extrap_erf=False, temp_max=None):
     temp_max = risk_function["index_temperature"].max()
     
     # Prepare risk function lookup arrays
-    risks = risk_function[["relative_risk_mean", "relative_risk_upper", "relative_risk_lower"]].to_numpy()
-    
+    if "honda" in project.lower():
+        risks = risk_function[["relative_risk_mean", "relative_risk_upper", "relative_risk_lower"]].to_numpy()
+    else:
+        risks = risk_function["relative_risk"].to_numpy()
             
     return risks, temp_min, temp_max
 
@@ -334,6 +336,31 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
     return optimal_temps[f"t2m_{optimal_range[-3:]}"].values
 
 
+        
+def CreateResultsContainers(sets, base_years, regions_range):
+    
+    """
+    Create dataframe where results will be stored
+    """
+    
+    if re.search(r"honda", sets.project.lower()):
+        index = [["cold", "heat", "all"], ["mean", "upper", "lower"], regions_range]
+    elif re.search(r"romanello", sets.project.lower()):
+        index = [["cold", "heat", "all"], regions_range]
+        
+    paf = pd.DataFrame(
+        index=pd.MultiIndex.from_product(index), 
+        columns=sets.years
+        ).sort_index()
+    
+    paf_counter = pd.DataFrame(
+        index=pd.MultiIndex.from_product(index), 
+        columns=base_years
+        ).sort_index()
+    
+    return paf, paf_counter
+
+
 
 def CalculatePAFYear(sets, fls, year):
     
@@ -355,6 +382,7 @@ def CalculatePAFYear(sets, fls, year):
     
     # Calcuate PAFs per region and corresponding year
     AnnualPAFperRegion(
+        sets=sets,
         fls=fls,
         year=year,
         num_days=num_days,
@@ -367,16 +395,17 @@ def CalculatePAFYear(sets, fls, year):
         print(f"[2.3] Calculating counterfactual PAFs for year {year}...")
     
         AnnualPAFperRegion(
-                    fls=fls,
-                    year=year,
-                    num_days=num_days,
-                    daily_temp=daily_temp,
-                    counter=True
-                    )
+            sets=sets,
+            fls=fls,
+            year=year,
+            num_days=num_days,
+            daily_temp=daily_temp,
+            counter=True
+            )
 
     
 
-def AnnualPAFperRegion(fls, year, num_days, daily_temp, counter):
+def AnnualPAFperRegion(sets, fls, year, num_days, daily_temp, counter):
     
     """
     Calculate weighted average of PAFs per region an year, using population as weights. 
@@ -399,18 +428,27 @@ def AnnualPAFperRegion(fls, year, num_days, daily_temp, counter):
     # Get indices for lookup
     indices = (clip_baseline_temp[mask] - fls.temp_min).astype(int)
     
-    for i,var in enumerate(["mean", "upper", "lower"]):
+    # Taylor calculations depending on model
+    project_name = sets.project.lower()
+    
+    if re.search(r"honda", project_name):
+        var_erf = ["mean", "upper", "lower"]
+        
+    elif re.search(r"romanello", project_name):
+        var_erf = ["mean"]
+    
+    for i,var in enumerate(var_erf):
     
         # Initialize relative risks array
         relative_risks = np.full_like(baseline_temp, np.nan, dtype=float)
 
         # Get relative risks from risks lookup table    
-        relative_risks[mask] = fls.risks[:,i][indices]
+        relative_risks[mask] = fls.risks[:,i][indices] if "honda"in project_name else fls.risks[indices]
         
         # Flatten arrays
         regions_flat = np.nan_to_num(fls.regions.ravel()).astype(int)
         pop_flat = np.nan_to_num(pop_year.ravel())
-        
+
         for mode in ["cold", "heat", "all"]:
             
             paf = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
@@ -430,24 +468,27 @@ def AnnualPAFperRegion(fls, year, num_days, daily_temp, counter):
             
             # Calculate weighted average for specified regions
             weighted_paf = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
-        
-            # Locate results in paf dataframe
-            if counter == False:
-                fls.paf.loc[(mode, var), year] = weighted_paf
-            else:
-                fls.paf_counter.loc[(mode, var), year] = weighted_paf    
-        
+
+            target_df = fls.paf_counter if counter else fls.paf
+
+            if "honda" in project_name:
+                target_df.loc[(mode, var), year] = weighted_paf
+            elif "romanello" in project_name:
+                target_df.loc[mode, year] = weighted_paf
+
     
 
 def PostprocessResults(sets, fls):
     
     print("[3] Model run complete. Postprocessing...")
     
+    index = ["t_type", "var_erf", "region"] if "honda" in sets.project.lower() else  ["t_type", "region"]
+    
     paf = fls.paf
-    paf.index.names = ["t_type", "var_erf", "region"]
+    paf.index.names = index
     
     paf_counter = fls.paf_counter.mean(axis=1)
-    paf.index.names = ["t_type", "var_erf", "region"]
+    paf.index.names = index
     
     # Substract counterfactual PAFs
     paf_counterfactual = paf.sub(paf_counter, axis=0)
@@ -469,8 +510,8 @@ def PostprocessResults(sets, fls):
     
     causes = ["All causes"]  
     
-    paf = ReformatPAF(fls, paf)
-    paf_counterfactual = ReformatPAF(fls, paf_counterfactual)
+    paf = ReformatPAF(sets, fls, paf)
+    paf_counterfactual = ReformatPAF(sets, fls, paf_counterfactual)
     
     # Calculate mortality from PAF
     sn.counter = ""
@@ -484,7 +525,7 @@ def PostprocessResults(sets, fls):
 
 
     
-def ReformatPAF(fls, paf):
+def ReformatPAF(sets, fls, paf):
     
     """
     Convert the PAF dataframe to an xarray with the same coordinates 
@@ -492,13 +533,21 @@ def ReformatPAF(fls, paf):
     three datasets and calculate attributable mortality.
     """
     
+    if "honda" in sets.project.lower():
+        level = "level_3"
+        index = ["ISO3", "t_type", "var_erf", "cause", "year"]
+    else:
+        level = "level_2"
+        index = ["ISO3", "t_type", "cause", "year"]
+    
+    
     paf = (
         paf
         .stack(future_stack=True)
         .reset_index()
-        .rename(columns={"level_3": "year", 0: "paf", "region": "ISO3"})
+        .rename(columns={level: "year", 0: "paf", "region": "ISO3"})
         .assign(cause="All causes")
-        .set_index(["ISO3", "t_type", "var_erf", "cause", "year"])
+        .set_index(index)
         .assign(paf=lambda df: df["paf"].astype(float)) 
         .to_xarray()
     )
@@ -510,6 +559,9 @@ def ReformatPAF(fls, paf):
         dims=paf["ISO3"].dims
     ).astype(object)
 
-    paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("var_erf").sortby("year")
+    paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("year")
+    
+    if "honda" in sets.project.lower():
+        paf = paf.sortby("var_erf")
     
     return paf
