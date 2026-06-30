@@ -111,30 +111,30 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
         years = years
         
     # Read monthly statistics
-    temperature_monthly_mean, temperature_monthly_std = OpenMontlhyTemperatures(
+    temperature_mean, temperature_std = OpenMontlhyTemperatures(
         temp_dir=temp_dir, 
         temp_type=temp_type
         )
     
     # Select std data and get the mean of the specific year
-    temperature_monthly_std = (
-        temperature_monthly_std
+    temperature_std = (
+        temperature_std
         .sel(time=slice(f"{years[0]}-01-01", f"{years[-1]}-01-01"))
         .mean(dim="time")
     )
     
     # Prepare monthly mean data including December of previous year and January of next year
-    temperature_monthly_mean_present = []
+    temperature_mean_present = []
     
-    temperature_monthly_mean_present.append(
-        temperature_monthly_mean
+    temperature_mean_present.append(
+        temperature_mean
         .sel(time=f"{years[0]-1}-01-01")
         .isel(NM=11)
     )   
     
     for y in years:
-        temperature_monthly_mean_present.append(
-            temperature_monthly_mean
+        temperature_mean_present.append(
+            temperature_mean
             .sel(time=f"{y}-01-01")
         )
     
@@ -143,15 +143,15 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     else:
         final_year = years[-1]+1
         
-    temperature_monthly_mean_present.append(
-        temperature_monthly_mean
+    temperature_mean_present.append(
+        temperature_mean
         .sel(time=f"{final_year}-01-01")
         .isel(NM=0)
     )
 
     # Concatenate December of previous year and January of next year for smooth transition
     dec_years_jan = xr.concat(
-        temperature_monthly_mean_present, 
+        temperature_mean_present, 
         dim="NM",
         coords="different",
         compat="equals"
@@ -187,7 +187,7 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
         year=mid_year, 
         number_days=NUMBER_DAYS, 
         temp_daily_mean=temperature_interpolated, 
-        temp_std=temperature_monthly_std, 
+        temp_std=temperature_std, 
         std_factor=std_factor
         )
     
