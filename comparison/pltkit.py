@@ -64,7 +64,7 @@ causes = {
 
 
 
-def LoadMortality(wdir, filename, years, region, temp_type, unit, age_group, cause, val_mor, val_erf):
+def LoadMortalityold(wdir, filename, years, region, temp_type, unit, age_group, cause, val_mor, val_erf):
     
     """
     Load mortality from ANY calculation method as time series and constrained to 
@@ -170,7 +170,7 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
 
 
 
-def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
+def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
     
     files = wdir + "/" + filename + ".nc"
     file_list = sorted(glob.glob(files))
@@ -193,18 +193,19 @@ def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_g
 
     da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
 
-    dims = ( 
-        ["draw"]
-        if re.search(r"carleton", filename.lower())
-        else ["draw", "var_mor"]
-    )
+    if "carleton" in filename.lower():
+        dims = ["draw"]
+    elif "burkart" in filename.lower() or "romanello" in filename.lower():
+        dims = ["draw", "var_mor"]
+    else:
+        dims = ["draw", "var_mor", "var_erf"]
 
     da_mean = da_selected.mean(dim=dims)
     da_p025 = da_selected.quantile(0.025, dim=dims)
     da_p975 = da_selected.quantile(0.975, dim=dims)
     
     return da_mean, da_p025, da_p975
-        
+
 
 
 def LoadBallesterScatter(wdir):

@@ -100,8 +100,6 @@ class PAFModel:
         
         print("[2] Starting PAF calculations...")
         
-        CalculateCounterfactualPAF(self.sets, self.fls)
-        
         for year in self.sets.years:
             CalculatePAFYear(
                 sets=self.sets,
@@ -151,6 +149,7 @@ class LoadInputData:
     image_dict: dict
     paf: pd.DataFrame
     paf_counter: pd.DataFrame
+    base_years: list=range(1980,1990)
     
     @classmethod
     def from_files(cls, sets):
@@ -164,11 +163,14 @@ class LoadInputData:
         
         print("[1.1] Loading SSP population data...")
         ssp = re.search(r"SSP\d", sets.scenario).group()
-        years = sets.years
-        for year in range(1980, 1990):
-            if year not in sets.years:
-                years.append(year)
-        pop_ssp = pop.LoadPopulationMap(sets.wdir, sets.scenario, ssp, years.sort())
+        years = sorted(set(sets.years).union(cls.base_years))
+        
+        pop_ssp = pop.LoadPopulationMap(
+            wdir=sets.wdir, 
+            scenario=sets.scenario, 
+            ssp=ssp, 
+            years=years.sort()
+            )
         
         print(f"[1.2] Loading region classification...")
         regions, regions_range = pop.LoadRegionClassificationMap(
@@ -176,23 +178,34 @@ class LoadInputData:
             temp_dir=sets.temp_dir,
             region_class="countries", 
             scenario=sets.scenario,
-            pop_map=pop_ssp)
+            pop_map=pop_ssp
+            )
 
         # Load Exposure Response Function files for the relevant diseases
-        risks, temp_min, temp_max = LoadERF(sets.wdir, sets.project, sets.extrap_erf, sets.temp_max)
+        risks, temp_min, temp_max = LoadERF(
+            wdir=sets.wdir,
+            project=sets.project, 
+            extrap_erf=sets.extrap_erf, 
+            temp_max=sets.temp_max
+            )
         
         # Load file with optimal temperatures for 1980-2010
-        optimal_temperatures = LoadOptimalTemperatures(sets.wdir, sets.optimal_range, sets.scenario)
+        optimal_temperatures = LoadOptimalTemperatures(
+            wdir=sets.wdir,
+            optimal_range=sets.optimal_range,
+            scenario=sets.scenario
+            )
         
         print("[1.5] Loading region classification dictionaries...")
         region_dict, image_dict = p2m.LoadRegionClassificationDicts(sets.wdir)
         
         print("[1.6] Creating final dataframe to store results...")
-        # Create final dataframes
-        paf = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
-                            columns=sets.years)  
-        paf_counter = pd.DataFrame(index=pd.MultiIndex.from_product([["Cold", "Heat", "All"], regions_range]), 
-                            columns=range(1980, 1990))
+        
+        paf, paf_counter = CreateResultsContainers(
+            sets=sets, 
+            base_years=cls.base_years,
+            regions_range=regions_range
+            )
         
         return cls(
             pop_ssp=pop_ssp,
@@ -220,12 +233,14 @@ def LoadERF(wdir, project, extrap_erf=False, temp_max=None):
     print("[1.3] Loading Exposure Response Function...")
     
     if re.search(r"honda", project.lower()):
-        function = "Honda2014"
+        function = "Honda"
     elif re.search(r"romanello", project.lower()):
-        function = "Romanello2024"
+        function = "Romanello"
         
-    risk_function = (pd.read_csv(wdir+f"/data/risk_function/RiskFunction_{function}.csv")
-        .astype(float))
+    risk_function = (
+        pd.read_csv(wdir+f"/data/risk_function/RiskFunction_{function}.csv")
+        .astype(float)
+        )
     
     # Extrapolate risk_function
     if extrap_erf == True:
@@ -240,7 +255,10 @@ def LoadERF(wdir, project, extrap_erf=False, temp_max=None):
     temp_max = risk_function["index_temperature"].max()
     
     # Prepare risk function lookup arrays
-    risks = risk_function["relative_risk"].to_numpy()
+    if "honda" in project.lower():
+        risks = risk_function[["relative_risk_mean", "relative_risk_upper", "relative_risk_lower"]].to_numpy()
+    else:
+        risks = risk_function["relative_risk"].to_numpy()
             
     return risks, temp_min, temp_max
 
@@ -268,16 +286,26 @@ def ExtrapolateERF(erf, temp_max):
     zero_index = erf.index[erf["daily_temperature"]==0.][0]
             
     # Define interpolation with last range
-    interp = log_linear_interp(erf["daily_temperature"].loc[zero_index:].values, 
-                               erf["relative_risk"].loc[zero_index:].values)
+    interp={}
+    
+    for mode in ["mean", "upper", "lower"]:
+        interp[mode] = log_linear_interp(
+            erf["daily_temperature"].loc[zero_index:].values, 
+            erf[f"relative_risk_{mode}"].loc[zero_index:].values
+            )
     
     # Define temperature values to interpolate
-    xx = np.round(np.linspace(erf["daily_temperature"].iloc[-1]+0.1, temp_max, 
-                    int((temp_max - erf["daily_temperature"].iloc[-1])/0.1)+1), 1)
+    xx = np.round(
+        np.linspace(erf["daily_temperature"].iloc[-1]+0.1, temp_max, 
+        int((temp_max - erf["daily_temperature"].iloc[-1])/0.1)+1),
+        1
+        )
 
     erf_extrap = pd.DataFrame({
         "daily_temperature": xx,
-        "relative_risk": interp(xx)
+        "relative_risk_mean": interp["mean"](xx),
+        "relative_risk_upper": interp["upper"](xx),
+        "relative_risk_lower": interp["lower"](xx)
         })
     
     erf_extrap = pd.concat([erf, erf_extrap], ignore_index=True)
@@ -296,7 +324,10 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
     print("[1.4] Loading optimal temperatures...")
     
     # Load file with optimal temperatures for 1980-2010 period (default period)
-    optimal_temps = xr.open_dataset(wdir+f"/data/optimal_temperatures/era5_t2m_{optimal_range}.nc")
+    optimal_temps = xr.open_dataset(
+        wdir +
+        f"/data/optimal_temperatures/era5_t2m_{optimal_range}.nc"
+        )
     
     if not re.search(r"ERA5", scenario):
         # Reduce resolution to 0.5x0.5 degrees
@@ -305,35 +336,29 @@ def LoadOptimalTemperatures(wdir, optimal_range, scenario):
     return optimal_temps[f"t2m_{optimal_range[-3:]}"].values
 
 
-
-def CalculateCounterfactualPAF(sets, fls):
+        
+def CreateResultsContainers(sets, base_years, regions_range):
     
     """
-    Calculate counterfactual PAFs using 1980-1990 the daily temperatures.
+    Create dataframe where results will be stored
     """
     
-    print("[2.0] Calculating counterfactual PAFs...")
+    if re.search(r"honda", sets.project.lower()):
+        index = [["cold", "heat", "all"], ["mean", "upper", "lower"], regions_range]
+    elif re.search(r"romanello", sets.project.lower()):
+        index = [["cold", "heat", "all"], regions_range]
+        
+    paf = pd.DataFrame(
+        index=pd.MultiIndex.from_product(index), 
+        columns=sets.years
+        ).sort_index()
     
-    if re.search(r"SSP[1-5]_ERA5", sets.scenario):
-        
-        BASE_YEARS = range(1980, 1990)
-        paf_hot, paf_cold, paf_all = {}, {}, {}
-        
-        for year in BASE_YEARS:
-            
-            print(f"[2.0.1] Counterfactual PAFs for year {year}...")
-            
-            # Read in daily temperature data for the counterfactual period (1980-1990)
-            daily_temp, num_days = tmp.LoadDailyTemperatures(
-                temp_dir=sets.temp_dir,
-                scenario=sets.scenario,
-                temp_type="max",
-                year=year, 
-                pop_map=fls.pop_ssp,
-                std_factor=1
-                )
-
-            AnnualPAFperRegion(fls, year, num_days, daily_temp, counter=True)
+    paf_counter = pd.DataFrame(
+        index=pd.MultiIndex.from_product(index), 
+        columns=base_years
+        ).sort_index()
+    
+    return paf, paf_counter
 
 
 
@@ -356,11 +381,31 @@ def CalculatePAFYear(sets, fls, year):
     print(f"[2.2] Calculating Population Attributable Fraction for {year}...") 
     
     # Calcuate PAFs per region and corresponding year
-    AnnualPAFperRegion(fls, year, num_days, daily_temp, counter=False)
+    AnnualPAFperRegion(
+        sets=sets,
+        fls=fls,
+        year=year,
+        num_days=num_days,
+        daily_temp=daily_temp,
+        counter=False
+        )
+    
+    if year in fls.base_years:
+        
+        print(f"[2.3] Calculating counterfactual PAFs for year {year}...")
+    
+        AnnualPAFperRegion(
+            sets=sets,
+            fls=fls,
+            year=year,
+            num_days=num_days,
+            daily_temp=daily_temp,
+            counter=True
+            )
 
     
 
-def AnnualPAFperRegion(fls, year, num_days, daily_temp, counter):
+def AnnualPAFperRegion(sets, fls, year, num_days, daily_temp, counter):
     
     """
     Calculate weighted average of PAFs per region an year, using population as weights. 
@@ -377,60 +422,73 @@ def AnnualPAFperRegion(fls, year, num_days, daily_temp, counter):
     # Clip baseline temperatures to min and max values
     clip_baseline_temp = np.round(np.clip(baseline_temp*10, fls.temp_min, fls.temp_max), 0).astype(int)
 
-    # Initialize relative risks array
-    relative_risks = np.full_like(baseline_temp, np.nan, dtype=float)
-
     # Create mask for valid baseline temperatures
     mask = ~np.isnan(baseline_temp)
 
     # Get indices for lookup
     indices = (clip_baseline_temp[mask] - fls.temp_min).astype(int)
+    
+    # Taylor calculations depending on model
+    project_name = sets.project.lower()
+    
+    if re.search(r"honda", project_name):
+        var_erf = ["mean", "upper", "lower"]
+        
+    elif re.search(r"romanello", project_name):
+        var_erf = ["mean"]
+    
+    for i,var in enumerate(var_erf):
+    
+        # Initialize relative risks array
+        relative_risks = np.full_like(baseline_temp, np.nan, dtype=float)
 
-    # Get relative risks from risks lookup table    
-    relative_risks[mask] = fls.risks[indices]
-    
-    # Flatten arrays
-    regions_flat = np.nan_to_num(fls.regions.ravel()).astype(int)
-    pop_flat = np.nan_to_num(pop_year.ravel())
-    
-    for mode in ["cold", "heat", "all"]:
-        print(f"Calculating {mode} PAFs...")
+        # Get relative risks from risks lookup table    
+        relative_risks[mask] = fls.risks[:,i][indices] if "honda"in project_name else fls.risks[indices]
         
-        paf = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
-        
-        if mode == "cold":
-            paf = np.where(clip_baseline_temp<0, paf, 0)
-        if mode == "heat":
-            paf = np.where(clip_baseline_temp>0, paf, 0)
-        
-        # Aggregate PAFs over days
-        paf = np.sum(paf, axis=2) / num_days        
-        paf_flat = np.nan_to_num(paf.ravel())
-        
-        # Calculate weighted sum of PAFs per region
-        weighted_sum = np.bincount(regions_flat, weights=paf_flat * pop_flat)
-        weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
-        
-        # Calculate weighted average for specified regions
-        weighted_paf = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
-    
-        # Locate results in paf dataframe
-        if counter == False:
-            fls.paf.loc[mode.capitalize(), year] = weighted_paf
-        else:
-            fls.paf_counter.loc[mode.capitalize(), year] = weighted_paf    
-    
+        # Flatten arrays
+        regions_flat = np.nan_to_num(fls.regions.ravel()).astype(int)
+        pop_flat = np.nan_to_num(pop_year.ravel())
+
+        for mode in ["cold", "heat", "all"]:
+            
+            paf = np.where(relative_risks < 1, 0, 1 - 1/relative_risks)
+            
+            if mode == "cold":
+                paf = np.where(clip_baseline_temp<0, paf, 0)
+            if mode == "heat":
+                paf = np.where(clip_baseline_temp>0, paf, 0)
+            
+            # Aggregate PAFs over days
+            paf = np.sum(paf, axis=2) / num_days        
+            paf_flat = np.nan_to_num(paf.ravel())
+            
+            # Calculate weighted sum of PAFs per region
+            weighted_sum = np.bincount(regions_flat, weights=paf_flat * pop_flat)
+            weight_pop_sum = np.bincount(regions_flat, weights=pop_flat)
+            
+            # Calculate weighted average for specified regions
+            weighted_paf = weighted_sum[fls.regions_range] / np.maximum(weight_pop_sum[fls.regions_range], 1e-12)
+
+            target_df = fls.paf_counter if counter else fls.paf
+
+            if "honda" in project_name:
+                target_df.loc[(mode, var), year] = weighted_paf
+            elif "romanello" in project_name:
+                target_df.loc[mode, year] = weighted_paf
+
     
 
 def PostprocessResults(sets, fls):
     
     print("[3] Model run complete. Postprocessing...")
     
+    index = ["t_type", "var_erf", "region"] if "honda" in sets.project.lower() else  ["t_type", "region"]
+    
     paf = fls.paf
-    paf.index.names = ["t_type", "region"]
+    paf.index.names = index
     
     paf_counter = fls.paf_counter.mean(axis=1)
-    paf.index.names = ["t_type", "region"]
+    paf.index.names = index
     
     # Substract counterfactual PAFs
     paf_counterfactual = paf.sub(paf_counter, axis=0)
@@ -447,18 +505,13 @@ def PostprocessResults(sets, fls):
     
     # Create project folder if it doesn' exist
     sn.out_path.mkdir(parents=True, exist_ok=True)
-    file_name = f"PAF_{sets.project}_{sets.scenario}_ISO3{sn.years_part}{sn.extrap_part}_ot-{sets.optimal_range}"
-            
-    # Save the results and temperature statistics
-    paf.to_csv(f"{sn.out_path}/{file_name}.csv")  
-    paf_counterfactual.to_csv(f"{sn.out_path}/{file_name}_counter.csv")  
     
     print("3.2 Calculating attributable mortality and saving results...")
     
     causes = ["All causes"]  
     
-    paf = ReformatPAF(fls, paf)
-    paf_counterfactual = ReformatPAF(fls, paf_counterfactual)
+    paf = ReformatPAF(sets, fls, paf)
+    paf_counterfactual = ReformatPAF(sets, fls, paf_counterfactual)
     
     # Calculate mortality from PAF
     sn.counter = ""
@@ -472,7 +525,7 @@ def PostprocessResults(sets, fls):
 
 
     
-def ReformatPAF(fls, paf):
+def ReformatPAF(sets, fls, paf):
     
     """
     Convert the PAF dataframe to an xarray with the same coordinates 
@@ -480,13 +533,21 @@ def ReformatPAF(fls, paf):
     three datasets and calculate attributable mortality.
     """
     
+    if "honda" in sets.project.lower():
+        level = "level_3"
+        index = ["ISO3", "t_type", "var_erf", "cause", "year"]
+    else:
+        level = "level_2"
+        index = ["ISO3", "t_type", "cause", "year"]
+    
+    
     paf = (
         paf
         .stack(future_stack=True)
         .reset_index()
-        .rename(columns={"level_2": "year", 0: "paf", "region": "ISO3"})
+        .rename(columns={level: "year", 0: "paf", "region": "ISO3"})
         .assign(cause="All causes")
-        .set_index(["ISO3", "t_type", "cause", "year"])
+        .set_index(index)
         .assign(paf=lambda df: df["paf"].astype(float)) 
         .to_xarray()
     )
@@ -499,5 +560,8 @@ def ReformatPAF(fls, paf):
     ).astype(object)
 
     paf = paf.sortby("ISO3").sortby("cause").sortby("t_type").sortby("year")
+    
+    if "honda" in sets.project.lower():
+        paf = paf.sortby("var_erf")
     
     return paf

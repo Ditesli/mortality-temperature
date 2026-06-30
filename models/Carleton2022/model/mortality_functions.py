@@ -202,7 +202,7 @@ class LoadInputData:
     rel_mor: np.array
     gammas: any
     pop: pd.DataFrame
-    base_years: list=range(2001,2011)
+    base_years: list=range(2000,2010)
 
     @classmethod
     def from_files(cls, sets):
@@ -293,7 +293,7 @@ class BaselineERFsInputs:
         years_range = (
             range(1980, 1990)
             if "comparison" in sets.project.lower()
-            else range(2000, 2010)
+            else fls.base_years
         )
     
         daily_temp_t0 = ImportBaselineTemperatures(
@@ -1341,7 +1341,7 @@ def CalculateERA5baselineMortality(sets, fls, baseline):
     BASE_YEARS = (
         range(1980, 1990) 
         if re.search("comparison", sets.project.lower()) 
-        else range(2000, 2010)
+        else fls.base_years
     )
     
     # Initialize dics to store annual mortality
