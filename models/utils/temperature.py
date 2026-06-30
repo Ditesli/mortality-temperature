@@ -161,13 +161,15 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     monthly_dates = pd.date_range(
         start=f"15/12/{years[0]-1}", 
         end=f"15/2/{years[-1]+1}",
-        freq="ME") - pd.DateOffset(days=15)
+        freq="ME"
+        ) - pd.DateOffset(days=15)
     
     # Change NM data to monthly data and rename variable
     dec_years_jan = (
         dec_years_jan
         .assign_coords(NM=monthly_dates)
-        .rename({"NM": "valid_time"}).drop_vars("time")
+        .rename({"NM": "valid_time"})
+        .drop_vars("time")
     )
     
     # Interpolation (slinear for now) of the existing years and calculate daily mean over all years (or single year)
@@ -181,22 +183,26 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     )
     
     # Generate daily temperature data from monthly STD statistics
-    daily_temperature = DailyTemperatureFromNormalPDF(year=mid_year, 
-                                                      number_days=NUMBER_DAYS, 
-                                                      temp_daily_mean=temperature_interpolated, 
-                                                      temp_std=temperature_monthly_std, 
-                                                      std_factor=std_factor)
+    daily_temperature = DailyTemperatureFromNormalPDF(
+        year=mid_year, 
+        number_days=NUMBER_DAYS, 
+        temp_daily_mean=temperature_interpolated, 
+        temp_std=temperature_monthly_std, 
+        std_factor=std_factor
+        )
     
     if to_xarray == True:
         # Convert to xarray DataArray
         daily_dates = pd.date_range(f"{mid_year}-01-01", f"{mid_year}-12-31", freq="D")
         
         # Create xarray DataArray with original coordinates
-        daily_temperature = xr.DataArray(daily_temperature,
-                               coords={"latitude": temperature_interpolated.latitude,
-                                       "longitude": temperature_interpolated.longitude,
-                                       "valid_time":daily_dates},
-                              dims=["latitude", "longitude", "valid_time"])
+        daily_temperature = xr.DataArray(
+            daily_temperature,
+            coords={"latitude": temperature_interpolated.latitude,
+                    "longitude": temperature_interpolated.longitude,
+                    "valid_time":daily_dates},
+            dims=["latitude", "longitude", "valid_time"]
+            )
     
     return daily_temperature, NUMBER_DAYS
 
