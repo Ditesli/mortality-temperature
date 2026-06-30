@@ -1,19 +1,32 @@
+""" Paths to data """
+
 # Working directory (root) where input and output files are stored
-wdir: ""
+wdir: 
 
 # Temperature data directory
-temp_dir: ""
+temp_dir: 
 
 # Income data directory
-gdp_dir: ""
+gdp_dir: 
+
+""" Scenario settings """
 
 # Set years range
 start_year:
 end_year: 
 
 # Define project name and scenario
-project: ""
-scenario: "" #  SSP#_carleton OR SSP#_ERA5 OR IMAGE-scenario-name
+project: 
+scenario:   # SSP#_carleton OR SSP#_ERA5 OR IMAGE-scenario-name
 
 # Set adaptation True or False
 adaptation: 
+
+# Choose to compare scenario against a counterfactual one True or False
+counterfactual:
+
+# Choose whether using the mean ERF "mean" or a random draw for uncertainty analysis
+draw:
+
+# Choose to export data in the format of the Reporting Tool True or False
+reporting_tool:

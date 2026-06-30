@@ -2,7 +2,7 @@ import mortality_functions as mf
 import yaml
 from pathlib import Path
 
-config_file = Path(__file__).parent.parent / "examples" / "example.yaml"
+config_file = Path(__file__).parent.parent / "settings" / "example/ExampleMain.yaml"
 with open(config_file) as f:
     config = yaml.safe_load(f)
     

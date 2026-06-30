@@ -1614,7 +1614,7 @@ def GroupImpactRegions2LargerRegion(array, region, index_regions, len_regions, c
         coords=coords
     )
     
-    return  var_dataset.assign_coords(region_type=("region", [region] * len(var_dataset.region))) 
+    return var_dataset.assign_coords(region_type=("region", [region] * len(var_dataset.region))) 
 
  
 
