@@ -124,16 +124,16 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     )
     
     # Prepare monthly mean data including December of previous year and January of next year
-    temeprature_monthly_mean_present = []
+    temperature_monthly_mean_present = []
     
-    temeprature_monthly_mean_present.append(
+    temperature_monthly_mean_present.append(
         temperature_monthly_mean
         .sel(time=f"{years[0]-1}-01-01")
         .isel(NM=11)
     )   
     
     for y in years:
-        temeprature_monthly_mean_present.append(
+        temperature_monthly_mean_present.append(
             temperature_monthly_mean
             .sel(time=f"{y}-01-01")
         )
@@ -143,7 +143,7 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
     else:
         final_year = years[-1]+1
         
-    temeprature_monthly_mean_present.append(
+    temperature_monthly_mean_present.append(
         temperature_monthly_mean
         .sel(time=f"{final_year}-01-01")
         .isel(NM=0)
@@ -151,15 +151,17 @@ def DailyFromMonthlyTemperature(temp_dir, years, temp_type, std_factor, to_xarra
 
     # Concatenate December of previous year and January of next year for smooth transition
     dec_years_jan = xr.concat(
-        temeprature_monthly_mean_present, 
+        temperature_monthly_mean_present, 
         dim="NM",
         coords="different",
         compat="equals"
     )
     
     # Generate monthly dates (15th OR 16th of each month)
-    monthly_dates = pd.date_range(start=f"15/12/{years[0]-1}", 
-                                  end=f"15/2/{years[-1]+1}", freq="ME") - pd.DateOffset(days=15)
+    monthly_dates = pd.date_range(
+        start=f"15/12/{years[0]-1}", 
+        end=f"15/2/{years[-1]+1}",
+        freq="ME") - pd.DateOffset(days=15)
     
     # Change NM data to monthly data and rename variable
     dec_years_jan = (
@@ -204,7 +206,7 @@ def OpenMontlhyTemperatures(temp_dir, temp_type):
     
     """
     Read monthly statistics of daily temperature data (mean and standard deviation)
-    according to the temeprature type (temp_type):
+    according to the temperature type (temp_type):
     - temp_type = "MEAN": mean and std of daily mean temperatures
     - temp_type = "MAX": mean and std of daily maximum temperatures
     
