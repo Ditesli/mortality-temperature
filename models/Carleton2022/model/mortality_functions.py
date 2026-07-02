@@ -1,3 +1,4 @@
+import dask.delayed
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -6,11 +7,11 @@ from dataclasses import dataclass, field
 from shapely.geometry import Polygon
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import re, sys, os
+import re, sys, os, prism, dask
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils import temperature as tmp
-import prism
-
+import numpy_groupies as npg
+from dask.delayed import delayed
 
 
 ### ------------------------------------------------------------------------------
@@ -151,14 +152,18 @@ class MortalityModel:
         self.load_inputs()
 
         print("[2] Starting mortality calculations...")
-
+        
+        # tasks = []
         for year in self.sets.years:
+            # task = dask.delayed(CalculateMortalityEffects)(self.sets, year, self.fls, self.baseline)
+            # tasks.append(task)
             CalculateMortalityEffects(
                 sets=self.sets,
                 year=year,
                 fls=self.fls,
                 baseline=self.baseline
             )
+        # dask.compute(*tasks)
 
         self.postprocess()
         
@@ -202,6 +207,8 @@ class LoadInputData:
     rel_mor: np.array
     gammas: any
     pop: pd.DataFrame
+    t_mean: np.ndarray
+    t_std: np.ndarray
     base_years: list=range(2000,2010)
 
     @classmethod
@@ -216,18 +223,24 @@ class LoadInputData:
         
         print(f"[1.1] Loading region classification...")
         region_class = pd.read_csv(
-            os.path.dirname(sets.wdir) +
+            os.path.dirname(os.path.dirname(sets.wdir)) +
             f"/data/RegionClassification/region_classification.csv"
             )[["hierid", "ISO3", "IMAGE26"]].iloc[:24378].rename(columns={"IMAGE26":"IMAGE"})
         
-        spatial_relation, ir = GridRelationship(sets)
+        if "ERA5" not in sets.scenario:
+            print("[1.2] Loading temperature data...")
+            t_mean, t_std = tmp.OpenMonthlyTemperatures(sets.temp_dir, "mean")
+        else: 
+            print("[1.2] Temperature data will be imported later on when generating the ERFs...")
+            t_mean, t_std = None, None
+        
+        spatial_relation, ir = GridRelationship(sets, t_mean)
         
         # Define empty array to store relative mortality
         rel_mor = np.full(
             (2, 3, 24378, len(sets.years)), np.nan, dtype=np.float32
         )
 
-        
         gamma_coeffs = ImportGammaCoefficients(sets)
         
         population = ImportPopulationData(sets, ir)    
@@ -238,7 +251,9 @@ class LoadInputData:
             region_class=region_class,
             rel_mor=rel_mor,
             gammas = gamma_coeffs,
-            pop = population
+            pop = population,
+            t_mean=t_mean,
+            t_std=t_std
         )
     
 
@@ -297,10 +312,9 @@ class BaselineERFsInputs:
         )
     
         daily_temp_t0 = ImportBaselineTemperatures(
-            sets=sets, 
+            sets=sets,
+            fls=fls,
             base_years=years_range, 
-            ir=fls.ir, 
-            spatial_relation=fls.spatial_relation
             )
         
         # Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
@@ -333,7 +347,7 @@ class BaselineERFsInputs:
 
 
 
-def GridRelationship(sets):
+def GridRelationship(sets, grid):
     
     """
     Create a DataFrame with the spatial relationship between temperature data points 
@@ -375,15 +389,15 @@ def GridRelationship(sets):
             )
     
     # --------- If Monthly Statistics (MS) data ----------  
-    else:
+    # else:
         # Use function to import monthly statistics (MS) of daily temperature data in the right format
-        grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
-            years=sets.years[0], 
-            temp_type="MEAN", 
-            std_factor=1, 
-            to_xarray=True
-            )
+        # grid,_ = tmp.DailyFromMonthlyTemperature(
+        #     temp_dir=t_mean, 
+        #     years=sets.years[0], 
+        #     temp_type="MEAN", 
+        #     std_factor=1, 
+        #     to_xarray=True
+        #     )
         
 
     # Extract coordinates
@@ -570,7 +584,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
 
 
 
-def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
+def ImportBaselineTemperatures(sets, fls, base_years):
     
     """
     The function will import the daily temperatures from 2000 to 2010, either precalculated
@@ -594,9 +608,9 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
     else: 
         
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
+            temperature_mean=fls.t_mean,
+            temperature_std=fls.t_std, 
             years=base_years,
-            temp_type="MEAN",
             std_factor=1, 
             to_xarray=False
         )
@@ -604,13 +618,9 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
         t0_mean = MSTemperature2IR(
             temp=daily_temperature, 
             year=2000, # Dummy year
-            ir=ir, 
-            spatial_relation=spatial_relation)
-        
-        # Convert "Present-day" temperatures dataframe to numpy array    
-        t0_mean = t0_mean.to_numpy().astype(np.float32)
-    
-    # TODO change this from the beginning
+            ir=fls.ir, 
+            spatial_relation=fls.spatial_relation)
+
     return t0_mean
 
 
@@ -735,9 +745,9 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
         else:
             # Load "present-day" climatology
             if counterfactual:
-                climtas = ImportClimtas(sets.temp_dir, None, fls.spatial_relation, present_day=True)
+                climtas = ImportClimtas(fls, sets.temp_dir, None, present_day=True)
             else:
-                climtas = ImportClimtas(sets.temp_dir, year, fls.spatial_relation, present_day=False)
+                climtas = ImportClimtas(fls, sets.temp_dir, year, present_day=False)
                 
         # log(GDPpc) ---------------------------    
         
@@ -985,7 +995,7 @@ def ImportClimtasERA5(wdir, year, ir):
 
 
 
-def ImportClimtas(temp_dir, year, spatial_relation, present_day):
+def ImportClimtas(fls, temp_dir, year, present_day):
     
     """
     Import climate data from montlhy statistics files. The code calculates the 30-year running
@@ -994,33 +1004,18 @@ def ImportClimtas(temp_dir, year, spatial_relation, present_day):
     ordered by "ir".
     """
     
-    if present_day==True:
-        year = slice("2001-01-01", "2011-01-01") # The "present-day" climatology 
-    else:
-        year = slice(f"{year}-01-01", f"{year}-12-31")
+    start_year, end_year = (1970,2010) if present_day else (str(year - 29), str(year))
+    time_slice = slice(f"{start_year}-01-01", f"{end_year}-12-31")
     
-    # Read monthly mean of daily mean temperature data
-    climtas_ir = (
-        xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
-        ["GTMP_30MIN"]
-        .mean(dim="NM") # Annual temperature
-        .rolling(time=30, min_periods=1) 
-        .mean() # Climatology
-        .sel(time=year)
-        .mean(dim="time") # "present-day" climatology
-        .values
-        .ravel()
-        [spatial_relation.index] # Assign pixels to every impact region using spatial relation
-    )
+    # Calculate the mean of the daily mean temperature data over the 30-year period at the grid cell level
+    climtas_ds = fls.t_mean.sel(time=time_slice).mean(dim=("NM", "time"))
+    
+    idx_spatial = fls.spatial_relation.index.values
+    climtas_ir = climtas_ds.values.ravel()[idx_spatial]
 
-    # Calculate mean temperature per impact region and round
-    climtas = (
-        pd.DataFrame(climtas_ir, index=spatial_relation["index_right"])
-        .groupby("index_right")
-        .mean()
-        .fillna(20)
-        [0].values
-    )
+    # Aggregate the climatology per impact region using the spatial relation and return as numpy array
+    group_idx = fls.spatial_relation["index_right"].values
+    climtas = npg.aggregate(group_idx, climtas_ir, func='nanmean', fill_value=20.0)
 
     return climtas
 
@@ -1131,7 +1126,7 @@ def MonotonicityERF(T, erf, tmin_g):
     
     
         
-def DailyTemperature2IR(sets, year, ir, spatial_relation):
+def DailyTemperature2IR(sets, fls, year):
     
     """
     Convert daily temperature data of one year to temperature values at the impact region 
@@ -1144,15 +1139,15 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
     if "ERA5" in sets.scenario:
         
         # Open daily temperature data from ERA5
-        daily_temperature = ERA5Temperature2IR(sets.temp_dir, year, spatial_relation)
+        daily_temperature = ERA5Temperature2IR(sets.temp_dir, year, fls.spatial_relation)
         
     else:
                 
         # Read daily temperature data generated from monthly statistics
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
+            temperature_mean=fls.t_mean,
+            temperature_std=fls.t_std,
             years=year, 
-            temp_type="MEAN", 
             std_factor=1,
             to_xarray=False)
         
@@ -1160,13 +1155,9 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
         daily_temperature = MSTemperature2IR(
             temp=daily_temperature, 
             year=year, 
-            ir=ir, 
-            spatial_relation=spatial_relation)
+            ir=fls.ir, 
+            spatial_relation=fls.spatial_relation)
     
-    # Convert dataframe to numpy array    
-    daily_temperature = daily_temperature.to_numpy()
-    
-    # TODO: Change this from the beginning
     return daily_temperature.astype(np.float32)
 
 
@@ -1183,20 +1174,24 @@ def MSTemperature2IR(temp, year, ir, spatial_relation):
     date_list = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
     
     # Temporarily store daily temperatures in a dictionary
-    temperature_dic = {}
+    temperature_days = np.full((len(spatial_relation), len(date_list)), np.nan, dtype=np.float32)
+    
     for i, day in enumerate(date_list):
-        temperature_dic[day] = temp[...,i].ravel()[spatial_relation.index]
-
+        temperature_days[:,i] = temp[...,i].ravel()[spatial_relation.index]
+    
     # Calculate mean temperature per impact region and round
-    daily_temperatures_df = (
-        pd.DataFrame(temperature_dic, index=spatial_relation["index_right"])
-        .groupby("index_right")
-        .mean() # Calculate mean temperature per impact region
-        .fillna(20) # Fill in nan with 20 degrees C (conservative choice)
-        .round(1) # Round to 1 decimal place
+    daily_temperatures = npg.aggregate(
+        spatial_relation["index_right"].values, 
+        temperature_days, 
+        func='nanmean', 
+        axis=0, 
+        fill_value=np.nan
     )
+
+    daily_temperatures = np.where(np.isnan(daily_temperatures), 20.0, daily_temperatures)
+    daily_temperatures = np.round(daily_temperatures, decimals=1)
    
-    return daily_temperatures_df
+    return daily_temperatures
 
 
 
@@ -1232,20 +1227,23 @@ def ERA5Temperature2IR(temp_dir, year, spatial_relation):
     )
     
     # Temporarily store daily temperatures in a dictionary
-    temperature_dic = {}
-    for day in date_list:
+    temperature_days = np.full((len(spatial_relation), len(date_list)), np.nan, dtype=np.float32)
+    
+    for i,day in enumerate(date_list):
         daily_temperature_day = daily_temperature.sel(valid_time=day).values.ravel()
-        temperature_dic[day] = daily_temperature_day[spatial_relation.index]
+        temperature_days[:,i] = daily_temperature_day[spatial_relation.index]
             
     # Calculate mean temperature per impact region and round
-    daily_temperature_df = (
-        pd.DataFrame(temperature_dic, index=spatial_relation["index_right"])
-        .groupby("index_right")
-        .mean()
-        .round(1)
+    daily_temperatures = npg.aggregate(
+        spatial_relation["index_right"].values, 
+        temperature_days, 
+        func='nanmean', 
+        axis=0, 
+        fill_value=np.nan
     )
+    daily_temperatures = np.round(daily_temperatures, decimals=1)
     
-    return daily_temperature_df
+    return daily_temperatures
 
 
 
@@ -1266,9 +1264,8 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
     # Read daily temperature data from specified source
     daily_temperature = DailyTemperature2IR(
         sets=sets, 
+        fls=fls,
         year=year, 
-        ir=fls.ir, 
-        spatial_relation=fls.spatial_relation
         )
     
     
@@ -1314,6 +1311,7 @@ def CalculateMortalityEffects(sets, year, fls, baseline):
     
     # Results without counterfactual scenario will be substracted by zero
     elif sets.counterfactual == False:
+        
         mor_heat_sub = {group: np.zeros_like(mor_heat_min[group]) for group in sets.age_groups}
         mor_cold_sub = {group: np.zeros_like(mor_cold_min[group]) for group in sets.age_groups}
         
