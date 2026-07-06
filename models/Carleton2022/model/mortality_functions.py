@@ -290,7 +290,7 @@ class BaselineERFsInputs:
         years_range = (
             range(1980, 1990)
             if "comparison" in sets.project.lower()
-            else fls.base_years
+            else sets.base_years
         )
     
         daily_temp_t0 = ImportBaselineTemperatures(
