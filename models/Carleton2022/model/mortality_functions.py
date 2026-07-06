@@ -399,9 +399,9 @@ def ImportGammaCoefficients(sets):
     """
     
     if sets.draw == "mean":
-        print("[1.3] Generating gamma coefficients - Mean estimates...")
+        print("[1.3] Loading gamma coefficients - Mean estimates...")
     else:
-        print(f"[1.3] Generating gamma coefficients - Random draw from the normal distribution...")
+        print(f"[1.3] Loading gamma coefficients - Random draw from the normal distribution...")
     
     with open(sets.wdir+"/data/CarletonSM/Agespec_interaction_response.csvv") as f:
         
