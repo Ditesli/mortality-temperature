@@ -705,7 +705,7 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
 
 
 
-def ImportCovariates(sets, year, adaptation, baseline, counterfactual):
+def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
     
     """
     Import the covariates climtas and loggdppc of the corresponding year as numpy arrays.
