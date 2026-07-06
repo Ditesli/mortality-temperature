@@ -1336,6 +1336,9 @@ def CalculateMortalityEffects(sets, fls, baseline, year):
         
     ### ---------------------- Locate annual results in array --------------------------------
    
+    # Create temporal array
+    mor_local = np.full((2, 3, 24378), np.nan, dtype=np.float32)
+   
     # Locate mortality from heat in loc 0
     mor_local[0, :, :] = mor_heat_min - mor_heat_sub
     # Locate mortality from cold in loc 1
