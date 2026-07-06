@@ -994,14 +994,7 @@ def ImportClimtas(temp_dir, year, spatial_relation, present_day):
     ordered by "ir".
     """
     
-    # Read grid relationship
-    spatial_relation = pd.read_parquet(
-        sets.wdir +
-        f"/cache/spatial_relation.parquet",
-        engine="pyarrow"
-    )
-    
-    start_year, end_year = (1970,2010) if present_day else (str(year - 29), str(year))
+    start_year, end_year = (1975,2015) if present_day else (str(year - 29), str(year))
     time_slice = slice(f"{start_year}-01-01", f"{end_year}-12-31")
     
     # Calculate the mean of the daily mean temperature data over the 30-year period at the grid cell level
