@@ -708,14 +708,6 @@ def ImportCovariates(sets, year, adaptation, baseline, counterfactual):
         1D array with the log of the 13-year log(GDPpc) per impact region.
     """
     
-    # Read in order of impact regions
-    ir = pd.read_parquet(
-        sets.wdir +
-        f"/cache/impact_regions.parquet",
-        engine="pyarrow"
-    )["hierid"].values
-    
-    
     # NO ADAPTATION -----------------------------------------
     if adaptation==False:
 
