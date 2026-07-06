@@ -650,47 +650,10 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
     covariates = np.column_stack(
         [np.ones(len(climtas)), climtas, loggdppc]
     ).astype(np.float32)
-
-    # Generate arrays with erf and tmin per age group
-    mor_np = []; tmin = [] 
-    for i in range(len(sets.age_groups)):
-        
-        # Load baseline ERFs if adaptation is off, otherwise set to None
-        if baseline is True:
-            erfs_t0 = None; tmin_t0 = None
-        else:
-            erfs_t0 = np.load(sets.wdir+f"/cache/erfs_t0.npy", mmap_mode='r')
-            tmin_t0 = np.load(sets.wdir+f"/cache/tmin_t0.npy", mmap_mode='r')[i]
-                
-        # List of locations of gamma and covariates
-        g = gammas[i]; cov = covar[i]
-
-        # Multiply each covariate by its corresponding gamma
-        base = covariates[:, cov] * g
-        
-        # Compute the sum of the covariates to get polynomial coefficients
-        tas = base[:, 0:3].sum(axis=1)  
-        tas2 = base[:, 3:6].sum(axis=1)  
-        tas3 = base[:, 6:9].sum(axis=1) 
-        tas4 = base[:, 9:12].sum(axis=1)
-        )
-        
-        # Impose zero mortality at tmin by vertically shifting erf
-        erf_shifted, tmin_g = ShiftERFToTmin(erf_raw, sets.T, tas, tas2, tas3, tas4, tmin_t0)
-        
-        #  # Ensure ERFs do not exceed no-adaptation ERFs 
-        if baseline is False:
-            erf_shifted = np.minimum(erf_shifted, erfs_t0[i])
-        
-        # Impose weak monotonicity to the left and the right of the erf
-        mor_np.append(MonotonicityERF(sets.T, erf_shifted, tmin_g))
-        tmin.append(tmin_g)
-        
-    if baseline is True:
-        # Save the ERFs and tmin for the present day (baseline)
-        np.save(sets.wdir+f"/cache/erfs_t0.npy", np.stack(mor_np, axis=0))
-        np.save(sets.wdir+f"/cache/tmin_t0.npy", np.stack(tmin, axis=0))
-        
+    
+    
+    if baseline is None:
+        erfs_t0 = None; tmin_t0 = None
     else:
         erfs_t0 = baseline.erfs_t0; tmin_t0 = baseline.tmin_t0 
             
@@ -725,7 +688,6 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
     mor_np = MonotonicityERF(sets.T, erf_shifted, tmin_g)
 
     return mor_np, tmin_g
-        
 
 
 
