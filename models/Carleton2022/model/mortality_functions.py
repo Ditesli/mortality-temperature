@@ -179,7 +179,7 @@ class MortalityModel:
     
     
 @dataclass
-class InputData:
+class LoadInputData:
     
     """
     Generates all input data required to run the model and saves it in 
