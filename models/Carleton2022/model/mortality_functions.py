@@ -334,7 +334,7 @@ class BaselineERFsInputs:
 
 def GenerateRegionClassification(sets):
     
-    print(f"[1.1] Generating region classification...")
+    print(f"[1.1] Loading region classification...")
     
     # Read region classification file and keep only the relevant columns and rows
     region_class = pd.read_csv(
