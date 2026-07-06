@@ -635,6 +635,7 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
     # Import covariates with or without adaptation
     climtas, loggdppc = ImportCovariates(
         sets=sets,
+        fls=fls,
         year=year, 
         adaptation=adaptation,
         baseline=baseline,
