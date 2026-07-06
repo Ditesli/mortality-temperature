@@ -1124,13 +1124,6 @@ def DailyTemperature2IR(sets, year):
     
     print(f"[2.1] Loading daily temperature data for year {year}...")
     
-    # Read spatial relation
-    spatial_relation = pd.read_parquet(
-        sets.wdir +
-        f"/cache/spatial_relation.parquet",
-        engine="pyarrow"
-    )
-    
     if "ERA5" in sets.scenario:
         
         # Open daily temperature data from ERA5
