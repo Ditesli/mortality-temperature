@@ -1290,7 +1290,9 @@ def CalculateMortalityEffects(sets, year):
     mor_heat_min, mor_cold_min = CalculateMarginalMortality(
         sets=sets, 
         year=year,  
-        daily_temp=daily_temperature,
+        daily_temp=daily_temperature, 
+        fls=fls,
+        baseline=baseline,
         counterfactual=False
         )
     
