@@ -224,9 +224,11 @@ class LoadInputData:
         
         print("[1] Loading input files and defining parameters...")    
         
-        # Create cache folder with intermediate files
-        CACHE_DIR = sets.wdir + "/cache/"
-        os.makedirs(CACHE_DIR, exist_ok=True)
+        print(f"[1.1] Loading region classification...")
+        region_class = pd.read_csv(
+            os.path.dirname(sets.wdir) +
+            f"/data/RegionClassification/region_classification.csv"
+            )[["hierid", "ISO3", "IMAGE26"]].iloc[:24378].rename(columns={"IMAGE26":"IMAGE"})
         
         GenerateRegionClassification(sets)
         
@@ -316,9 +318,11 @@ def GridRelationship(sets):
             std_factor=1, 
             to_xarray=True
             )
+        
 
     # Extract coordinates
     def FindCoordinateName(possible_names, coord_names, temperature):
+    
         for name in possible_names:
             if name in coord_names:
                 return temperature[name].values
