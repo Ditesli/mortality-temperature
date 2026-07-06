@@ -965,24 +965,14 @@ def ReadTIMERFiles(sets, save):
                 datafile[i]
                 .rename('Value')
                 .expand_dims({"Time": [i]}) for i in np.arange(_DIM_TIME['start'], 2101)
-                ],
-            compat="no_conflicts"
-            )   
+                ]
+            )
         .expand_dims({"Scenario": [sets.scenario], "Variable": [VAR]})
         )
     
     xr_vars = xr.merge(listy)
-
-
-    if save==True:
-        xr_vars.to_netcdf(
-            sets.wdir +
-            f"/cache/image_gdppc.nc",
-            mode="w"
-        )
-        
-    else:
-        return xr_vars
+ 
+    return xr_vars
 
 
 
