@@ -1468,7 +1468,7 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp):
 
 
        
-def AggregateRegionalMortality(sets, rel_mor):
+def AggregateRegionalMortality(sets, fls, rel_mor):
     
     """
     Use numpy array where annual relative mortality results where store and population data,
