@@ -159,7 +159,7 @@ class MortalityModel:
         rel_mor_scenario = []
         for year in self.sets.years:
         
-            rel_mor = CalculateMortalityEffects(sets=self.sets, year=year)
+            rel_mor = CalculateMortalityEffects(self.sets, self.fls, self.baseline, year)
             rel_mor_scenario.append(rel_mor)
             
         rel_mor_scenario = np.stack(rel_mor_scenario, axis=-1)
