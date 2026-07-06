@@ -1307,10 +1307,6 @@ def CalculateMortalityEffects(sets, year):
             mor_heat_sub, mor_cold_sub = CalculateERA5baselineMortality(sets=sets)
         
         else:
-            
-            # Load baseline temperatures
-            daily_temp_t0 = np.load(sets.wdir + f"/cache/t0_mean.npy", mmap_mode='r')
-            
             mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
                 sets=sets, 
                 year=year,
@@ -1326,9 +1322,6 @@ def CalculateMortalityEffects(sets, year):
         
         
     ### ---------------------- Locate annual results in array --------------------------------
-   
-    # Create temporal array
-    mor_local = np.full((2, 3, 24378), np.nan, dtype=np.float32)
    
     # Locate mortality from heat in loc 0
     mor_local[0, :, :] = mor_heat_min - mor_heat_sub
