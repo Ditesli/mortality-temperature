@@ -1403,15 +1403,16 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     if sets.adaptation==True:    
         erfs_t, _ = GenerateERFAll(
             sets=sets,
+            fls=fls,
             year=year,
             adaptation=sets.adaptation,
-            baseline=False,
+            baseline=baseline,
             counterfactual=counterfactual
             )
     
     # Use pre-calculated ERFs with no adaptation or income growth
     else: 
-        erfs_t = np.load(sets.wdir + f"/cache/erfs_t0.npy")
+        erfs_t = baseline.erfs_t0
         
     # ------------------- Calculate annual mortality ------------------
     
