@@ -1016,7 +1016,7 @@ def ImportClimtas(temp_dir, year, spatial_relation, present_day):
 
 
 
-def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4, tmin): 
+def ShiftERFToTmin(erf_raw, T, tas, tas2, tas3, tas4, tmin): 
     
     """   
     The code will apply the first constraint imposed by the paper (see more in Appendix pp. A62).
@@ -1026,7 +1026,7 @@ def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4, tmin):
      
     Parameters:
     ----------    
-    raw : np.ndarray
+    erf_raw : np.ndarray
         Raw ERFs array result of the fourth degree polynomial (see Appendix pp. A35)
     T : range
         Range of daily temperatures
@@ -1051,23 +1051,23 @@ def ShiftERFToTmin(raw, T, tas, tas2, tas3, tas4, tmin):
         # Locate idx of T (temperature array) between 20 and 30 degrees C
         idx_start = np.where(np.isclose(T, 10.0, atol=0.05))[0][0]
         idx_end = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
-        segment = raw[:, idx_start:idx_end]
+        segment = erf_raw[:, :, idx_start:idx_end]
         
         # Find local minimum of erf between 20 and 30 degrees
-        idx_local_min = np.argmin(segment, axis=1)
+        idx_local_min = np.argmin(segment, axis=2)
         tmin = T[idx_start + idx_local_min]
         
     # Calcualte mortality value at fixed tmin
     erf_at_tmin = tas*tmin + tas2*tmin**2 + tas3*tmin**3 + tas4*tmin**4
     
     # Shift vertical functions so tmin matches 0 deaths
-    erf_shifted = raw - erf_at_tmin[:,None]
+    erf_shifted = erf_raw - erf_at_tmin[:,:,None]
         
     return erf_shifted, tmin
 
 
 
-def MonotonicityERF(T, erf, tmin_g):
+def MonotonicityERF(T, erf, tmin):
     
     """
     The code applies the second constraint from the paper (see Appendix pp. A65), weak 
@@ -1090,23 +1090,23 @@ def MonotonicityERF(T, erf, tmin_g):
     """
     
     # Find index of tmin in T
-    idx_tmin = np.searchsorted(T, tmin_g)
-    _, nT = erf.shape
+    idx_tmin = np.searchsorted(T, tmin)
+    _, _, nT = erf.shape
 
     # Create index matrix to vectorize
-    idx_matrix = np.arange(nT)[None, :]
+    idx_matrix = np.arange(nT)[None, None :]
     
     # Mask for temperatures above and below tmin
-    mask_left = idx_matrix < idx_tmin[:, None]
-    mask_right = idx_matrix > idx_tmin[:, None]
+    mask_left = idx_matrix < idx_tmin[:, :, None]
+    mask_right = idx_matrix > idx_tmin[:, :, None]
     
     # Impose weak monotonicity to the left
     left_part = np.where(mask_left, erf, -np.inf)
-    left_monotone = np.maximum.accumulate(left_part[:, ::-1], axis=1)[:, ::-1]
+    left_monotone = np.maximum.accumulate(left_part[:,:,::-1], axis=2)[:,:,::-1]
     
     # Impose weak monotonicity to the right
     right_part = np.where(mask_right, erf, -np.inf)
-    right_monotone = np.maximum.accumulate(right_part, axis=1)
+    right_monotone = np.maximum.accumulate(right_part, axis=2)
     
     # Generate final Exposure Response Function
     erf_final = np.where(
