@@ -315,6 +315,21 @@ class BaselineERFsInputs:
             if not re.search(r"ERA5", sets.scenario):# and "carleton" not in sets.scenario.lower():
                 
                 print("[1.7] Loading GDP data from IMAGE...")
+                image_gdppc = ReadTIMERFiles(sets)
+                
+        # Set to None when adaptation is off        
+        else:  
+            image_shares = None; image_gdppc = None; country_shares = None
+            
+            
+        return BaselineERFsInputs(
+            erfs_t0=erfs_t0,
+            tmin_t0=tmin_t0,
+            image_shares=image_shares,
+            country_shares=country_shares,
+            image_gdppc=image_gdppc,
+            daily_temp_t0=daily_temp_t0
+        )
 
 
 def GenerateRegionClassification(sets):
