@@ -137,7 +137,8 @@ class MortalityModel:
     """
 
     def load_inputs(self):
-        InputData.from_files(sets=self.sets)
+        self.fls = LoadInputData.from_files(sets=self.sets)
+        self.baseline = BaselineERFsInputs.from_sets(sets=self.sets, fls=self.fls)
         
         
     def run(self):
