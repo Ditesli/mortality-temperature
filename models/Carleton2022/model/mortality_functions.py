@@ -1479,13 +1479,8 @@ def AggregateRegionalMortality(sets, fls, rel_mor):
     dataset to recalculate relative mortality.
     """
     
-    region_class = pd.read_parquet(
-        sets.wdir + f"/cache/region_classification.parquet",
-        engine="pyarrow"
-    )
-    
     # Load population data
-    pop = np.load(sets.wdir + f"/cache/population.npy", mmap_mode='r')[None, :, :, :]
+    pop = fls.pop[None, :, :, :]
         
     # Calculate total mortality from relative mortality and population
     mor = rel_mor * pop / 1e5
