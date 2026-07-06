@@ -617,7 +617,6 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
         # Convert "Present-day" temperatures dataframe to numpy array    
         t0_mean = t0_mean.to_numpy().astype(np.float32)
     
-    # TODO change this from the beginning
     return t0_mean
 
 
