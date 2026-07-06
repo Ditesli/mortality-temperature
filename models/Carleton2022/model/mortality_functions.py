@@ -370,7 +370,9 @@ def GridRelationship(sets):
     else:
         #Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
+            temp_dir=sets.temp_dir, 
             years=sets.years[0], 
+            temp_type="MEAN", 
             std_factor=1, 
             to_xarray=True
             )
