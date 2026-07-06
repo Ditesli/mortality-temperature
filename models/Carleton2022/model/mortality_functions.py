@@ -776,7 +776,7 @@ def ImportHistoricalLogGDPpc(wdir, year):
 
 
 
-def ImportCarletonLogGDPpc(wdir, scenario, year):
+def ImportCarletonLogGDPpc(wdir, scenario, ir, year):
     
     """
     Read GDP per capita files for a given SSP scenario from Carleton et al. (2022) 
