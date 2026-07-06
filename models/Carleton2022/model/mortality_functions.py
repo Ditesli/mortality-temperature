@@ -223,6 +223,8 @@ class LoadInputData:
         """
         
         print("[1] Loading input files and defining parameters...")    
+
+        region_class = GenerateRegionClassification(sets)
         
         print(f"[1.1] Loading region classification...")
         region_class = pd.read_csv(
