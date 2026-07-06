@@ -815,20 +815,17 @@ def ImportCarletonLogGDPpc(wdir, scenario, ir, year):
 
 
 
-def ImportIMAGEloggdppc(sets, year):
+def ImportIMAGEloggdppc(year, baseline):
     
     """
     Calculate log(GDPpc) at the impact region level using the GDPpc output from a 
     TIMER run and the shares that downscale IMAGE GDPpc at the impact region level.
     """
     
-    # Read GDPpc shares and impact regions
-    image_gdppc = xr.open_dataset(sets.wdir + "/cache/image_gdppc.nc")
-    image_shares = pd.read_parquet(sets.wdir + "/cache/image_shares.parquet", engine="pyarrow")
-    
     # Extract relevant year data (13 year rolling mean)
     image_gdppc = (
-        image_gdppc
+        baseline
+        .image_gdppc
         .sel(Time=slice(year-13,year))
         .mean(dim="Time")
         .mean(dim="Scenario")
@@ -842,14 +839,14 @@ def ImportIMAGEloggdppc(sets, year):
     gdppc_year = 2010 if year < 2010 else year
     
     gdppc = image_gdppc.merge(
-        image_shares[["region", "IMAGE", f"{gdppc_year}"]], 
+        baseline.image_shares[["region", "IMAGE", gdppc_year]], 
         right_on="IMAGE", 
         left_on="region", 
         how="right"
         )
     
     # Calculate share of log(GDPpc) based on regional GDPpc
-    gdppc["gdppc"] = gdppc["Value"] * gdppc[f"{gdppc_year}"] 
+    gdppc["gdppc"] = gdppc["Value"] * gdppc[gdppc_year] 
     gdppc["loggdppc"] = np.log(gdppc["gdppc"])
     
     return gdppc["loggdppc"].values
