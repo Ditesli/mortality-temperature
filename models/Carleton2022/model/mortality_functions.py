@@ -1354,8 +1354,6 @@ def CalculateERA5baselineMortality(sets):
         else sets.base_years
     )
     
-    # Load baseline temperatures
-    daily_temp_t0 = np.load(sets.wdir + f"/cache/t0_mean.npy", mmap_mode='r')
     
     # Initialize dics to store annual mortality
     mor_heat_dic, mor_cold_dic = {}, {}
