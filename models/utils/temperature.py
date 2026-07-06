@@ -74,7 +74,7 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
         
     
 
-def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years, std_factor, to_xarray=False):
+def DailyFromMonthlyTemperature(temp_dir, temp_type, years, std_factor, to_xarray=False):
     
     """
     Generate daily temperature data fro a given year from monthly statistics assuming 
@@ -110,11 +110,8 @@ def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years, std_fa
         mid_year = 2000
         years = years
         
-    # # Read monthly statistics
-    # temperature_mean, temperature_std = OpenMonthlyTemperatures(
-    #     temp_dir=temp_dir, 
-    #     temp_type=temp_type
-    #     )
+        
+    temperature_mean, temperature_std = OpenMonthlyTemperatures(temp_dir, temp_type)
     
     temperature_std = (
         temperature_std
@@ -125,6 +122,12 @@ def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years, std_fa
     # Select std data and get the mean of the specific year
     final_year = years[-1] if years[-1] == 2100 else years[-1] + 1
     temp_core = temperature_mean.sel(time=slice(f"{years[0]-1}-01-01", f"{final_year}-01-01"))
+    
+    if years[-1]==2100:
+        # Extract the data for the year 2100
+        temp_2100 = temperature_mean.sel(time=slice("2100-01-01", "2100-12-31"))
+        # Concatenate the original data with the duplicated year
+        temp_core = xr.concat([temp_core, temp_2100], dim="time")
     
     dec_years_jan = (
         temp_core
