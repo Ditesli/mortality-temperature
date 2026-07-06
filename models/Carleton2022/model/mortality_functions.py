@@ -1172,8 +1172,8 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
         daily_temperature = MSTemperature2IR(
             temp=daily_temperature, 
             year=year, 
-            sets=sets
-            )
+            ir=ir, 
+            spatial_relation=spatial_relation)
     
     return daily_temperature.astype(np.float32)
 
