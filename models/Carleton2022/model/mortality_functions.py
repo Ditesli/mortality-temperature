@@ -182,8 +182,7 @@ class MortalityModel:
 class LoadInputData:
     
     """
-    Generates all input data required to run the model and saves it in 
-    the cache subfolder.
+    Container for all input data required to run the model.
 
     Attributes
     ----------
