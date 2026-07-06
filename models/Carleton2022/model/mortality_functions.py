@@ -304,10 +304,13 @@ class BaselineERFsInputs:
             )
         
         # Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
+        
         if sets.adaptation:
                 
-            print("[1.7] Loading GDPpc shares at the impact region level...")
-            GenerateGDPpcShares(sets)
+            print("[1.6] Loading GDPpc shares at the impact region level...")
+            # Generate GDPpc shares of regions within a country and IMAGE region
+            image_shares, country_shares = GenerateGDPpcShares(sets=sets, fls=fls)
+            image_gdppc = None
             
             if not re.search(r"ERA5", sets.scenario):# and "carleton" not in sets.scenario.lower():
                 
