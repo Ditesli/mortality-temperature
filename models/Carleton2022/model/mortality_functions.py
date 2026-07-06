@@ -136,7 +136,6 @@ class MortalityModel:
     Saves the mortality results to CSV files in the output folder.
     """
 
-
     def load_inputs(self):
         InputData.from_files(sets=self.sets)
         
