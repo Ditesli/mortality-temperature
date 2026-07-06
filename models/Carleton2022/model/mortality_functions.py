@@ -173,7 +173,7 @@ class MortalityModel:
         # rel_mor = dask.compute(*tasks, num_workers=32)
         # rel_mor_scenario = np.stack(rel_mor, axis=-1)
 
-        PostprocessResults(sets=self.sets, rel_mor=rel_mor_scenario)
+        PostprocessResults(sets=self.sets, fls=self.fls, rel_mor=rel_mor_scenario)
         
 
     
