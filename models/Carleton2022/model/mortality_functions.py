@@ -1304,7 +1304,11 @@ def CalculateMortalityEffects(sets, year):
         # Calculate counterfactual mortality (second term of equations 2' or 2a' from the paper)
         if "ERA5" in sets.scenario:
             
-            mor_heat_sub, mor_cold_sub = CalculateERA5baselineMortality(sets=sets)
+            mor_heat_sub, mor_cold_sub = CalculateERA5baselineMortality(
+                sets=sets, 
+                fls=fls, 
+                baseline=baseline
+                )
         
         else:
             mor_heat_sub, mor_cold_sub = CalculateMarginalMortality(
