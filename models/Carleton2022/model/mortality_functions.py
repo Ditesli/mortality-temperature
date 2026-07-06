@@ -1411,7 +1411,7 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
         mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
             daily_temp=daily_temperature, 
             rows=rows, 
-            erfs=erfs_t[:,i], 
+            erf=erfs_t[:,i], 
             tmin=baseline.tmin_t0[:,i],
             min_temp=min_temp, 
             group=group)
