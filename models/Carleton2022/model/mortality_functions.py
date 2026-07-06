@@ -233,6 +233,14 @@ class LoadInputData:
         population = ImportPopulationData(sets, ir)    
     
         return cls(
+            spatial_relation=spatial_relation,
+            ir=ir,
+            region_class=region_class,
+            rel_mor=rel_mor,
+            gammas = gamma_coeffs,
+            pop = population
+        )
+    
 
         ImportGammaCoefficients(sets)
         
