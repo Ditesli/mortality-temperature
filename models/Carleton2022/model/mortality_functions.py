@@ -1264,7 +1264,7 @@ def ERA5Temperature2IR(temp_dir, year, spatial_relation):
 
 
 
-def CalculateMortalityEffects(sets, year):
+def CalculateMortalityEffects(sets, fls, baseline, year):
     
     """
     The code calculates equation 2a or 2c from the paper, depending whether adaptation is on or off.
