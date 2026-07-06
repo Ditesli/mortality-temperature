@@ -277,16 +277,31 @@ class BaselineERFsInputs:
     def from_sets(sets, fls):
         
         # Import present day covariates
-        print("[1.5] Loading 'baseline' Exposure Response Functions...")
-        GenerateERFAll(
+        print("[1.4] Loading 'baseline' Exposure Response Functions...")
+        erfs_t0, tmin_t0 = GenerateERFAll(
             sets=sets, 
+            fls=fls,
             year=None, 
             adaptation=False, 
-            baseline=True,
+            baseline=None,
             counterfactual=None
             ) 
         
-        ImportBaselineTemperatures(sets)
+        print("[1.5] Loading 'present-day' temperature data...")
+        
+        # Import present day temperatures
+        years_range = (
+            range(1980, 1990)
+            if "comparison" in sets.project.lower()
+            else fls.base_years
+        )
+    
+        daily_temp_t0 = ImportBaselineTemperatures(
+            sets=sets, 
+            base_years=years_range, 
+            ir=fls.ir, 
+            spatial_relation=fls.spatial_relation
+            )
         
         # Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
         if sets.adaptation:
