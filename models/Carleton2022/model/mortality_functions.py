@@ -222,7 +222,7 @@ class LoadInputData:
         necessary data is located in the wdir/data folder.  
         """
         
-        print("[1] Geerating input files and defining parameters...")    
+        print("[1] Loading input files and defining parameters...")    
         
         # Create cache folder with intermediate files
         CACHE_DIR = sets.wdir + "/cache/"
