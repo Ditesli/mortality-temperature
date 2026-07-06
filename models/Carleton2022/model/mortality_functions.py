@@ -342,14 +342,7 @@ def GenerateRegionClassification(sets):
         f"/data/RegionClassification/region_classification.csv"
         )[["hierid", "ISO3", "IMAGE26"]].iloc[:24378].rename(columns={"IMAGE26":"IMAGE"})
     
-    # Save as parquet
-    region_class.to_parquet(
-        sets.wdir +
-        f"/cache/region_classification.parquet",
-        index=False,
-        engine="pyarrow",
-        compression="snappy"
-    )
+    return region_class
 
 
 
