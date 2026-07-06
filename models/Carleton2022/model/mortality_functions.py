@@ -625,10 +625,6 @@ def GenerateERFAll(sets, year, adaptation, baseline, counterfactual):
         Dictionary with the three 1-d arrays corresponding to the minimum temperature.
     """
     
-    # Load gammas
-    gammas = np.load(sets.wdir+"/cache/gammas.npy", mmap_mode="r")
-    covar = np.load(sets.wdir+"/cache/covar_idx.npy", mmap_mode="r")
-    
     # Import covariates with or without adaptation
     climtas, loggdppc = ImportCovariates(
         sets=sets,
