@@ -426,13 +426,8 @@ def ImportGammaCoefficients(sets):
                 vcv[i-25] = np.array([float(x) for x in line.strip().split(", ")])
 
     gammas = np.random.multivariate_normal(mean=gammas, cov=vcv, size=1) if str(sets.draw).lower() != "mean" else gammas
-    
-    gammas = gammas.reshape(3,12).astype(np.float32)
-    
-    covar_idx = covar_idx.reshape(3,12).astype(int)
-    
-    np.save(sets.wdir + "/cache/gammas.npy", gammas)
-    np.save(sets.wdir + "/cache/covar_idx.npy", covar_idx)
+                
+    return gammas.reshape(3,12).astype(np.float32), covar_idx.reshape(3,12).astype(int)
 
 
 
