@@ -204,18 +204,6 @@ class LoadInputData:
         Dictionary with gamma coefficients to generate ERFs.
     pop : DataFrame
         Population data from selected SSP scenario and/or historical population.
-    erfs_t0: any
-        Dictionary with each age group's ERFs per impact region.
-    tmin_t0: any
-        Dictionary with the three 1-d arrays corresponding to the minimum temperature (MMT).
-    image_shares: any
-        GDPpc shares of regions within an IMAGE region. Used to downscale GDPpc.
-    country_shares: any
-        GDPpc shares of regions within a country. Used to downscale GDPpc.
-    image_gdppc: any
-        GDPpc per IMAGE region. Used only in IMAGE sscenarios.
-    daily_temp_t0: pd.DataFrame
-        DataFrame with daily "present day" temperature data for the counterfactual part.
     """
 
     spatial_relation: gpd.GeoDataFrame
