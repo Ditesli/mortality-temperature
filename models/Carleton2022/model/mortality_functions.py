@@ -1142,7 +1142,7 @@ def MonotonicityERF(T, erf, tmin_g):
     
     
         
-def DailyTemperature2IR(sets, year):
+def DailyTemperature2IR(sets, year, ir, spatial_relation):
     
     """
     Convert daily temperature data of one year to temperature values at the impact region 
@@ -1423,20 +1423,13 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
         
     # ------------------- Calculate annual mortality ------------------
     
-    tmin_t0 = np.load(sets.wdir + f"/cache/tmin_t0.npy")
+    mor_heat, mor_cold = {}, {}
     
-    mor_heat, mor_cold = [], []
-    
-    for i,group in enumerate(sets.age_groups):      
-        mor_heat_temp, mor_cold_temp = MortalityFromTemperatureIndex(
+    for group in sets.age_groups:      
+        mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
             daily_temp=daily_temperature, 
             rows=rows, 
-            erfs=erfs_t[i], 
-            tmin=tmin_t0[i],
-            min_temp=min_temp
-            )
-        mor_heat.append(mor_heat_temp)
-        mor_cold.append(mor_cold_temp)
+            erfs=erfs_t, 
             
     return np.stack(mor_heat, axis=0), np.stack(mor_cold, axis=0)  # Return mortality for heat and cold per age group
 
