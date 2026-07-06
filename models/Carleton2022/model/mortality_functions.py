@@ -1407,17 +1407,20 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
     
     mor_heat, mor_cold = {}, {}
     
-    for group in sets.age_groups:      
+    for i, group in enumerate(sets.age_groups):      
         mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
             daily_temp=daily_temperature, 
             rows=rows, 
-            erfs=erfs_t, 
+            erfs=erfs_t[:,i], 
+            tmin=baseline.tmin_t0[:,i],
+            min_temp=min_temp, 
+            group=group)
             
     return np.stack(mor_heat, axis=0), np.stack(mor_cold, axis=0)  # Return mortality for heat and cold per age group
 
     
 
-def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp):
+def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp):
     
     """
     The code gets the temperature indices for heat (temperatures above tmin) and 
@@ -1447,7 +1450,7 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp):
 
     # Calculate mortality for temperatures above tmin
     annual_mortality_heat = (
-        erfs[rows,
+        erf[rows,
             np.round((np.maximum(daily_temp, tmin) - min_temp) * 10).astype(int)
         ]
         .sum(axis=1)
@@ -1455,7 +1458,7 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erfs, tmin, min_temp):
     
     # Calculate mortality for temperatures below tmin
     annual_mortality_cold = (
-        erfs[rows,
+        erf[rows,
             np.round((np.minimum(daily_temp, tmin) - min_temp) * 10).astype(int)
         ]
         .sum(axis=1)
