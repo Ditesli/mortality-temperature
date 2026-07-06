@@ -1564,7 +1564,7 @@ def AggregateRegionalMortality(sets, rel_mor):
     for region in ["ISO3", "IMAGE"]:
         
         # Define region characteristics
-        regions, index_regions = np.unique(region_class[region], return_inverse=True)
+        regions, index_regions = np.unique(fls.region_class[region], return_inverse=True)
         len_regions = len(regions)
 
         # Define coordinates and dimension of dataset
