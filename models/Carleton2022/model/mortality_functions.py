@@ -431,22 +431,15 @@ def ImportGammaCoefficients(sets):
 
 
 
-def ImportPopulationData(sets):
+def ImportPopulationData(sets, ir):
     
     # Extract SSP from scenario string
     ssp = re.search(r"(?i)ssp\d+", sets.scenario).group().upper()
     
-    print(f"[1.4] Loading population data for {ssp} scenario at the impact regions level...")
+    print(f"[1.3] Loading Population data for {ssp} scenario at the impact regions level...")
     
     # Include ALWAYS population data from 2000 to 2010 (used in the counterfactual part)
     year = sorted(set(sets.years).union(range(2000, 2010)))
-    
-    # Read in the impact regions dataframe
-    ir = pd.read_parquet(
-        sets.wdir +
-        f"/cache/impact_regions.parquet",
-        engine="pyarrow"
-    )["hierid"]
         
     # Import population data based on scenario type
     if 'carleton' in sets.scenario.lower():
@@ -457,7 +450,7 @@ def ImportPopulationData(sets):
         # Import IMAGE population data nc4 file and calculate population per impact region
         population = ImportIMAGEPopulationData(sets, ssp, year, ir)
     
-    np.save(sets.wdir+f"/cache/population.npy", population)
+    return population
 
 
 
