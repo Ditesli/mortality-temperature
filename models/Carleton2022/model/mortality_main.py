@@ -6,7 +6,7 @@ from pyinstrument import Profiler
 
 
 scenarios = [
-    # "SSP3_H_STS3_AllImpacts",
+    "SSP3_H_STS3_AllImpacts",
     # "SSP3_H_ERA_AllImpacts",
     # "SSP3_H_STS3_NoEcon",
     # "SSP3_H_ERA_NoEcon",
@@ -27,7 +27,7 @@ scenarios = [
 
 # for scenario in scenarios:
     
-config_file = Path(__file__).parent.parent / "settings" / f"SPARCCLE/test.yaml"
+config_file = Path(__file__).parent.parent / "settings" / f"SPARCCLE/{scenarios[0]}yaml"
 with open(config_file) as f:
     config = yaml.safe_load(f)
 
