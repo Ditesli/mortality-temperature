@@ -1159,13 +1159,6 @@ def MSTemperature2IR(temp, year, sets):
     region for the given year.
     """
     
-    # Load spatial relation
-    spatial_relation = pd.read_parquet(
-        sets.wdir +
-        f"/cache/spatial_relation.parquet",
-        engine="pyarrow"
-    )
-    
     # Create a list of dates for the specified year
     date_list = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
     
