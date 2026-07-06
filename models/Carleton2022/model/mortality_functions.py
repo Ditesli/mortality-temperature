@@ -333,7 +333,6 @@ def GenerateRegionClassification(sets):
     
     print(f"[1.1] Loading region classification...")
     
-    # Read region classification file and keep only the relevant columns and rows
     region_class = pd.read_csv(
         os.path.dirname(os.path.dirname(sets.wdir)) +
         f"/data/RegionClassification/region_classification.csv"
