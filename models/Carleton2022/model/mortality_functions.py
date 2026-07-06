@@ -1339,7 +1339,8 @@ def CalculateMortalityEffects(sets, year):
 
 
         
-def CalculateERA5baselineMortality(sets):
+        
+def CalculateERA5baselineMortality(sets, fls, baseline):
     
     """
     Calculate "baseline" mortality for a 10-year period, calculating first the annual
