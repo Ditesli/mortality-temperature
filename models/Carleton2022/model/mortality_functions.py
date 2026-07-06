@@ -1279,7 +1279,12 @@ def CalculateMortalityEffects(sets, year):
     ### ---------------------- Import daily temperature -----------------------------------
     
     # Read daily temperature data from specified source
-    daily_temperature = DailyTemperature2IR(sets=sets, year=year)
+    daily_temperature = DailyTemperature2IR(
+        sets=sets, 
+        year=year, 
+        ir=fls.ir, 
+        spatial_relation=fls.spatial_relation
+        )
     
     
     ### ---------------------- Calculate marginal mortality --------------------------------
