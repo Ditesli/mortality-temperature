@@ -170,7 +170,7 @@ def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
 
 
 
-def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
+def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
     
     files = wdir + "/" + filename + ".nc"
     file_list = sorted(glob.glob(files))
@@ -205,6 +205,28 @@ def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group,
     da_p975 = da_selected.quantile(0.975, dim=dims)
     
     return da_mean, da_p025, da_p975
+
+
+
+def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
+    
+    files = wdir + "/" + filename + ".nc"
+
+    ds = xr.open_mfdataset(files)
+    
+    filters = {
+    "region_type":region_type,
+    "region":region,
+    "t_type":t_type,
+    "age_group":age_group
+    }
+    
+    if "cause" in ds.variables:
+        filters["cause"] = cause
+
+    da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+    
+    return da_selected
 
 
 
