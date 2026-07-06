@@ -729,7 +729,7 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
              pd.read_csv(sets.wdir+"/data/CarletonSM/main_specification/mortality-allpreds.csv")
             .rename(columns={"region":"hierid"})
             .set_index("hierid")
-            .reindex(ir)
+            .reindex(fls.ir.values)
         )
         
         # Extract only climtas and loggdppc as arrays
@@ -742,36 +742,36 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
         # climtas ---------------------------
         
         # Load ERA5 climatology
-        if "ERA5" in sets.scenario:
-            climtas = ImportClimtasERA5(sets.wdir, year, ir)
+        if re.search(r"ERA5", sets.scenario):
+            climtas = ImportClimtasERA5(sets.wdir, year, fls.ir)
             
         # Load climatology of selected year and scenario
         else:
             # Load "present-day" climatology
             if counterfactual:
-                climtas = ImportClimtas(sets, None, present_day=True)
+                climtas = ImportClimtas(sets.temp_dir, None, fls.spatial_relation, present_day=True)
             else:
-                climtas = ImportClimtas(sets, year, present_day=False)
+                climtas = ImportClimtas(sets.temp_dir, year, fls.spatial_relation, present_day=False)
                 
         # log(GDPpc) ---------------------------    
         
         # Load historical log(GDPpc) from World Bank
-        if ("ERA5" in sets.scenario) or ("carleton" in sets.scenario.lower() and year < 2010):
-            loggdppc = ImportHistoricalLogGDPpc(sets.wdir, year)
+        if re.search(r"ERA5", sets.scenario) or ("carleton" in sets.scenario.lower() and year < 2010):
+            loggdppc = ImportHistoricalLogGDPpc(sets.wdir, fls.ir, year, baseline.country_shares)
         
         # Load log(GDPpc) from Carleton et al. (2022) for the selected year and scenario
         elif "carleton" in sets.scenario.lower() and year >= 2010:  
-            loggdppc = ImportCarletonLogGDPpc(sets.wdir, sets.scenario, year)
+            loggdppc = ImportCarletonLogGDPpc(sets.wdir, sets.scenario, fls.ir, year)
         
         # Load log(GDPpc) at the impact region level using the GDPpc output from IMAGE    
         else: 
-            loggdppc = ImportIMAGEloggdppc(sets, year)
+            loggdppc = ImportIMAGEloggdppc(year, baseline)
             
     return climtas.astype(np.float32), loggdppc.astype(np.float32)
 
 
 
-def ImportHistoricalLogGDPpc(wdir, year):
+def ImportHistoricalLogGDPpc(wdir, ir, year, country_shares):
     
     """
     Read historical GDP per capita data (GDP per capita (constant 2015 US$)) from
@@ -881,7 +881,7 @@ def ImportIMAGEloggdppc(year, baseline):
 
 
 
-def GenerateGDPpcShares(sets):
+def GenerateGDPpcShares(sets, fls):
     
     ssp = re.search(r"SSP\d", sets.scenario).group()
 
@@ -891,7 +891,7 @@ def GenerateGDPpcShares(sets):
         .mean(dim="model") # Mean between high and low economic models
         .to_dataframe() # Convert to dataframe
         .reset_index()
-        .merge(region_class, left_on="region", right_on="hierid") # Merge with region classification to get ISO3 codes
+        .merge(fls.region_class, left_on="region", right_on="hierid") # Merge with region classification to get ISO3 codes
         .drop(["ssp", "pop0to4", "pop5to64", "pop65plus", "hierid"], axis=1)
         .assign( # Calculate GDPpc shares by dividing the regional GDPpc by the IMAGE GDPpc
             gdppc_iso3 = 
@@ -913,7 +913,7 @@ def GenerateGDPpcShares(sets):
         .pivot(index=["region", "IMAGE"], columns="year", values="gdppc_shares")
         .reset_index()
         .set_index("region")
-        .reindex(ir) # Reindex according to hierid
+        .reindex(fls.ir.values) # Reindex according to hierid
         .reset_index()
     )
     
@@ -923,7 +923,7 @@ def GenerateGDPpcShares(sets):
         [["region", "ISO3", "gdppc_shares_ir"]]
         .rename(columns={"gdppc_shares_ir":"gdppc_share"})
         .set_index("region")
-        .reindex(ir) # Reindex according to hierid
+        .reindex(fls.ir.values) # Reindex according to hierid
         .reset_index()
     )
 
@@ -931,7 +931,7 @@ def GenerateGDPpcShares(sets):
 
 
 
-def ReadTIMERFiles(sets, save):
+def ReadTIMERFiles(sets):
     
     """
     Read GDPpc data from TIMER output files from the selected scenario and project.
@@ -999,7 +999,7 @@ def ImportClimtasERA5(wdir, year, ir):
 
 
 
-def ImportClimtas(sets, year, present_day):
+def ImportClimtas(temp_dir, year, spatial_relation, present_day):
     
     """
     Import climate data from montlhy statistics files. The code calculates the 30-year running
