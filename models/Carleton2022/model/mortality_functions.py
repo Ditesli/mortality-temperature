@@ -742,16 +742,6 @@ def ImportHistoricalLogGDPpc(wdir, year):
     downscale national GDPpc to the regional one.
     """
     
-    # Read country shares and impact regions
-    country_shares = pd.read_parquet(
-        wdir + "/cache/country_shares.parquet",
-        engine="pyarrow"
-    )
-    ir = pd.read_parquet(
-        wdir + "/cache/impact_regions.parquet",
-        engine="pyarrow"
-    )["hierid"].values
-    
     if year == 2025:
         year = 2024 # The latest year with GDPpc data available is 2024
     
@@ -856,18 +846,6 @@ def ImportIMAGEloggdppc(year, baseline):
 def GenerateGDPpcShares(sets):
     
     ssp = re.search(r"SSP\d", sets.scenario).group()
-    
-    # Read region classification
-    region_class = pd.read_parquet(
-        sets.wdir +
-        f"/cache/region_classification.parquet",
-        engine="pyarrow"
-    )
-    ir = pd.read_parquet(
-        sets.wdir +
-        f"/cache/impact_regions.parquet",
-        engine="pyarrow"
-    )["hierid"].values
 
     # Open scenario GDP data
     gdppc_shares = (
@@ -910,21 +888,8 @@ def GenerateGDPpcShares(sets):
         .reindex(ir) # Reindex according to hierid
         .reset_index()
     )
-    
-    image_shares.to_parquet(
-        sets.wdir +
-        f"/cache/image_shares.parquet",
-        index=True,
-        engine="pyarrow",
-        compression="snappy"
-    )
-    country_shares.to_parquet(
-        sets.wdir +
-        f"/cache/country_shares.parquet",
-        index=True,
-        engine="pyarrow",
-        compression="snappy"
-    )
+
+    return image_shares, country_shares
 
 
 
