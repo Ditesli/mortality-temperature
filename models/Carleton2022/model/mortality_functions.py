@@ -1744,11 +1744,6 @@ def PostprocessResults(sets, rel_mor):
         f"/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.nc",
         encoding=encoding_total
     )
-    
-    # Clean cache folder
-    CACHE_DIR = sets.wdir + "/cache/"
-    if os.path.exists(CACHE_DIR):
-        shutil.rmtree(CACHE_DIR)
 
     print("Scenario ran successfully!")
     
