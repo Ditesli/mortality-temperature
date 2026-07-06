@@ -1354,7 +1354,6 @@ def CalculateERA5baselineMortality(sets):
         else sets.base_years
     )
     
-    
     # Initialize dics to store annual mortality
     mor_heat_dic, mor_cold_dic = {}, {}
 
