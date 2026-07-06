@@ -228,9 +228,11 @@ class LoadInputData:
         
         spatial_relation, ir = GridRelationship(sets)
         
-        GenerateRegionClassification(sets)
+        gamma_coeffs = ImportGammaCoefficients(sets)
         
-        GridRelationship(sets)
+        population = ImportPopulationData(sets, ir)    
+    
+        return cls(
 
         ImportGammaCoefficients(sets)
         
