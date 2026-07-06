@@ -1479,7 +1479,6 @@ def AggregateRegionalMortality(sets, fls, rel_mor):
     dataset to recalculate relative mortality.
     """
     
-    # Load region classification
     region_class = pd.read_parquet(
         sets.wdir + f"/cache/region_classification.parquet",
         engine="pyarrow"
@@ -1616,7 +1615,7 @@ def GroupImpactRegions2LargerRegion(array, region, index_regions, len_regions, c
 
  
 
-def PostprocessResults(sets, rel_mor):
+def PostprocessResults(sets, fls, rel_mor):
     
     """
     Postprocess final results and save to CSV file in output folder.
@@ -1630,7 +1629,7 @@ def PostprocessResults(sets, rel_mor):
     print("[3] Postprocessing and saving results...")
     
     # Calculate total mortality and relative mortality for all-ages group
-    results = AggregateRegionalMortality(sets, rel_mor)
+    results = AggregateRegionalMortality(sets, fls, rel_mor)
     
     
     if sets.reporting_tool != False:
