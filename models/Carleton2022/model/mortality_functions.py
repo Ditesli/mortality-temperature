@@ -263,8 +263,8 @@ class BaselineERFsInputs:
         DataFrame with daily "present day" temperature data for the counterfactual part.
     """
 
-    erfs_t0: any
-    tmin_t0: any
+    erfs_t0: np.ndarray
+    tmin_t0: np.ndarray
     image_shares: any
     country_shares: any
     image_gdppc: any
@@ -673,13 +673,6 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
         tas2 = base[:, 3:6].sum(axis=1)  
         tas3 = base[:, 6:9].sum(axis=1) 
         tas4 = base[:, 9:12].sum(axis=1)
-
-        # Generate raw Exposure Response Function
-        erf_raw = (
-            tas[:,None] * sets.T**1 +
-            tas2[:,None] * sets.T**2 +
-            tas3[:,None] * sets.T**3 +
-            tas4[:,None] * sets.T**4
         )
         
         # Impose zero mortality at tmin by vertically shifting erf
@@ -699,7 +692,39 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
         np.save(sets.wdir+f"/cache/tmin_t0.npy", np.stack(tmin, axis=0))
         
     else:
-        return mor_np, tmin
+        erfs_t0 = baseline.erfs_t0; tmin_t0 = baseline.tmin_t0 
+            
+    # Extract gammas and covariates position
+    g = fls.gammas[0]; cov = fls.gammas[1]
+
+    # Multiply each covariate by its corresponding gamma
+    base = covariates[:, cov] * g
+    
+    # Compute the sum of the covariates to get polynomial coefficients
+    tas = base[:, :, 0:3].sum(axis=2)  # Shape (24378, 3) for the three age groups
+    tas2 = base[:, :, 3:6].sum(axis=2)  
+    tas3 = base[:, :, 6:9].sum(axis=2) 
+    tas4 = base[:, :, 9:12].sum(axis=2)
+
+    # Generate raw Exposure Response Function
+    erf_raw = (
+        tas[:, :, None] * sets.T[None, None, :]**1 +
+        tas2[:, :, None] * sets.T[None, None, :]**2 +
+        tas3[:, :, None] * sets.T[None, None, :]**3 +
+        tas4[:, :, None] * sets.T[None, None, :]**4
+    )
+    
+    # Impose zero mortality at tmin by vertically shifting erf
+    erf_shifted, tmin_g = ShiftERFToTmin(erf_raw, sets.T, tas, tas2, tas3, tas4, tmin_t0)
+    
+    #  # Ensure ERFs do not exceed no-adaptation ERFs 
+    if erfs_t0 is not None:
+        erf_shifted = np.minimum(erf_shifted, erfs_t0)
+    
+    # Impose weak monotonicity to the left and the right of the erf
+    mor_np = MonotonicityERF(sets.T, erf_shifted, tmin_g)
+
+    return mor_np, tmin_g
         
 
 
