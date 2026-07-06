@@ -999,7 +999,7 @@ def ImportClimtas(temp_dir, year, spatial_relation, present_day):
     
     # Calculate the mean of the daily mean temperature data over the 30-year period at the grid cell level
     climtas_ds = (
-        xr.open_dataset(sets.temp_dir+f"/GTMP_30MIN.nc")
+        xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
         ["GTMP_30MIN"]
         .sel(time=time_slice)
         .mean(dim=("NM", "time"))
