@@ -315,8 +315,6 @@ class BaselineERFsInputs:
             if not re.search(r"ERA5", sets.scenario):# and "carleton" not in sets.scenario.lower():
                 
                 print("[1.7] Loading GDP data from IMAGE...")
-                ReadTIMERFiles(sets, save=True)
-
 
 
 def GenerateRegionClassification(sets):
