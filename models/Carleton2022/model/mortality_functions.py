@@ -364,8 +364,8 @@ def GridRelationship(sets):
             temp_type="mean", 
             pop_map=None, 
             to_array=False
-            )        
-        
+            )
+    
     # --------- If Monthly Statistics (MS) data ----------  
     else:
         #Use function to import monthly statistics (MS) of daily temperature data in the right format
