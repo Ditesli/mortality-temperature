@@ -611,9 +611,14 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
         t0_mean = MSTemperature2IR(
             temp=daily_temperature, 
             year=2000, # Dummy year
-            sets=sets)
-
-    np.save(sets.wdir + "/cache/t0_mean.npy", t0_mean)
+            ir=ir, 
+            spatial_relation=spatial_relation)
+        
+        # Convert "Present-day" temperatures dataframe to numpy array    
+        t0_mean = t0_mean.to_numpy().astype(np.float32)
+    
+    # TODO change this from the beginning
+    return t0_mean
 
 
 
