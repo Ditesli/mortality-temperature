@@ -410,9 +410,7 @@ def GridRelationship(sets):
     relationship = gpd.sjoin(points_gdf, ir, how="inner", predicate="intersects")
 
     # Return corresponding ir per pixel (relationship) and order of regions to align imported data
-        engine="pyarrow",
-        compression="snappy"
-    )
+    return relationship[["index_right", "hierid"]], ir["hierid"]
 
 
 
