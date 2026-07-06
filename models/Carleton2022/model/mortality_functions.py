@@ -789,12 +789,6 @@ def ImportCarletonLogGDPpc(wdir, scenario, year):
         GDP per capita data ordered by ir
     """
     
-    # Read impact regions
-    ir = pd.read_parquet(
-        wdir + "/cache/impact_regions.parquet",
-        engine="pyarrow"
-    )["hierid"].values
-    
     scenario = re.search(r"(?i)\bssp\d+", scenario).group()
         
     # Read GDP per capita file
