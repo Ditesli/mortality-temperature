@@ -568,7 +568,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
 
 
 
-def ImportBaselineTemperatures(sets):
+def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
     
     """
     The function will import the daily temperatures from 2000 to 2010, either precalculated
