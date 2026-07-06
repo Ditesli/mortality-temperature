@@ -334,7 +334,7 @@ def GenerateRegionClassification(sets):
     print(f"[1.1] Loading region classification...")
     
     region_class = pd.read_csv(
-        os.path.dirname(sets.wdir) +
+        sets.wdir +
         f"/data/RegionClassification/region_classification.csv"
         )[["hierid", "ISO3", "IMAGE26"]].iloc[:24378].rename(columns={"IMAGE26":"IMAGE"})
     
