@@ -617,7 +617,7 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
 
 
 
-def GenerateERFAll(sets, year, adaptation, baseline, counterfactual):
+def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
     
     """
     The code imports the gamma coefficients and the covariates (climtas and loggdppc) to 
