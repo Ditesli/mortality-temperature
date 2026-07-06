@@ -390,13 +390,20 @@ def GridRelationship(sets):
     lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, grid)
     lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, grid)
 
+     # Calculate grid cell size (assuming uniform grid)
+    lon_size = np.abs(np.diff(lon_vals)[0])
+    lat_size = np.abs(np.diff(lat_vals)[0])
+
     # Create meshgrid 
     lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)  
+    lon_flat = lon2d.ravel()
+    lat_flat = lat2d.ravel()
     
     lon_min = lon_flat - (lon_size / 2)
     lat_min = lat_flat - (lat_size / 2)
 
-    # 5. Crear GeoDataFrame vectorizado (shapely.box acepta arrays de NumPy directamente)
+
+    # Create vectorize GeoDataFrame
     points_gdf = gpd.GeoDataFrame(
         {"longitude": lon_flat, "latitude": lat_flat},
         geometry=shapely.box(lon_min, lat_min, lon_min + lon_size, lat_min + lat_size)
