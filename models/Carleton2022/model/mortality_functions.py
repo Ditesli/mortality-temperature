@@ -1380,7 +1380,7 @@ def CalculateERA5baselineMortality(sets):
 
             
 
-def CalculateMarginalMortality(sets, year, daily_temp, counterfactual):
+def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfactual):
     
     """
     Calculate mortality effects from non optimal temperatures. Depending whether adaptation is on, 
