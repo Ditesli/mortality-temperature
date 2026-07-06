@@ -370,8 +370,6 @@ def GridRelationship(sets):
     else:
         #Use function to import monthly statistics (MS) of daily temperature data in the right format
         grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir,
-            temp_type="MEAN", 
             years=sets.years[0], 
             std_factor=1, 
             to_xarray=True
@@ -390,14 +388,8 @@ def GridRelationship(sets):
     lon_vals = FindCoordinateName(["lon", "longitude", "x"], coord_names, grid)
     lat_vals = FindCoordinateName(["lat", "latitude", "y"], coord_names, grid)
 
-    # Calculate grid cell size (assuming uniform grid)
-    lon_size = np.abs(np.diff(lon_vals)[0])
-    lat_size = np.abs(np.diff(lat_vals)[0])
-
     # Create meshgrid 
     lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)  
-    lon_flat = lon2d.ravel()
-    lat_flat = lat2d.ravel()
     
     lon_min = lon_flat - (lon_size / 2)
     lat_min = lat_flat - (lat_size / 2)
@@ -416,19 +408,6 @@ def GridRelationship(sets):
     relationship = gpd.sjoin(points_gdf, ir, how="inner", predicate="intersects")
 
     # Return corresponding ir per pixel (relationship) and order of regions to align imported data
-    # return relationship[["index_right"]], ir["hierid"]
-    relationship[["index_right"]].to_parquet(
-        sets.wdir + 
-        f"/cache/spatial_relation.parquet",
-        index=True,
-        engine="pyarrow",
-        compression="snappy"
-    )
-    
-    ir[["hierid"]].to_parquet(
-        sets.wdir +
-        f"/cache/impact_regions.parquet",
-        index=True,
         engine="pyarrow",
         compression="snappy"
     )
