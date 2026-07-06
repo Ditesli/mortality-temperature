@@ -1,0 +1,11 @@
+wdir: X:/user/liprandicn/Projects/mt-comparison/models/carleton2022
+temp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/Z_Emulator_Standalone_Tool/SSP3_H_STS3_NoEcon/netcdf
+gdp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_5/IMPACTS/SSP3_H_STS3_NoEcon/indicators/Economy/GDPpc_incl_impacts.out
+start_year: 2000
+end_year: 2100
+project: SPARCCLE
+scenario: SSP3_H_STS3_NoEcon
+adaptation: true
+counterfactual: true
+draw: mean
+reporting_tool: X:/user/dekkerm/IMAGE_environments/IMPACTS/7_Reporting_Tool/outxlsx
