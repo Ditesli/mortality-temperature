@@ -209,10 +209,8 @@ class LoadInputData:
     spatial_relation: gpd.GeoDataFrame
     ir: pd.DataFrame
     region_class: pd.DataFrame
-    rel_mor: np.array
     gammas: any
     pop: pd.DataFrame
-    base_years: list=range(2000,2010)
 
     @classmethod
     def from_files(cls, sets):
@@ -236,7 +234,6 @@ class LoadInputData:
             spatial_relation=spatial_relation,
             ir=ir,
             region_class=region_class,
-            rel_mor=rel_mor,
             gammas = gamma_coeffs,
             pop = population
         )
