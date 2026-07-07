@@ -237,7 +237,7 @@ def DailyTemperatureFromNormalPDF(year, number_days, temp_daily_mean, temp_std, 
     
     # Generate daily dates for the year
     daily_dates = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D")
-    
+
     # Prepare std data and adjust with std_factor
     sigma_months = np.maximum(temp_std.values * std_factor, 0.1)
 
