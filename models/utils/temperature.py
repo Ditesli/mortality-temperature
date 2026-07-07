@@ -110,7 +110,7 @@ def DailyFromMonthlyTemperature(temp_dir, temp_type, years, std_factor, to_xarra
         mid_year = 2000
         years = years
         
-        
+    # Open monthly temperature statistics (mean and std) for the given years
     temperature_mean, temperature_std = OpenMonthlyTemperatures(temp_dir, temp_type)
     
     temperature_std = (
