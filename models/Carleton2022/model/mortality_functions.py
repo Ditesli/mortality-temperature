@@ -673,16 +673,16 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
     )
     
     # Impose zero mortality at tmin by vertically shifting erf
-    erf_shifted, tmin_g = ShiftERFToTmin(erf_raw, sets.T, tas, tas2, tas3, tas4, tmin_t0)
+    erf, tmin = ShiftERFToTmin(erf, sets.T, tas, tas2, tas3, tas4, tmin_t0)
     
     #  # Ensure ERFs do not exceed no-adaptation ERFs 
     if erfs_t0 is not None:
-        erf_shifted = np.minimum(erf_shifted, erfs_t0)
+        erf = np.minimum(erf, erfs_t0)
     
     # Impose weak monotonicity to the left and the right of the erf
-    mor_np = MonotonicityERF(sets.T, erf_shifted, tmin_g)
+    erf = MonotonicityERF(sets.T, erf, tmin)
 
-    return mor_np, tmin_g
+    return erf, tmin
 
 
 
