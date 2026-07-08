@@ -730,9 +730,9 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
         else:
             # Load "present-day" climatology
             if counterfactual:
-                climtas = ImportClimtas(sets.temp_dir, None, fls.spatial_relation, present_day=True)
+                climtas =  baseline.climtas_base
             else:
-                climtas = ImportClimtas(sets.temp_dir, year, fls.spatial_relation, present_day=False)
+                climtas = baseline.climtas_ir[:,year-sets.years[0]]
                 
         # log(GDPpc) ---------------------------    
         
