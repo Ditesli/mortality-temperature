@@ -269,6 +269,8 @@ class BaselineERFsInputs:
     country_shares: any
     image_gdppc: any
     daily_temp_t0: pd.DataFrame
+    climtas_ir: np.ndarray
+    climtas_base: np.ndarray
     
     
     def from_sets(sets, fls):
@@ -283,8 +285,6 @@ class BaselineERFsInputs:
             baseline=None,
             counterfactual=None
             ) 
-        
-        print("[1.5] Loading 'present-day' temperature data...")
         
         # Import present day temperatures
         years_range = (
@@ -301,22 +301,22 @@ class BaselineERFsInputs:
             )
         
         # Read GDP shares for scenarios that do not use Carleton's socioeconomic data.
-        
         if sets.adaptation:
                 
-            print("[1.6] Loading GDPpc shares at the impact region level...")
-            # Generate GDPpc shares of regions within a country and IMAGE region
+            print("[1.7] Loading GDPpc shares at the impact region level...")
             image_shares, country_shares = GenerateGDPpcShares(sets=sets, fls=fls)
             image_gdppc = None
             
             if not re.search(r"ERA5", sets.scenario):# and "carleton" not in sets.scenario.lower():
                 
-                print("[1.7] Loading GDP data from IMAGE...")
+                print("[1.8] Loading GDP data from IMAGE...")
                 image_gdppc = ReadTIMERFiles(sets)
                 
         # Set to None when adaptation is off        
         else:  
             image_shares = None; image_gdppc = None; country_shares = None
+            
+        climtas_ir, climtas_base = ImportClimtas(sets=sets, fls=fls)
             
             
         return BaselineERFsInputs(
@@ -325,7 +325,9 @@ class BaselineERFsInputs:
             image_shares=image_shares,
             country_shares=country_shares,
             image_gdppc=image_gdppc,
-            daily_temp_t0=daily_temp_t0
+            daily_temp_t0=daily_temp_t0,
+            climtas_ir=climtas_ir,
+            climtas_base=climtas_base
         )
 
 
@@ -369,13 +371,9 @@ def GridRelationship(sets):
     # --------- If Monthly Statistics (MS) data ----------  
     else:
         #Use function to import monthly statistics (MS) of daily temperature data in the right format
-        grid,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
-            years=sets.years[0], 
-            temp_type="MEAN", 
-            std_factor=1, 
-            to_xarray=True
-            )
+        grid,_ = tmp.OpenMonthlyTemperatures(
+            temp_dir=sets.temp_dir,
+            temp_type="MEAN")
         
 
     # Extract coordinates
@@ -417,7 +415,7 @@ def GridRelationship(sets):
     relationship = gpd.sjoin(points_gdf, ir, how="inner", predicate="intersects")
 
     # Return corresponding ir per pixel (relationship) and order of regions to align imported data
-    return relationship[["index_right", "hierid"]], ir["hierid"]
+    return relationship[["index_right", "hierid"]], ir["hierid"].values
 
 
 
@@ -527,7 +525,7 @@ def ImportDefaultPopulationData(sets, ssp, years, ir):
             .pipe(lambda df: df.rename_axis("hierid"))
             [[y for y in years if y >= 2023]] # Keep only years from 2023 onwards 
             .merge(pop_historical, left_index=True, right_index=True) # Merge with historical population 
-            .reindex(ir.values) # Align to impact regions order
+            .reindex(ir) # Align to impact regions order
             .pipe(lambda df: df.set_axis(df.columns.astype(int), axis=1))
             .pipe(lambda df: df.reindex(sorted(df.columns, key=int), axis=1))
         )
@@ -558,7 +556,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
                 [c for c in df.columns if c.isdigit() and int(c) in years]
             ))
             .set_index("hierid")
-            .reindex(ir.values) # Align to impact regions orders
+            .reindex(ir) # Align to impact regions orders
             .pipe(lambda df: df.set_axis(df.columns.astype(int), axis=1))
         )
 
@@ -576,7 +574,7 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
     arrays with the daily temperature per impact region and year.
     """
      
-    print("[1.6] Generating 'present-day' temperature data...")
+    print("[1.5] Generating 'present-day' temperature data...")
     
     # Import present day temperatures
     base_years = (
@@ -595,7 +593,7 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
             t0_mean[year]  = xr.open_dataset(
                 sets.wdir +
                 f"/data/ClimateData/BaselineTemperatures/ERA5_tmean0_{year}.nc"
-                ).tmean0.values.astype(np.float32)
+                ).tmean0.values
             
     # -------------- Scenario data --------------
     else: 
@@ -603,21 +601,18 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
             temp_dir=sets.temp_dir,
             temp_type="MEAN",
-            years=base_years,
+            years_in=base_years,
             std_factor=1, 
             to_xarray=False
         )
 
         t0_mean = MSTemperature2IR(
             temp=daily_temperature, 
-            year=2000, # Dummy year
-            ir=ir, 
-            spatial_relation=spatial_relation)
-        
-        # Convert "Present-day" temperatures dataframe to numpy array    
-        t0_mean = t0_mean.to_numpy().astype(np.float32)
+            year=2000, # Dummy year 
+            spatial_relation=spatial_relation
+            )
     
-    return t0_mean
+    return t0_mean.astype(np.float32)
 
 
 
