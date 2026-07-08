@@ -1162,9 +1162,9 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
                 
         # Read daily temperature data generated from monthly statistics
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir,
-            temp_type="MEAN",
-            years=year, 
+            temp_dir=sets.temp_dir, 
+            years_in=year, 
+            temp_type="MEAN", 
             std_factor=1,
             to_xarray=False
             )
