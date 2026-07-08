@@ -1036,7 +1036,9 @@ def ImportClimtas(sets, fls):
 
     return climtas.T, temperature_ir_base
 
-def ShiftERFToTmin(erf_raw, T, tas, tas2, tas3, tas4, tmin): 
+
+
+def ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4, tmin): 
     
     """   
     The code will apply the first constraint imposed by the paper (see more in Appendix pp. A62).
