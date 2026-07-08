@@ -1425,16 +1425,19 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
         
     # ------------------- Calculate annual mortality ------------------
     
-    mor_heat, mor_cold = {}, {}
+    mor_heat, mor_cold = [], []
     
     for i, group in enumerate(sets.age_groups):      
-        mor_heat[group], mor_cold[group] = MortalityFromTemperatureIndex(
+        mor_heat_g, mor_cold_g = MortalityFromTemperatureIndex(
             daily_temp=daily_temperature, 
             rows=rows, 
             erf=erfs_t[:,i], 
             tmin=baseline.tmin_t0[:,i],
             min_temp=min_temp, 
-            group=group)
+            )
+        
+        mor_heat.append(mor_heat_g)
+        mor_cold.append(mor_cold_g)
             
     return np.stack(mor_heat, axis=0), np.stack(mor_cold, axis=0)  # Return mortality for heat and cold per age group
 
