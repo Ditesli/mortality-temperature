@@ -1085,7 +1085,7 @@ def ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4, tmin):
     # Shift vertical functions so tmin matches 0 deaths
     erf_shifted = erf_raw - erf_at_tmin[:,:,None]
         
-    return erf_shifted, tmin
+    return erf, tmin
 
 
 
