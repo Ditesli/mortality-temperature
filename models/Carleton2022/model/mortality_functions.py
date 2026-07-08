@@ -156,22 +156,24 @@ class MortalityModel:
 
         print("[2] Starting mortality calculations...")
         
-        rel_mor_scenario = []
-        for year in self.sets.years:
-        
-            rel_mor = CalculateMortalityEffects(self.sets, self.fls, self.baseline, year)
-            rel_mor_scenario.append(rel_mor)
-            
-        rel_mor_scenario = np.stack(rel_mor_scenario, axis=-1)
-        
-        # sets_delayed = dask.delayed(self.sets)
-
-        # tasks = []
+        # rel_mor_scenario = []
         # for year in self.sets.years:
-        #     task = dask.delayed(CalculateMortalityEffects)(sets_delayed, year)
-        #     tasks.append(task)
-        # rel_mor = dask.compute(*tasks, num_workers=32)
-        # rel_mor_scenario = np.stack(rel_mor, axis=-1)
+        
+        #     rel_mor = CalculateMortalityEffects(self.sets, self.fls, self.baseline, year)
+        #     rel_mor_scenario.append(rel_mor)
+            
+        # rel_mor_scenario = np.stack(rel_mor_scenario, axis=-1)
+        
+        sets_delayed = dask.delayed(self.sets)
+        fls_delayed = dask.delayed(self.fls)
+        baseline_delayed = dask.delayed(self.baseline)
+
+        tasks = []
+        for year in self.sets.years:
+            task = dask.delayed(CalculateMortalityEffects)(sets_delayed, fls_delayed, baseline_delayed, year)
+            tasks.append(task)
+        rel_mor = dask.compute(*tasks)
+        rel_mor_scenario = np.stack(rel_mor, axis=-1)
 
         PostprocessResults(sets=self.sets, fls=self.fls, rel_mor=rel_mor_scenario)
         
@@ -211,6 +213,7 @@ class LoadInputData:
     region_class: pd.DataFrame
     gammas: any
     pop: pd.DataFrame
+    random_vals: np.ndarray
 
     @classmethod
     def from_files(cls, sets):
@@ -228,14 +231,17 @@ class LoadInputData:
         
         gamma_coeffs = ImportGammaCoefficients(sets)
         
-        population = ImportPopulationData(sets, ir)    
+        population = ImportPopulationData(sets, ir)
+        
+        random_vals = RandomValues4Temperature()
     
         return cls(
             spatial_relation=spatial_relation,
             ir=ir,
             region_class=region_class,
-            gammas = gamma_coeffs,
-            pop = population
+            gammas=gamma_coeffs,
+            pop=population,
+            random_vals=random_vals
         )
     
 
@@ -296,7 +302,7 @@ class BaselineERFsInputs:
         daily_temp_t0 = ImportBaselineTemperatures(
             sets=sets, 
             base_years=years_range, 
-            ir=fls.ir, 
+            fls=fls, 
             spatial_relation=fls.spatial_relation
             )
         
@@ -329,6 +335,19 @@ class BaselineERFsInputs:
             climtas_ir=climtas_ir,
             climtas_base=climtas_base
         )
+
+
+
+def RandomValues4Temperature():
+    
+    # Initialize random number generator
+    rng = np.random.default_rng(seed=42)
+    
+    # Generate normal distribution with std = 1
+    vals = rng.standard_normal(size=(360,720,366))
+    
+    return vals
+
 
 
 def GenerateRegionClassification(sets):
@@ -566,7 +585,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
 
 
 
-def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
+def ImportBaselineTemperatures(sets, base_years, fls, spatial_relation):
     
     """
     The function will import the daily temperatures from 2000 to 2010, either precalculated
@@ -602,7 +621,7 @@ def ImportBaselineTemperatures(sets, base_years, ir, spatial_relation):
             temp_dir=sets.temp_dir,
             temp_type="MEAN",
             years_in=base_years,
-            std_factor=1, 
+            random_vals=fls.random_vals, 
             to_xarray=False
         )
 
@@ -665,7 +684,7 @@ def GenerateERFAll(sets, fls, year, adaptation, baseline, counterfactual):
     tas4 = base[:, :, 9:12].sum(axis=2)
 
     # Generate raw Exposure Response Function
-    erf_raw = (
+    erf = (
         tas[:, :, None] * sets.T[None, None, :]**1 +
         tas2[:, :, None] * sets.T[None, None, :]**2 +
         tas3[:, :, None] * sets.T[None, None, :]**3 +
@@ -991,12 +1010,10 @@ def ImportClimtas(sets, fls):
     
     print("[1.9] Generating climatologies...")
     
-    
     # Load monthly statistics data and calculate 30-year running mean at the grid cell level
     temp = (
         xr.open_dataset(
             sets.temp_dir+f"/GTMP_30MIN.nc",
-            chunks={"time":"auto", "NM":"auto", "latitude":"auto", "longitude":"auto"}
             )
         ["GTMP_30MIN"]
         .mean(dim="NM") # Annual temperature
@@ -1004,29 +1021,25 @@ def ImportClimtas(sets, fls):
         .mean(dim="time")
     )
     
-    # Reshape data to have years as rows and grid cells as columns
-    climtas_ir=(
-        temp
-        .sel(time=slice(f"{sets.years[0]}-01-01", f"{sets.years[-1]}-12-31"))
-        .values
-        .reshape(len(sets.years), -1)
-    )
-
-    climtas_baseline=(
-        temp
-        .sel(time=slice(f"{sets.base_years[0]}-01-01", f"{sets.base_years[-1]}-12-31"))
-        .mean(dim="time")
-        .values
-        .reshape(-1)
-    )
-
     # Get the index of the impact regions and the spatial relationship between grid cells and impact regions
     group_idx = fls.spatial_relation["index_right"].values
     spatial_idx = fls.spatial_relation.index
-
-    # Select only the grid cells that intersect with impact regions
-    climtas_ir = climtas_ir[:, spatial_idx]
-    climtas_baseline = climtas_baseline[spatial_idx]
+    
+    # Flatten temperature xarray and filter only impact regions index
+    temp = temp.stack(grid_cell=("latitude", "longitude")).isel(grid_cell=spatial_idx)
+    
+    climtas_ir = (
+        temp
+        .sel(time=slice(f"{sets.years[0]}-01-01", f"{sets.years[-1]}-12-31"))
+        .values
+    )
+    
+    climtas_baseline = (
+        temp
+        .sel(time=slice(f"{sets.base_years[0]}-01-01", f"{sets.base_years[-1]}-12-31"))
+        .mean(dim="time")
+        .values 
+    )
 
     # Aggregate the 30-year running mean temperature at the impact region level using the spatial relationship
     climtas = npg.aggregate(group_idx, climtas_ir, func='nanmean', fill_value=20.0, axis=1)
@@ -1048,7 +1061,7 @@ def ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4, tmin):
      
     Parameters:
     ----------    
-    erf_raw : np.ndarray
+    erf : np.ndarray
         Raw ERFs array result of the fourth degree polynomial (see Appendix pp. A35)
     T : range
         Range of daily temperatures
@@ -1073,7 +1086,7 @@ def ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4, tmin):
         # Locate idx of T (temperature array) between 20 and 30 degrees C
         idx_start = np.where(np.isclose(T, 10.0, atol=0.05))[0][0]
         idx_end = np.where(np.isclose(T, 30.0, atol=0.05))[0][0]
-        segment = erf_raw[:, :, idx_start:idx_end]
+        segment = erf[:, :, idx_start:idx_end]
         
         # Find local minimum of erf between 20 and 30 degrees
         idx_local_min = np.argmin(segment, axis=2)
@@ -1083,7 +1096,7 @@ def ShiftERFToTmin(erf, T, tas, tas2, tas3, tas4, tmin):
     erf_at_tmin = tas*tmin + tas2*tmin**2 + tas3*tmin**3 + tas4*tmin**4
     
     # Shift vertical functions so tmin matches 0 deaths
-    erf_shifted = erf_raw - erf_at_tmin[:,:,None]
+    erf = erf - erf_at_tmin[:,:,None]
         
     return erf, tmin
 
@@ -1107,7 +1120,7 @@ def MonotonicityERF(T, erf, tmin):
         
     Returns:
     ----------
-    erf_final : np.ndarray
+    erf : np.ndarray
         Array witht the ERFs after weak monotonicity is imposed
     """
     
@@ -1143,7 +1156,7 @@ def MonotonicityERF(T, erf, tmin):
     
     
         
-def DailyTemperature2IR(sets, year, ir, spatial_relation):
+def DailyTemperature2IR(sets, year, fls, spatial_relation):
     
     """
     Convert daily temperature data of one year to temperature values at the impact region 
@@ -1165,7 +1178,7 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
             temp_dir=sets.temp_dir, 
             years_in=year, 
             temp_type="MEAN", 
-            std_factor=1,
+            random_vals=fls.random_vals,
             to_xarray=False
             )
         
@@ -1274,7 +1287,7 @@ def CalculateMortalityEffects(sets, fls, baseline, year):
     daily_temperature = DailyTemperature2IR(
         sets=sets, 
         year=year, 
-        ir=fls.ir, 
+        fls=fls, 
         spatial_relation=fls.spatial_relation
         )
     
@@ -1418,21 +1431,22 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
         
     # ------------------- Calculate annual mortality ------------------
     
-    mor_heat, mor_cold = [], []
+    # mor_heat, mor_cold = [], []
     
-    for i, group in enumerate(sets.age_groups):      
-        mor_heat_g, mor_cold_g = MortalityFromTemperatureIndex(
-            daily_temp=daily_temperature, 
-            rows=rows, 
-            erf=erfs_t[:,i], 
-            tmin=baseline.tmin_t0[:,i],
-            min_temp=min_temp, 
-            )
+    # for i, group in enumerate(sets.age_groups):      
+    mor_heat, mor_cold = MortalityFromTemperatureIndex(
+        daily_temp=daily_temperature, 
+        rows=rows, 
+        erf=erfs_t, 
+        tmin=baseline.tmin_t0,
+        min_temp=min_temp, 
+        )
         
-        mor_heat.append(mor_heat_g)
-        mor_cold.append(mor_cold_g)
-            
-    return np.stack(mor_heat, axis=0), np.stack(mor_cold, axis=0)  # Return mortality for heat and cold per age group
+        # mor_heat.append(mor_heat_g)
+        # mor_cold.append(mor_cold_g)
+    
+    # Return mortality for heat and cold per age group        
+    return mor_heat, mor_cold#np.stack(mor_heat, axis=0), np.stack(mor_cold, axis=0)
 
     
 
@@ -1461,30 +1475,45 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp):
         Age group
     """
 
-    # Extract tmin values for the given age group
-    tmin = tmin[:, None]
+    # Expand tmin to shape (24378, 3, 1) for 3D broadcasting
+    tmin = tmin[:, :, None]
+    # Expand daily_temp to shape (24378, 1, col_temp) to align with categories
+    daily_temp = daily_temp[:, None, :]
 
-    # Calculate mortality for temperatures above tmin
-    annual_mortality_heat = (
-        erf[rows,
-            np.round((np.maximum(daily_temp, tmin) - min_temp) * 10).astype(int)
-        ]
-        .sum(axis=1)
-    )
+    # Align rows to shape (24378, 1, 1) for advanced 3D indexing
+    rows_grid = rows[:, None]
+    # Create category grid with shape (1, 3, 1) to match the second axis of erf
+    cat_grid = np.arange(3)[None, :, None]
+
+    # Calculate column indices (0-600) 
+    idx_heat = np.round((np.maximum(daily_temp, tmin) - min_temp) * 10).astype(np.int16)
+    idx_cold = np.round((np.minimum(daily_temp, tmin) - min_temp) * 10).astype(np.int16) 
+
+    #  Extract values from erf using advanced indexing and sum along the days axis
+    annual_mortality_heat = erf[rows_grid, cat_grid, idx_heat].sum(axis=2)
+    annual_mortality_cold = erf[rows_grid, cat_grid, idx_cold].sum(axis=2)
     
-    # Calculate mortality for temperatures below tmin
-    annual_mortality_cold = (
-        erf[rows,
-            np.round((np.minimum(daily_temp, tmin) - min_temp) * 10).astype(int)
-        ]
-        .sum(axis=1)
-    )
+    # # Calculate mortality for temperatures above tmin
+    # annual_mortality_heat = (
+    #     erf[rows,
+    #         np.round((np.maximum(daily_temp, tmin) - min_temp) * 10).astype(int)
+    #     ]
+    #     .sum(axis=1)
+    # )
     
-    return annual_mortality_heat, annual_mortality_cold     
+    # # Calculate mortality for temperatures below tmin
+    # annual_mortality_cold = (
+    #     erf[rows,
+    #         np.round((np.minimum(daily_temp, tmin) - min_temp) * 10).astype(int)
+    #     ]
+    #     .sum(axis=1)
+    # )
+    
+    return annual_mortality_heat.T, annual_mortality_cold.T
 
 
        
-def AggregateRegionalMortality(sets, fls, rel_mor):
+def AggregateRegionalMortality(sets, fls, rel_mor):#
     
     """
     Use numpy array where annual relative mortality results where store and population data,
