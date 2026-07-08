@@ -1180,7 +1180,7 @@ def DailyTemperature2IR(sets, year, ir, spatial_relation):
 
 
 
-def MSTemperature2IR(temp, year, ir, spatial_relation):
+def MSTemperature2IR(temp, year, spatial_relation):
     
     """
     Import gridded daily temperature data of one year from montlhy statistics and convert 
