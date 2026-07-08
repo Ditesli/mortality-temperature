@@ -1371,7 +1371,7 @@ def CalculateERA5baselineMortality(sets, fls, baseline):
         mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
             sets=sets, 
             year=pd_year,
-            daily_temp=daily_temp_t0[i],  
+            daily_temp=fls.daily_temp_t0[i],  
             counterfactual=True
             )    
 
