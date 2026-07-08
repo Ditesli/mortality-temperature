@@ -1188,26 +1188,17 @@ def MSTemperature2IR(temp, year, spatial_relation):
     region for the given year.
     """
     
-    # Create a list of dates for the specified year
-    date_list = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D").astype(str)
-    
     # Temporarily store daily temperatures in a dictionary
-    temperature_days = np.full((len(spatial_relation), len(date_list)), np.nan, dtype=np.float32)
-    
-    for i, day in enumerate(date_list):
-        temperature_days[:,i] = temp[...,i].ravel()[spatial_relation.index]
-    
-    # Calculate mean temperature per impact region and round
-    daily_temperatures = npg.aggregate(
-        spatial_relation["index_right"].values, 
-        temperature_days, 
-        func='nanmean', 
-        axis=0, 
-        fill_value=np.nan
-    )
+    temp_flat = temp.reshape(-1, temp.shape[-1])[spatial_relation.index, :]
 
-    daily_temperatures = np.where(np.isnan(daily_temperatures), 20.0, daily_temperatures)
-    daily_temperatures = np.round(daily_temperatures, decimals=1)
+    # Calculate mean temperature per impact region and round
+    daily_temperatures_df = (
+        pd.DataFrame(temp_flat, index=spatial_relation["index_right"])
+        .groupby("index_right")
+        .mean() # Calculate mean temperature per impact region
+        .fillna(20) # Fill in nan with 20 degrees C (conservative choice)
+        .round(1) # Round to 1 decimal place
+    )
    
     return daily_temperatures_df.to_numpy()
 
