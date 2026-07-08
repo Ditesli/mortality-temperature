@@ -1131,15 +1131,15 @@ def MonotonicityERF(T, erf, tmin):
     right_monotone = np.maximum.accumulate(right_part, axis=2)
     
     # Generate final Exposure Response Function
-    erf_final = np.where(
+    erf = np.where(
         mask_left, left_monotone,
         np.where(mask_right, right_monotone, erf)
         )
     
     # Ensure no negative values
-    erf_final = np.maximum(erf_final, 0)
+    erf = np.maximum(erf, 0)
     
-    return erf_final     
+    return erf    
     
     
         
