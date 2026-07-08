@@ -870,10 +870,10 @@ def GenerateGDPpcShares(sets, fls):
     gdppc_shares = (
         xr.open_dataset(f"{sets.wdir}/data/CarletonSM/econ_vars/{ssp}.nc4")
         .mean(dim="model") # Mean between high and low economic models
+        [["gdp", "pop", "gdppc"]]
         .to_dataframe() # Convert to dataframe
         .reset_index()
         .merge(fls.region_class, left_on="region", right_on="hierid") # Merge with region classification to get ISO3 codes
-        .drop(["ssp", "pop0to4", "pop5to64", "pop65plus", "hierid"], axis=1)
         .assign( # Calculate GDPpc shares by dividing the regional GDPpc by the IMAGE GDPpc
             gdppc_iso3 = 
             lambda d: (d.groupby(['ISO3', "year"])["gdp"].transform("sum") / d.groupby(['ISO3', "year"])["pop"].transform("sum")),
