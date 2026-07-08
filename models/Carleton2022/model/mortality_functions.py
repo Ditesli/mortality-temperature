@@ -1209,7 +1209,7 @@ def MSTemperature2IR(temp, year, spatial_relation):
     daily_temperatures = np.where(np.isnan(daily_temperatures), 20.0, daily_temperatures)
     daily_temperatures = np.round(daily_temperatures, decimals=1)
    
-    return daily_temperatures
+    return daily_temperatures_df.to_numpy()
 
 
 
