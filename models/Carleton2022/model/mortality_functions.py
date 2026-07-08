@@ -710,7 +710,7 @@ def ImportCovariates(sets, fls, year, adaptation, baseline, counterfactual):
              pd.read_csv(sets.wdir+"/data/CarletonSM/main_specification/mortality-allpreds.csv")
             .rename(columns={"region":"hierid"})
             .set_index("hierid")
-            .reindex(fls.ir.values)
+            .reindex(fls.ir)
         )
         
         # Extract only climtas and loggdppc as arrays
@@ -813,7 +813,7 @@ def ImportCarletonLogGDPpc(wdir, scenario, ir, year):
         .drop(columns=["year", "ssp"])
         .rename(columns={"region":"hierid"})
         .set_index("hierid")
-        .reindex(ir.values) # Reindex according to hierid
+        .reindex(ir) # Reindex according to hierid
     )
     
     # Calculate log(GDPpc)
@@ -894,7 +894,7 @@ def GenerateGDPpcShares(sets, fls):
         .pivot(index=["region", "IMAGE"], columns="year", values="gdppc_shares")
         .reset_index()
         .set_index("region")
-        .reindex(fls.ir.values) # Reindex according to hierid
+        .reindex(fls.ir) # Reindex according to hierid
         .reset_index()
     )
     
@@ -904,7 +904,7 @@ def GenerateGDPpcShares(sets, fls):
         [["region", "ISO3", "gdppc_shares_ir"]]
         .rename(columns={"gdppc_shares_ir":"gdppc_share"})
         .set_index("region")
-        .reindex(fls.ir.values) # Reindex according to hierid
+        .reindex(fls.ir) # Reindex according to hierid
         .reset_index()
     )
 
@@ -980,7 +980,7 @@ def ImportClimtasERA5(wdir, year, ir):
 
 
 
-def ImportClimtas(temp_dir, year, spatial_relation, present_day):
+def ImportClimtas(sets, fls):
     
     """
     Import climate data from montlhy statistics files. The code calculates the 30-year running
@@ -989,27 +989,52 @@ def ImportClimtas(temp_dir, year, spatial_relation, present_day):
     ordered by "ir".
     """
     
-    start_year, end_year = (1975,2015) if present_day else (str(year - 29), str(year))
-    time_slice = slice(f"{start_year}-01-01", f"{end_year}-12-31")
+    print("[1.9] Generating climatologies...")
     
-    # Calculate the mean of the daily mean temperature data over the 30-year period at the grid cell level
-    climtas_ds = (
-        xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
+    
+    # Load monthly statistics data and calculate 30-year running mean at the grid cell level
+    temp = (
+        xr.open_dataset(
+            sets.temp_dir+f"/GTMP_30MIN.nc",
+            chunks={"time":"auto", "NM":"auto", "latitude":"auto", "longitude":"auto"}
+            )
         ["GTMP_30MIN"]
-        .sel(time=time_slice)
-        .mean(dim=("NM", "time"))
+        .mean(dim="NM") # Annual temperature
+        .rolling(time=30, min_periods=30)
+        .mean(dim="time")
     )
     
-    idx_spatial = spatial_relation.index.values
-    climtas_ir = climtas_ds.values.ravel()[idx_spatial]
+    # Reshape data to have years as rows and grid cells as columns
+    climtas_ir=(
+        temp
+        .sel(time=slice(f"{sets.years[0]}-01-01", f"{sets.years[-1]}-12-31"))
+        .values
+        .reshape(len(sets.years), -1)
+    )
 
-    # Aggregate the climatology per impact region using the spatial relation and return as numpy array
-    group_idx = spatial_relation["index_right"].values
-    climtas = npg.aggregate(group_idx, climtas_ir, func='nanmean', fill_value=20.0)
+    climtas_baseline=(
+        temp
+        .sel(time=slice(f"{sets.base_years[0]}-01-01", f"{sets.base_years[-1]}-12-31"))
+        .mean(dim="time")
+        .values
+        .reshape(-1)
+    )
 
-    return climtas
+    # Get the index of the impact regions and the spatial relationship between grid cells and impact regions
+    group_idx = fls.spatial_relation["index_right"].values
+    spatial_idx = fls.spatial_relation.index
 
+    # Select only the grid cells that intersect with impact regions
+    climtas_ir = climtas_ir[:, spatial_idx]
+    climtas_baseline = climtas_baseline[spatial_idx]
 
+    # Aggregate the 30-year running mean temperature at the impact region level using the spatial relationship
+    climtas = npg.aggregate(group_idx, climtas_ir, func='nanmean', fill_value=20.0, axis=1)
+
+    # Calculate baseline temperature at the impact region level using the same aggregation method
+    temperature_ir_base = npg.aggregate(group_idx, climtas_baseline, func='nanmean', fill_value=20.0)
+
+    return climtas.T, temperature_ir_base
 
 def ShiftERFToTmin(erf_raw, T, tas, tas2, tas3, tas4, tmin): 
     
