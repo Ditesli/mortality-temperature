@@ -1,18 +1,18 @@
 import mortality_functions as mf
-import yaml
+import yaml, time
 from pathlib import Path
 
 from pyinstrument import Profiler
 
 
 scenarios = [
-    "SSP3_H_STS3_AllImpacts",
+    # "SSP3_H_STS3_AllImpacts",
     # "SSP3_H_ERA_AllImpacts",
     # "SSP3_H_STS3_NoEcon",
     # "SSP3_H_ERA_NoEcon",
     # "SSP1_M_CP_ERA_AllImpacts",
     # "SSP1_M_CP_ERA_NoImpacts",
-    # "SSP1_M_CP_ERA_NoEcon",
+    "SSP1_M_CP_ERA_NoEcon",
     # "SSP1_ML_ERA_NoImpacts",
     # "SSP2_ML_ERA_NoImpacts",
     # "SSP1_ML_ERA_AllImpacts",
@@ -25,27 +25,30 @@ scenarios = [
     # "SSP1_VLLO_ERA_NoEcon"
     ]
 
-# for scenario in scenarios:
+for scenario in scenarios:
     
-config_file = Path(__file__).parent.parent / "settings" / f"SPARCCLE/{scenarios[0]}yaml"
-with open(config_file) as f:
-    config = yaml.safe_load(f)
+    config_file = Path(__file__).parent.parent / "settings" / f"SPARCCLE/{scenario}.yaml"
+    with open(config_file) as f:
+        config = yaml.safe_load(f)
 
-profiler = Profiler()
-profiler.start()
-    
-mf.CalculateMortality(
-    wdir=config["wdir"], # Working directory
-    years=range(config["start_year"], config["end_year"]), # Years range
-    temp_dir=config["temp_dir"],#+f"{clim_var[i]}", # Path to climate data files
-    gdp_dir=config["gdp_dir"], # Path to GDP data files
-    project=config["project"],#+f"{i}", # Project name
-    scenario=config["scenario"], # Scenario name
-    adaptation=config["adaptation"], # Adaptation on or off
-    counterfactual=config["counterfactual"], # Counterfactual climate scenario
-    draw=config["draw"], # Mean or specific/random draw
-    reporting_tool=config["reporting_tool"], # Report on or off
-)
+    # profiler = Profiler()
+    # profiler.start()
+    start = time.time()
+        
+    mf.CalculateMortality(
+        wdir=config["wdir"], # Working directory
+        years=range(config["start_year"], config["end_year"]), # Years range
+        temp_dir=config["temp_dir"],#+f"{clim_var[i]}", # Path to climate data files
+        gdp_dir=config["gdp_dir"], # Path to GDP data files
+        project=config["project"],#+f"{i}", # Project name
+        scenario=config["scenario"], # Scenario name
+        adaptation=config["adaptation"], # Adaptation on or off
+        counterfactual=config["counterfactual"], # Counterfactual climate scenario
+        draw=config["draw"], # Mean or specific/random draw
+        reporting_tool=config["reporting_tool"], # Report on or off
+    )
+    end=time.time()
+    print(end-start)
 
-profiler.stop()
-profiler.write_html("profile.html")
+    # profiler.stop()
+    # profiler.write_html("profile.html")
