@@ -1258,37 +1258,21 @@ def ERA5Temperature2IR(temp_dir, year, spatial_relation):
         pop_map=None, 
         to_array=False)
     
-    daily_temperature = daily_temperature.t2m
+    daily_temperature = daily_temperature.t2m.values
+
+    idx_points = spatial_relation.index.values
+
+    daily_temperature = daily_temperature.reshape(daily_temperature.shape[0], -1)[:, idx_points]
     
-    # Create a list of dates for the specified year
-    date_list =(
-        daily_temperature
-        ["valid_time"]
-        .values
-        [np.isin(daily_temperature["valid_time"]
-                 .values
-                 .astype("datetime64[Y]"),
-                 np.datetime64(f"{year}", "Y"))]
-        .astype("datetime64[D]")
-        .astype(str)
-    )
-    
-    # Temporarily store daily temperatures in a dictionary
-    temperature_days = np.full((len(spatial_relation), len(date_list)), np.nan, dtype=np.float32)
-    
-    for i,day in enumerate(date_list):
-        daily_temperature_day = daily_temperature.sel(valid_time=day).values.ravel()
-        temperature_days[:,i] = daily_temperature_day[spatial_relation.index]
-            
-    # Calculate mean temperature per impact region and round
-    daily_temperatures = npg.aggregate(
+    daily_temperature = npg.aggregate(
         spatial_relation["index_right"].values, 
-        temperature_days, 
+        daily_temperature, 
         func='nanmean', 
-        axis=0, 
+        axis=1, 
         fill_value=np.nan
-    )
-    daily_temperatures = np.round(daily_temperatures, decimals=1)
+    ).T
+    
+    daily_temperature = np.round(daily_temperature, decimals=1)
     
     return daily_temperatures
 
@@ -1371,7 +1355,6 @@ def CalculateMortalityEffects(sets, fls, baseline, year):
 
     return mor_local
 
-
         
         
 def CalculateERA5baselineMortality(sets, fls, baseline):
@@ -1383,26 +1366,24 @@ def CalculateERA5baselineMortality(sets, fls, baseline):
     """
     
     # Initialize dics to store annual mortality
-    mor_heat_dic, mor_cold_dic = {}, {}
+    mor_heat, mor_cold = [],[]
 
     # Calculate annual mortality using preloaded daily baseline temperatures
-    for i,pd_year in enumerate(sets.base_years):
-        mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
+    for pd_year in sets.base_years:
+        mor_heat_year, mor_cold_year = CalculateMarginalMortality(
             sets=sets, 
             year=pd_year,
-            daily_temp=fls.daily_temp_t0[i],  
+            daily_temp=baseline.daily_temp_t0[pd_year],
+            fls=fls,
+            baseline=baseline,
             counterfactual=True
             )    
+        mor_heat.append(mor_heat_year)
+        mor_cold.append(mor_cold_year)
 
     # Calculate mean mortality of the 10-year period
-    mor_heat_sub = np.array([
-        np.mean([mor_heat_dic[year][group] for year in sets.base_years], axis=0)
-        for group in sets.age_groups
-    ], dtype=np.float32)
-    mor_cold_sub = np.array([
-        np.mean([mor_cold_dic[year][group] for year in sets.base_years], axis=0)
-        for group in sets.age_groups
-    ], dtype=np.float32)
+    mor_heat_sub = np.mean(np.stack(mor_heat), axis=0)
+    mor_cold_sub = np.mean(np.stack(mor_cold), axis=0)
     
     return mor_heat_sub, mor_cold_sub
 
@@ -1444,9 +1425,6 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
         
     # ------------------- Calculate annual mortality ------------------
     
-    # mor_heat, mor_cold = [], []
-    
-    # for i, group in enumerate(sets.age_groups):      
     mor_heat, mor_cold = MortalityFromTemperatureIndex(
         daily_temp=daily_temperature, 
         rows=rows, 
@@ -1454,12 +1432,9 @@ def CalculateMarginalMortality(sets, year, daily_temp, fls, baseline, counterfac
         tmin=baseline.tmin_t0,
         min_temp=min_temp, 
         )
-        
-        # mor_heat.append(mor_heat_g)
-        # mor_cold.append(mor_cold_g)
-    
+
     # Return mortality for heat and cold per age group        
-    return mor_heat, mor_cold#np.stack(mor_heat, axis=0), np.stack(mor_cold, axis=0)
+    return mor_heat, mor_cold
 
     
 
@@ -1505,22 +1480,6 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp):
     #  Extract values from erf using advanced indexing and sum along the days axis
     annual_mortality_heat = erf[rows_grid, cat_grid, idx_heat].sum(axis=2)
     annual_mortality_cold = erf[rows_grid, cat_grid, idx_cold].sum(axis=2)
-    
-    # # Calculate mortality for temperatures above tmin
-    # annual_mortality_heat = (
-    #     erf[rows,
-    #         np.round((np.maximum(daily_temp, tmin) - min_temp) * 10).astype(int)
-    #     ]
-    #     .sum(axis=1)
-    # )
-    
-    # # Calculate mortality for temperatures below tmin
-    # annual_mortality_cold = (
-    #     erf[rows,
-    #         np.round((np.minimum(daily_temp, tmin) - min_temp) * 10).astype(int)
-    #     ]
-    #     .sum(axis=1)
-    # )
     
     return annual_mortality_heat.T, annual_mortality_cold.T
 
