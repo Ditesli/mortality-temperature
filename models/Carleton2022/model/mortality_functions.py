@@ -218,6 +218,9 @@ class LoadInputData:
     gammas: any
     pop: pd.DataFrame
     random_vals: np.ndarray
+    temp_mean: any
+    temp_std: any
+    
 
     @classmethod
     def from_files(cls, sets):
@@ -238,6 +241,11 @@ class LoadInputData:
         population = ImportPopulationData(sets, ir)
         
         random_vals = RandomValues4Temperature()
+        
+        if "ERA5" not in sets.scenario:
+            temp_month_mean, temp_month_std = tmp.OpenMonthlyTemperatures(sets.temp_dir, "MEAN")
+        else:
+            temp_month_mean, temp_month_std = None, None
     
         return cls(
             spatial_relation=spatial_relation,
@@ -245,7 +253,9 @@ class LoadInputData:
             region_class=region_class,
             gammas=gamma_coeffs,
             pop=population,
-            random_vals=random_vals
+            random_vals=random_vals,
+            temp_mean=temp_month_mean,
+            temp_std=temp_month_std
         )
     
 
@@ -636,8 +646,8 @@ def ImportBaselineTemperatures(sets, fls, spatial_relation):
     else: 
         
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir,
-            temp_type="MEAN",
+            temperature_mean=fls.temp_mean,
+            temperature_std=fls.temp_std,
             years_in=sets.base_years,
             random_vals=fls.random_vals, 
             to_xarray=False
@@ -1193,9 +1203,9 @@ def DailyTemperature2IR(sets, year, fls, spatial_relation):
                 
         # Read daily temperature data generated from monthly statistics
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
-            temp_dir=sets.temp_dir, 
-            years_in=year, 
-            temp_type="MEAN", 
+            temperature_mean=fls.temp_mean,
+            temperature_std=fls.temp_std,
+            years_in=year,
             random_vals=fls.random_vals,
             to_xarray=False
             )

@@ -11,7 +11,7 @@ def LoadDailyTemperatures(temp_dir, scenario, temp_type, year, pop_map, std_fact
     Select the temperature data type to use (ERA5 or monthly statistics)
     """
     
-    if re.search(r"SSP[1-5]_ERA5", scenario):
+    if "ERA5" in scenario:
         daily_temp, num_days = DailyTemperatureERA5(temp_dir, year, temp_type, pop_map, to_array=True)
         
     else:
@@ -36,10 +36,10 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
     - num_days: number of days in the year (365 or 366)
     """
     
-    if year < 1980 or year > 2025:
+    if year < 1970 or year > 2025:
         raise ValueError(
             f"ERA5 data for year {year} is not available "
-            f"(valid range: 1980–2025)."
+            f"(valid range: 1970–2025)."
       )        
     
     # Read file and shift longitude coordinates
@@ -74,7 +74,8 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
         
     
 
-def DailyFromMonthlyTemperature(temp_dir, temp_type, years_in, random_vals, to_xarray=False):
+def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years_in, random_vals, to_xarray=False):
+    #temp_dir, temp_type, years_in, random_vals, to_xarray=False):
     
     """
     Generate daily temperature data fro a given year from monthly statistics assuming 
@@ -111,22 +112,13 @@ def DailyFromMonthlyTemperature(temp_dir, temp_type, years_in, random_vals, to_x
         years = years_in
         
     # Open monthly temperature statistics (mean and std) for the given years
-    temperature_mean, temperature_std = OpenMonthlyTemperatures(temp_dir, temp_type)
+    # temperature_mean, temperature_std = OpenMonthlyTemperatures(temp_dir, temp_type)
     
     temperature_std = (
         temperature_std
         .sel(time=slice(f"{years[0]}-01-01", f"{years[-1]}-01-01"))
         .mean(dim="time")
     )
-    
-    # # Select std data and get the mean of the specific year
-    # final_year = years[-1] if years[-1] == 2100 else years[-1] + 1
-    
-    # if years[-1]==2100:
-    #     # Extract the data for the year 2100
-    #     temp_2100 = temperature_mean.sel(time=slice("2100-01-01", "2100-12-31"))
-    #     # Concatenate the original data with the duplicated year
-    #     temp_core = xr.concat([temp_core, temp_2100], dim="time")
         
         
     # Calculate the monthly climatology (mean) for the selected years
@@ -223,7 +215,7 @@ def OpenMonthlyTemperatures(temp_dir, temp_type):
         temp_mean = temp_mean[f"GTMP_MAX_30MIN"]
         temp_std = temp_std[f"GTMPMAX_STD_30MIN"]
     
-    return temp_mean, temp_std
+    return temp_mean.astype(np.float32), temp_std.astype(np.float32)
 
 
 
