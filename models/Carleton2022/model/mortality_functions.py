@@ -1274,7 +1274,7 @@ def ERA5Temperature2IR(temp_dir, year, spatial_relation):
     
     daily_temperature = np.round(daily_temperature, decimals=1)
     
-    return daily_temperatures
+    return daily_temperature
 
 
 
