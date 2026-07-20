@@ -247,7 +247,9 @@ def DailyTemperatureFromNormalPDF(year, temp_daily_mean, temp_std, random_vals):
     random_vals = random_vals[:,:,:temp_daily_mean.shape[2]]
 
     # Calculate the final daily temperature data by adding the mean and scaled standard deviation
-    final_result = temp_daily_mean + (random_vals * std_expanded)
+    final_result = np.empty_like(temp_daily_mean)
+    np.multiply(random_vals, std_expanded, out=final_result)
+    np.add(temp_daily_mean, final_result, out=final_result)
     
     return final_result
 
