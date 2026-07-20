@@ -12,6 +12,7 @@ from utils import temperature as tmp
 import numpy_groupies as npg
 from dask.delayed import delayed
 import dask.array as da
+from scipy.stats import qmc, norm
 
 
 ### ------------------------------------------------------------------------------
@@ -454,10 +455,7 @@ def ImportGammaCoefficients(sets):
         2 --> multiply by the covariate loggdppc
     """
     
-    if sets.draw == "mean":
-        print("[1.3] Loading gamma coefficients - Mean estimates...")
-    else:
-        print(f"[1.3] Loading gamma coefficients - Random draw from the normal distribution...")
+    ### -------------- Read gamma coefficients file ------------------------------
     
     with open(sets.wdir+"/data/CarletonSM/Agespec_interaction_response.csvv") as f:
         
@@ -480,8 +478,40 @@ def ImportGammaCoefficients(sets):
                 
             if i in range(25,61):
                 vcv[i-25] = np.array([float(x) for x in line.strip().split(", ")])
+                
 
-    gammas = np.random.multivariate_normal(mean=gammas, cov=vcv, size=1) if str(sets.draw).lower() != "mean" else gammas
+    ### -----------------------------------------------------------------------------
+    # Apply conditions to select a random draw a draw from LHS, or mean estimations
+    
+    if str(sets.draw).lower() == "mean":
+        print("[1.3] Loading gamma coefficients - Mean estimates...")
+        pass
+
+    elif "LHS" in str(sets.draw):
+
+        print("[1.3] Loading gamma coefficients using Latin Hypercube Sampling")
+        n_draws = 100 # Fixed number based on elbow error analysis
+        sample = int(re.search(r"LHS_(\d+)", sets.draw).group(1))
+
+        # Latin hypercube object for the 3x12 gammas, including seed for replication
+        sampler = qmc.LatinHypercube(d=36, seed=42, scramble=True)
+        sample_uniform = sampler.random(n=n_draws)
+
+        # Transform to a normal standard distribution
+        sample_normal = norm.ppf(sample_uniform)
+
+        # Apply the Cholesky factorization, matrix is now triangular inferior 
+        L = np.linalg.cholesky(vcv)
+
+        # Generate samples
+        gammas_draws = gammas + np.dot(sample_normal, L.T)
+
+        # Select sample given by LHS_## from sets.draw
+        gammas = gammas_draws[sample]
+
+    else:
+        print(f"[1.3] Loading gamma coefficients - Random draw from the normal distribution...")
+        gammas = np.random.multivariate_normal(mean=gammas, cov=vcv, size=1) 
                 
     return gammas.reshape(3,12).astype(np.float32), covar_idx.reshape(3,12).astype(int)
 
