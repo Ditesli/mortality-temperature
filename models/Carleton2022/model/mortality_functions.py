@@ -323,12 +323,11 @@ class BaselineERFsInputs:
                 
                 print("[1.8] Loading GDP data from IMAGE...")
                 image_gdppc = ReadTIMERFiles(sets)
+                climtas_ir, climtas_base = ImportClimtas(sets=sets, fls=fls)
                 
         # Set to None when adaptation is off        
         else:  
-            image_shares = None; image_gdppc = None; country_shares = None
-            
-        climtas_ir, climtas_base = ImportClimtas(sets=sets, fls=fls)
+            image_shares = None; image_gdppc = None; country_shares = None; climtas_base=None; climtas_ir=None
             
             
         return BaselineERFsInputs(
@@ -352,7 +351,7 @@ def RandomValues4Temperature():
     # Generate normal distribution with std = 1
     vals = rng.standard_normal(size=(360,720,366))
     
-    return vals
+    return vals.astype(np.float32)
 
 
 
@@ -532,7 +531,7 @@ def ImportPopulationData(sets, ir):
     # Extract SSP from scenario string
     ssp = re.search(r"(?i)ssp\d+", sets.scenario).group().upper()
     
-    print(f"[1.3] Loading Population data for {ssp} scenario at the impact regions level...")
+    print(f"[1.5] Loading Population data for {ssp} scenario at the impact regions level...")
     
     # Include ALWAYS population data from 2000 to 2010 (used in the counterfactual part)
     year = sorted(set(sets.years).union(range(2000, 2010)))
@@ -628,7 +627,7 @@ def ImportBaselineTemperatures(sets, fls, spatial_relation):
     arrays with the daily temperature per impact region and year.
     """
      
-    print("[1.5] Generating 'present-day' temperature data...")
+    print("[1.6] Generating 'present-day' temperature data...")
      
     # ------------------ ERA5 ------------------
     if "ERA5" in sets.scenario:
