@@ -61,7 +61,7 @@ class ModelSettings:
     counterfactual: bool
     draw: any
     reporting_tool: any
-    base_years: list=range(2000,2010)
+    base_years: list = field(default_factory=lambda: list(range(2000, 2010)))
     age_groups: list = field(
         default_factory=lambda: ["young", "older", "oldest"]
         )
@@ -80,6 +80,9 @@ class ModelSettings:
         # Include last year 
         if isinstance(self.years, range):
             self.years = range(self.years.start, self.years.stop + 1)
+            
+        if "comparison" in str(self.project).lower():
+            self.base_years = list(range(1980, 1990))
         
         # Reduce range years if working with ERA5 data
         ERA5_END_YEAR = 2025
@@ -291,17 +294,9 @@ class BaselineERFsInputs:
             baseline=None,
             counterfactual=None
             ) 
-        
-        # Import present day temperatures
-        years_range = (
-            range(1980, 1990)
-            if "comparison" in sets.project.lower()
-            else sets.base_years
-        )
     
         daily_temp_t0 = ImportBaselineTemperatures(
             sets=sets, 
-            base_years=years_range, 
             fls=fls, 
             spatial_relation=fls.spatial_relation
             )
@@ -585,7 +580,7 @@ def ImportIMAGEPopulationData(sets, ssp, years, ir):
 
 
 
-def ImportBaselineTemperatures(sets, base_years, fls, spatial_relation):
+def ImportBaselineTemperatures(sets, fls, spatial_relation):
     
     """
     The function will import the daily temperatures from 2000 to 2010, either precalculated
@@ -594,19 +589,12 @@ def ImportBaselineTemperatures(sets, base_years, fls, spatial_relation):
     """
      
     print("[1.5] Generating 'present-day' temperature data...")
-    
-    # Import present day temperatures
-    base_years = (
-        range(1980, 1990)
-        if "comparison" in sets.project.lower()
-        else sets.base_years
-    )
      
     # ------------------ ERA5 ------------------
     if "ERA5" in sets.scenario:
         
         t0_mean = {}
-        for year in base_years:
+        for year in sets.base_years:
             
             # Load daily temperature files from ERA5 at ir level            
             t0_mean[year]  = xr.open_dataset(
@@ -620,7 +608,7 @@ def ImportBaselineTemperatures(sets, base_years, fls, spatial_relation):
         daily_temperature,_ = tmp.DailyFromMonthlyTemperature(
             temp_dir=sets.temp_dir,
             temp_type="MEAN",
-            years_in=base_years,
+            years_in=sets.base_years,
             random_vals=fls.random_vals, 
             to_xarray=False
         )
@@ -1362,18 +1350,11 @@ def CalculateERA5baselineMortality(sets, fls, baseline):
     heat and cold extremes if the mean temperature of the 10-year period was calculated.
     """
     
-    # Define baseline years dependent on scenario
-    BASE_YEARS = (
-        range(1980, 1990) 
-        if re.search("comparison", sets.project.lower()) 
-        else sets.base_years
-    )
-    
     # Initialize dics to store annual mortality
     mor_heat_dic, mor_cold_dic = {}, {}
 
     # Calculate annual mortality using preloaded daily baseline temperatures
-    for i,pd_year in enumerate(BASE_YEARS):
+    for i,pd_year in enumerate(sets.base_years):
         mor_heat_dic[pd_year], mor_cold_dic[pd_year] = CalculateMarginalMortality(
             sets=sets, 
             year=pd_year,
@@ -1383,11 +1364,11 @@ def CalculateERA5baselineMortality(sets, fls, baseline):
 
     # Calculate mean mortality of the 10-year period
     mor_heat_sub = np.array([
-        np.mean([mor_heat_dic[year][group] for year in BASE_YEARS], axis=0)
+        np.mean([mor_heat_dic[year][group] for year in sets.base_years], axis=0)
         for group in sets.age_groups
     ], dtype=np.float32)
     mor_cold_sub = np.array([
-        np.mean([mor_cold_dic[year][group] for year in BASE_YEARS], axis=0)
+        np.mean([mor_cold_dic[year][group] for year in sets.base_years], axis=0)
         for group in sets.age_groups
     ], dtype=np.float32)
     
