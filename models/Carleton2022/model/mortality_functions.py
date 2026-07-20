@@ -296,7 +296,7 @@ class BaselineERFsInputs:
     def from_sets(sets, fls):
         
         # Import present day covariates
-        print("[1.4] Loading 'baseline' Exposure Response Functions...")
+        print("[1.5] Loading 'baseline' Exposure Response Functions...")
         erfs_t0, tmin_t0 = GenerateERFAll(
             sets=sets, 
             fls=fls,
@@ -531,7 +531,7 @@ def ImportPopulationData(sets, ir):
     # Extract SSP from scenario string
     ssp = re.search(r"(?i)ssp\d+", sets.scenario).group().upper()
     
-    print(f"[1.5] Loading Population data for {ssp} scenario at the impact regions level...")
+    print(f"[1.4] Loading Population data for {ssp} scenario at the impact regions level...")
     
     # Include ALWAYS population data from 2000 to 2010 (used in the counterfactual part)
     year = sorted(set(sets.years).union(range(2000, 2010)))
@@ -653,8 +653,7 @@ def ImportBaselineTemperatures(sets, fls, spatial_relation):
         )
 
         t0_mean = MSTemperature2IR(
-            temp=daily_temperature, 
-            year=2000, # Dummy year 
+            temp=daily_temperature,
             spatial_relation=spatial_relation
             )
     
@@ -1183,7 +1182,7 @@ def MonotonicityERF(T, erf, tmin):
     
     
         
-def DailyTemperature2IR(sets, year, fls, spatial_relation):
+def DailyTemperature2IR(sets, year, fls):
     
     """
     Convert daily temperature data of one year to temperature values at the impact region 
@@ -1196,7 +1195,7 @@ def DailyTemperature2IR(sets, year, fls, spatial_relation):
     if "ERA5" in sets.scenario:
         
         # Open daily temperature data from ERA5
-        daily_temperature = ERA5Temperature2IR(sets.temp_dir, year, spatial_relation)
+        daily_temperature = ERA5Temperature2IR(sets.temp_dir, year, fls.spatial_relation)
         
     else:
                 
@@ -1211,16 +1210,15 @@ def DailyTemperature2IR(sets, year, fls, spatial_relation):
         
         # Aggregate daily temperature data to impact region level
         daily_temperature = MSTemperature2IR(
-            temp=daily_temperature, 
-            year=year, 
-            spatial_relation=spatial_relation
+            temp=daily_temperature,
+            spatial_relation=fls.spatial_relation
             )
 
-    return daily_temperature.astype(np.float32)
+    return daily_temperature
 
 
 
-def MSTemperature2IR(temp, year, spatial_relation):
+def MSTemperature2IR(temp, spatial_relation):
     
     """
     Import gridded daily temperature data of one year from montlhy statistics and convert 
@@ -1232,15 +1230,15 @@ def MSTemperature2IR(temp, year, spatial_relation):
     temp_flat = temp.reshape(-1, temp.shape[-1])[spatial_relation.index, :]
 
     # Calculate mean temperature per impact region and round
-    daily_temperatures_df = (
-        pd.DataFrame(temp_flat, index=spatial_relation["index_right"])
-        .groupby("index_right")
-        .mean() # Calculate mean temperature per impact region
-        .fillna(20) # Fill in nan with 20 degrees C (conservative choice)
-        .round(1) # Round to 1 decimal place
+    daily_temperatures = npg.aggregate(
+        spatial_relation["index_right"].values, 
+        temp_flat, 
+        func='nanmean', 
+        axis=0, 
+        fill_value=20.0 
     )
    
-    return daily_temperatures_df.to_numpy()
+    return np.round(daily_temperatures, decimals=1)
 
 
 
@@ -1311,12 +1309,7 @@ def CalculateMortalityEffects(sets, fls, baseline, year):
     ### ---------------------- Import daily temperature -----------------------------------
     
     # Read daily temperature data from specified source
-    daily_temperature = DailyTemperature2IR(
-        sets=sets, 
-        year=year, 
-        fls=fls, 
-        spatial_relation=fls.spatial_relation
-        )
+    daily_temperature = DailyTemperature2IR(sets=sets, year=year, fls=fls)
     
     
     ### ---------------------- Calculate marginal mortality --------------------------------
