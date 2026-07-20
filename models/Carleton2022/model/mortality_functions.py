@@ -11,7 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 from utils import temperature as tmp
 import numpy_groupies as npg
 from dask.delayed import delayed
-import dask.array as da
+from dask.distributed import get_client
 from scipy.stats import qmc, norm
 
 
@@ -160,25 +160,35 @@ class MortalityModel:
 
         print("[2] Starting mortality calculations...")
         
-        # rel_mor_scenario = []
+        
+        ### ------------------ Code WITHOUT dask -------------------------
+
+        # rel_mor = []
         # for year in self.sets.years:
-        
-        #     rel_mor = CalculateMortalityEffects(self.sets, self.fls, self.baseline, year)
-        #     rel_mor_scenario.append(rel_mor)
-            
-        # rel_mor_scenario = np.stack(rel_mor_scenario, axis=-1)
-        
-        sets_delayed = dask.delayed(self.sets)
-        fls_delayed = dask.delayed(self.fls)
-        baseline_delayed = dask.delayed(self.baseline)
+
+        #     rel_mor_year = CalculateMortalityEffects(self.sets, self.fls, self.baseline, year)
+        #     rel_mor.append(rel_mor_year)
+
+        ### -------------------- Code WITH dask --------------------------
+
+        client = get_client() 
+
+        sets_future = client.scatter(self.sets)
+        fls_future = client.scatter(self.fls)
+        baseline_future = client.scatter(self.baseline)
 
         tasks = []
         for year in self.sets.years:
-            task = dask.delayed(CalculateMortalityEffects)(sets_delayed, fls_delayed, baseline_delayed, year)
+            task = dask.delayed(CalculateMortalityEffects)(sets_future, fls_future, baseline_future, year)
             tasks.append(task)
         rel_mor = dask.compute(*tasks)
-        rel_mor_scenario = np.stack(rel_mor, axis=-1)
 
+
+        # ---------------------- POSTPROCESSING -----------------------
+
+        # Stack all yearly results
+        rel_mor_scenario = np.stack(rel_mor, axis=-1)
+        
         PostprocessResults(sets=self.sets, fls=self.fls, rel_mor=rel_mor_scenario)
         
 
