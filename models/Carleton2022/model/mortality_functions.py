@@ -359,9 +359,9 @@ def RandomValues4Temperature():
     rng = np.random.default_rng(seed=42)
     
     # Generate normal distribution with std = 1
-    vals = rng.standard_normal(size=(360,720,366))
+    vals = rng.standard_normal(size=(360,720,366)).astype(np.float32)
     
-    return vals.astype(np.float32)
+    return vals
 
 
 
@@ -401,14 +401,6 @@ def GridRelationship(sets, grid):
             pop_map=None, 
             to_array=False
             )
-    
-    # # --------- If Monthly Statistics (MS) data ----------  
-    # else:
-    #     #Use function to import monthly statistics (MS) of daily temperature data in the right format
-    #     grid,_ = tmp.OpenMonthlyTemperatures(
-    #         temp_dir=sets.temp_dir,
-    #         temp_type="MEAN")
-        
 
     # Extract coordinates
     def FindCoordinateName(possible_names, coord_names, temperature):
@@ -1048,13 +1040,10 @@ def ImportClimtas(sets, fls):
     
     # Load monthly statistics data and calculate 30-year running mean at the grid cell level
     temp = (
-        xr.open_dataset(
-            sets.temp_dir+f"/GTMP_30MIN.nc",
-            )
-        ["GTMP_30MIN"]
-        .mean(dim="NM") # Annual temperature
+        fls.temp_mean
+        .mean(dim="NM", skipna=False) # Annual temperature)
         .rolling(time=30, min_periods=30)
-        .mean(dim="time")
+        .mean(dim="time", skipna=False) # Set to False assuming IMAGE temp are consistent
     )
     
     # Get the index of the impact regions and the spatial relationship between grid cells and impact regions
@@ -1235,12 +1224,11 @@ def MSTemperature2IR(temp, spatial_relation):
     it to the impact region level. Return a dataFrame with daily mean temperature per impact 
     region for the given year.
     """
-    temp_flat = temp.reshape(-1, temp.shape[-1])[spatial_relation.index, :]
 
     # Calculate mean temperature per impact region and round
     daily_temperatures = npg.aggregate(
         spatial_relation["index_right"].values, 
-        temp_flat, 
+        temp.reshape(-1, temp.shape[-1])[spatial_relation.index], 
         func='nanmean', 
         axis=0, 
         fill_value=20.0 
