@@ -244,18 +244,18 @@ class LoadInputData:
 
         region_class = GenerateRegionClassification(sets)
         
-        spatial_relation, ir = GridRelationship(sets)
+        if "ERA5" not in sets.scenario:
+            temp_month_mean, temp_month_std = tmp.OpenMonthlyTemperatures(sets.temp_dir, "MEAN")
+        else:
+            temp_month_mean, temp_month_std = None, None
+        
+        spatial_relation, ir = GridRelationship(sets, temp_month_mean)
         
         gamma_coeffs = ImportGammaCoefficients(sets)
         
         population = ImportPopulationData(sets, ir)
         
         random_vals = RandomValues4Temperature()
-        
-        if "ERA5" not in sets.scenario:
-            temp_month_mean, temp_month_std = tmp.OpenMonthlyTemperatures(sets.temp_dir, "MEAN")
-        else:
-            temp_month_mean, temp_month_std = None, None
     
         return cls(
             spatial_relation=spatial_relation,
@@ -378,7 +378,7 @@ def GenerateRegionClassification(sets):
 
 
 
-def GridRelationship(sets):
+def GridRelationship(sets, grid):
     
     """
     Create a DataFrame with the spatial relationship between temperature data points 
@@ -402,12 +402,12 @@ def GridRelationship(sets):
             to_array=False
             )
     
-    # --------- If Monthly Statistics (MS) data ----------  
-    else:
-        #Use function to import monthly statistics (MS) of daily temperature data in the right format
-        grid,_ = tmp.OpenMonthlyTemperatures(
-            temp_dir=sets.temp_dir,
-            temp_type="MEAN")
+    # # --------- If Monthly Statistics (MS) data ----------  
+    # else:
+    #     #Use function to import monthly statistics (MS) of daily temperature data in the right format
+    #     grid,_ = tmp.OpenMonthlyTemperatures(
+    #         temp_dir=sets.temp_dir,
+    #         temp_type="MEAN")
         
 
     # Extract coordinates
