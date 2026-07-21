@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import re, os
+from calendar import isleap
 
 
 
@@ -64,54 +65,36 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
     else: 
         daily_temp = era5_daily.drop_vars("number")
     
-    # Define num_days for leap year/non-leap year
-    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
-        num_days = 366
-    else:
-        num_days = 365
+    # Define num_days for leap year/non-leap year        
+    num_days = 366 if isleap(year) else 365
     
     return daily_temp, num_days
         
     
 
 def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years_in, random_vals, to_xarray=False):
-    #temp_dir, temp_type, years_in, random_vals, to_xarray=False):
-    
+
     """
     Generate daily temperature data fro a given year from monthly statistics assuming 
     a normal distribution.
-    
-    ------------
-    Parameters:
-    - temp_dir: directory where monthly statistics files are stored  
-    - year: year to generate daily data for
-    - temp_type: type of temperature statistic ("MEAN", "MAX", "MIN")
-    - std_factor: factor to adjust daily variability (standard deviation)
-    - to_xarray: boolean, if True return xarray DataArray, if False return numpy array
-    
-    ------------
-    Returns:
-    - daily_temperature: generated daily temperature data for the year as numpy array or xarray DataArray
-    - NUMBER_DAYS: number of days in the year (365 or 366)
     """
     
-    # Define num_days for leap year/non-leap year
-    # ---------- Importing single year -------------
+    # -------------- Define params for leap year/non-leap year ------------------
+    
+    # Importing single year
     if isinstance(years_in, int):
         mid_year = years_in
         years = [years_in]
-        if (mid_year % 4 == 0 and mid_year % 100 != 0) or (mid_year % 400 == 0):
-            NUMBER_DAYS = 366
-        else:
-            NUMBER_DAYS = 365
+        NUMBER_DAYS = 366 if isleap(mid_year) else 365
             
-    # ---------- Importing mean of multiple years ---------
+    # Importing mean of multiple years
     else: 
-        NUMBER_DAYS = 366
-        mid_year = 2000
+        NUMBER_DAYS = 365
+        mid_year = 2005
         years = years_in
         
-    
+        
+    # Select std for defined period
     temperature_std = (
         temperature_std
         .sel(time=slice(f"{years[0]}-01-01", f"{years[-1]}-01-01"))
@@ -121,7 +104,7 @@ def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years_in, ran
         
     # Calculate the monthly climatology (mean) for the selected years
     if isinstance(years_in, int):
-        monthly_climatology = temperature_mean.sel(time=f"{mid_year}-01-01")
+        monthly_climatology = temperature_mean.sel(time=f"{mid_year}-01-01").drop_vars("time")
     else:
         monthly_climatology = (
             temperature_mean
@@ -132,13 +115,12 @@ def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years_in, ran
     # Pad the December and January data to ensure smooth transition between years
     december_pad = monthly_climatology.isel(NM=11)
     january_pad = monthly_climatology.isel(NM=0)
-
     # Concatenate the padded December and January data with the monthly climatology
     padded_climatology = xr.concat([december_pad, monthly_climatology, january_pad], dim="NM")
 
     monthly_dates = pd.date_range(
-        start=f"15/12/{mid_year-1}", 
-        end=f"15/2/{mid_year+1}",
+        start=f"{mid_year-1}-12-15", 
+        end=f"{mid_year+1}-02-15",
         freq="ME"
         ) - pd.DateOffset(days=15)
 
@@ -146,11 +128,10 @@ def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years_in, ran
     temperature_interpolated = (
         padded_climatology
         .assign_coords(NM=monthly_dates)
-        .rename({"NM": "dayofyear"})
-        .resample(dayofyear="1D")
+        .rename({"NM": "time"})
+        .resample(time="1D")
         .interpolate("slinear")
-        .sel(dayofyear=slice(f"{mid_year}-01-01", f"{mid_year}-12-31"))
-        .values
+        .sel(time=slice(f"{mid_year}-01-01", f"{mid_year}-12-31"))
     )
 
     # Generate daily temperature data from monthly STD statistics
@@ -162,17 +143,9 @@ def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years_in, ran
         )
     
     if to_xarray == True:
-        # Convert to xarray DataArray
-        daily_dates = pd.date_range(f"{mid_year}-01-01", f"{mid_year}-12-31", freq="D")
-        
-        # Create xarray DataArray with original coordinates
-        daily_temperature = xr.DataArray(
-            daily_temperature,
-            coords={"latitude": temperature_interpolated.latitude,
-                    "longitude": temperature_interpolated.longitude,
-                    "valid_time":daily_dates},
-            dims=["latitude", "longitude", "valid_time"]
-            )
+        pass
+    else:
+        daily_temperature = daily_temperature.astype(np.float32).values
     
     return daily_temperature, NUMBER_DAYS
 
@@ -198,7 +171,7 @@ def OpenMonthlyTemperatures(temp_dir, temp_type):
     """
     
     temp_type_upper = temp_type.upper()
-    
+
     if temp_type_upper == "MEAN":
         mean_file = os.path.join(temp_dir, "GTMP_30MIN.nc")
         mean_var = "GTMP_30MIN"
@@ -207,18 +180,16 @@ def OpenMonthlyTemperatures(temp_dir, temp_type):
         mean_file = os.path.join(temp_dir, f"GTMP_{temp_type_upper}_30MIN.nc")
         mean_var = f"GTMP_{temp_type_upper}_30MIN"
         std_var = "GTMPMAX_STD_30MIN"
-    else:
-        raise ValueError(f"Tipo de temperatura no válido: {temp_type}")
         
     std_file = os.path.join(temp_dir, "GTMP_STD_30MIN.nc")
-    
-    with xr.open_dataset(mean_file, chunks={}) as ds_mean:
-        temp_mean = ds_mean[mean_var]
+
+    with xr.open_dataset(mean_file) as ds_mean:
+        temp_mean = ds_mean[mean_var].astype("float32").load()
         
-    with xr.open_dataset(std_file, chunks={}) as ds_std:
-        temp_std = ds_std[std_var]
-    
-    return temp_mean.astype("float32"), temp_std.astype("float32")
+    with xr.open_dataset(std_file) as ds_std:
+        temp_std = ds_std[std_var].astype("float32").load()
+
+    return temp_mean, temp_std
 
 
 
@@ -226,33 +197,24 @@ def DailyTemperatureFromNormalPDF(year, temp_daily_mean, temp_std, random_vals):
     
     """
     Generate daily temperature data from monthly statistics assuming normal distribution.
-    Parameters:
-    - year: year to generate daily data for
-    - num_days: number of days in the year (365 or 366)
-    - temp_mean: xarray DataArray of monthly mean temperatures
-    - temp_std: xarray DataArray of monthly standard deviation of temperatures
-    Returns:
-    - synthetic_daily: generated daily temperature data for the year as numpy array
     """    
-
-    # Generate daily dates for the year and get the corresponding month for each day
-    months_per_day = pd.date_range(f"{year}-01-01", f"{year}-12-31").month -1
-
-    # Expand the standard deviation data to match the number of days in the year
-    std_expanded = (
+    
+    # Get corresponding month per day
+    months_per_day = temp_daily_mean.time.dt.month - 1
+    
+    # Map std file to daily std values replicating the same value per month
+    temp_std = (
         temp_std
         .assign_coords(NM=np.arange(0, 12))
         .isel(NM=months_per_day)
-        .values
+        .drop_vars("NM")
     )
-
-    # Cut random vals to match 366 or 365 days
+    
+    # Cut random_vals distribution if needed (e.g. 366 days to 365)
     random_vals = random_vals[:,:,:temp_daily_mean.shape[2]]
-
-    # Calculate the final daily temperature data by adding the mean and scaled standard deviation
-    final_result = np.empty_like(temp_daily_mean)
-    np.multiply(random_vals, std_expanded, out=final_result)
-    np.add(temp_daily_mean, final_result, out=final_result)
+    
+    # Add random noise from std to daily temperature
+    final_result = temp_daily_mean + (random_vals * temp_std)
     
     return final_result
 
