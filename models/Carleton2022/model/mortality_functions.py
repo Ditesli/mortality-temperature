@@ -1235,8 +1235,6 @@ def MSTemperature2IR(temp, spatial_relation):
     it to the impact region level. Return a dataFrame with daily mean temperature per impact 
     region for the given year.
     """
-    
-    # Temporarily store daily temperatures in a dictionary
     temp_flat = temp.reshape(-1, temp.shape[-1])[spatial_relation.index, :]
 
     # Calculate mean temperature per impact region and round
