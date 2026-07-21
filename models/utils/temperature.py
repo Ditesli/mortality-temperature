@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
-import re
+import re, os
 
 
 
@@ -111,8 +111,6 @@ def DailyFromMonthlyTemperature(temperature_mean, temperature_std, years_in, ran
         mid_year = 2000
         years = years_in
         
-    # Open monthly temperature statistics (mean and std) for the given years
-    # temperature_mean, temperature_std = OpenMonthlyTemperatures(temp_dir, temp_type)
     
     temperature_std = (
         temperature_std
@@ -199,23 +197,28 @@ def OpenMonthlyTemperatures(temp_dir, temp_type):
     - temp_std: xarray DataArray of monthly standard deviation of temperatures
     """
     
-    # Read temperature mean and std files of from scenario 
-    if temp_type.upper() == "MEAN":
-        temp_mean = xr.open_dataset(temp_dir+f"/GTMP_30MIN.nc")
-    else: 
-        temp_mean = xr.open_dataset(temp_dir+f"/GTMP_{temp_type}_30MIN.nc")
-    temp_std = xr.open_dataset(temp_dir+f"/GTMP_STD_30MIN.nc")
+    temp_type_upper = temp_type.upper()
     
-    # Select temperature variable depending on type
-    if temp_type.upper() == "MEAN":
-        temp_mean = temp_mean[f"GTMP_30MIN"]
-        temp_std = temp_std[f"GTMP_STD_30MIN"]
+    if temp_type_upper == "MEAN":
+        mean_file = os.path.join(temp_dir, "GTMP_30MIN.nc")
+        mean_var = "GTMP_30MIN"
+        std_var = "GTMP_STD_30MIN"
+    elif temp_type_upper == "MAX":
+        mean_file = os.path.join(temp_dir, f"GTMP_{temp_type_upper}_30MIN.nc")
+        mean_var = f"GTMP_{temp_type_upper}_30MIN"
+        std_var = "GTMPMAX_STD_30MIN"
+    else:
+        raise ValueError(f"Tipo de temperatura no válido: {temp_type}")
+        
+    std_file = os.path.join(temp_dir, "GTMP_STD_30MIN.nc")
     
-    if temp_type.upper() == "MAX":
-        temp_mean = temp_mean[f"GTMP_MAX_30MIN"]
-        temp_std = temp_std[f"GTMPMAX_STD_30MIN"]
+    with xr.open_dataset(mean_file, chunks={}) as ds_mean:
+        temp_mean = ds_mean[mean_var]
+        
+    with xr.open_dataset(std_file, chunks={}) as ds_std:
+        temp_std = ds_std[std_var]
     
-    return temp_mean.astype(np.float32), temp_std.astype(np.float32)
+    return temp_mean.astype("float32"), temp_std.astype("float32")
 
 
 
