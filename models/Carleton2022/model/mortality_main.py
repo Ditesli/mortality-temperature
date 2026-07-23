@@ -8,18 +8,18 @@ from pyinstrument import Profiler
 if __name__ == "__main__":
     
     
-    cluster = LocalCluster(
-            n_workers=1,          # workers = (# CPUs / # workers)
-            threads_per_worker=4, # 4 threads per process 
-            memory_limit= '28GB' # (memory_limit = #GB RAM/n_workers) 1 worker ~ 28GB
-        )
-    client = Client(cluster)
-    print(f"Dask started succesfully. Dashboard in: {client.dashboard_link}")
+    # cluster = LocalCluster(
+    #         n_workers=1,          # workers = (# CPUs / # workers)
+    #         threads_per_worker=4, # 4 threads per process 
+    #         memory_limit= '28GB' # (memory_limit = #GB RAM/n_workers) 1 worker ~ 28GB
+    #     )
+    # client = Client(cluster)
+    # print(f"Dask started succesfully. Dashboard in: {client.dashboard_link}")
     
 
     # for scenario in scenarios:
         
-    config_file = Path(__file__).parent.parent / "settings" / f"SPARCCLE/SSP1_VLLO_ERA_AllImpacts.yaml"
+    config_file = Path(__file__).parent.parent / "settings" / f"SPARCCLE/test.yaml"
     with open(config_file) as f:
         config = yaml.safe_load(f)
 
@@ -46,6 +46,6 @@ if __name__ == "__main__":
     # profiler.write_html("profile.html")
         
         
-    client.close()
-    cluster.close()
+    # client.close()
+    # cluster.close()
 
