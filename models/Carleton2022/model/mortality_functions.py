@@ -10,9 +10,11 @@ import re, sys, os, prism, dask, shapely, shutil, gc
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils import temperature as tmp
 import numpy_groupies as npg
+from scipy.stats import qmc, norm
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from dask.delayed import delayed
 from dask.distributed import get_client
-from scipy.stats import qmc, norm
 
 
 ### ------------------------------------------------------------------------------
@@ -497,12 +499,96 @@ def ImportGammaCoefficients(sets):
     if str(sets.draw).lower() == "mean":
         print("[1.3] Loading gamma coefficients - Mean estimates...")
         pass
+    
+    elif "TRAP" in str(sets.draw):
+        
+        sample = int(re.search(r"TRAP_(\d+)", sets.draw).group(1))
+
+            # Open covariates for "present day" (no adaptation) and reindex wrt ir dataframe
+        covariates_t0 = (
+                pd.read_csv(sets.wdir+"/data/CarletonSM/main_specification/mortality-allpreds.csv")
+        )
+
+        # Extract only climtas and loggdppc as arrays
+        climtas = np.mean(covariates_t0["climtas"].values)
+        loggdppc = np.mean(covariates_t0["loggdppc"].values)
+
+        num_draws = 10000
+
+        np.random.seed(42)
+
+        draws_simulados = np.random.multivariate_normal(gammas, vcv, size=num_draws)
+        
+        # impactos_base = np.zeros(num_draws)
+
+        # covariates = np.array([[1.0, climtas, loggdppc]], dtype=np.float32)
+        # base=covariates[0,covar_idx]*draws_simulados
+
+        # tas  = np.column_stack([base[:, 0:3].sum(axis=1),  base[:, 12:15].sum(axis=1), base[:, 24:27].sum(axis=1)]) # (10000, 3)
+        # tas2 = np.column_stack([base[:, 3:6].sum(axis=1),  base[:, 15:18].sum(axis=1), base[:, 27:30].sum(axis=1)]) # (10000, 3)
+        # tas3 = np.column_stack([base[:, 6:9].sum(axis=1),  base[:, 18:21].sum(axis=1), base[:, 30:33].sum(axis=1)]) # (10000, 3)
+        # tas4 = np.column_stack([base[:, 9:12].sum(axis=1), base[:, 21:24].sum(axis=1), base[:, 33:36].sum(axis=1)]) # (10000, 3)
+
+        # erf = (
+        #     tas[:, :, None]  * sets.T[None, None, :]**1 +
+        #     tas2[:, :, None] * sets.T[None, None, :]**2 +
+        #     tas3[:, :, None] * sets.T[None, None, :]**3 +
+        #     tas4[:, :, None] * sets.T[None, None, :]**4
+        # )
+
+        # # 1. Localizar los índices de temperatura (Se mantiene igual, opera sobre el vector T)
+        # idx_start = np.where(np.isclose(sets.T, 10.0, atol=0.05))[0][0]
+        # idx_end = np.where(np.isclose(sets.T, 30.0, atol=0.05))[0][0]
+
+        # # segment ahora tiene forma (10000, 3, idx_end - idx_start)
+        # segment = erf[:, :, idx_start:idx_end]
+
+        # # 2. Encontrar el mínimo local a lo largo del eje de temperaturas (axis=2)
+        # # idx_local_min resultante tendrá forma (10000, 3)
+        # idx_local_min = np.argmin(segment, axis=2)
+
+        # # Mapamos los índices de regreso al vector T. tmin tendrá forma (10000, 3)
+        # tmin = sets.T[idx_start + idx_local_min]
+
+        # erf_at_tmin = (
+        #     tas * tmin + tas2 * tmin**2 + tas3 * tmin**3 + tas4 * tmin**4
+        # )
+
+        # erf_ajustada = erf - erf_at_tmin[:, :, None]
+
+        # erf_total_por_draw = erf_ajustada.sum(axis=1)
+
+        # mascara_positivos = sets.T > 0
+        # T_positivos = sets.T[mascara_positivos]
+        # erf_positivos = erf_total_por_draw[:, mascara_positivos]
+
+        # impactos_totales_area = np.zeros(num_draws)
+
+        # impactos_totales_area = np.trapz(erf_positivos, T_positivos, axis=1)
+
+        # percentiles_objetivo = np.linspace(5, 95, 10)
+        # indices_10_draws = []
+
+        # for p in percentiles_objetivo:
+        #     valor_teorico = np.percentile(impactos_totales_area, p)
+        #     idx_mas_cercano = np.abs(impactos_totales_area - valor_teorico).argmin()
+        #     indices_10_draws.append(idx_mas_cercano)
+
+        # intensidades_erf_shapley = impactos_totales_area[indices_10_draws]
+
+        draws_percentiles = [np.int64(8125), np.int64(5777), np.int64(172), np.int64(5547), np.int64(9772), np.int64(2854), np.int64(8364), np.int64(8417), np.int64(3073), np.int64(9175)]
+        intensity_erf = ([114.37473976, 143.82825596, 162.47447805, 176.7048847, 189.55993789, 202.39755928, 215.05416884, 229.89455102, 248.84048401, 281.24544739])
+
+        gammas = draws_simulados[draws_percentiles[sample]]
+
 
     elif "LHS" in str(sets.draw):
 
         print("[1.3] Loading gamma coefficients using Latin Hypercube Sampling")
-        n_draws = 100 # Fixed number based on elbow error analysis
-        sample = int(re.search(r"LHS_(\d+)", sets.draw).group(1))
+        # n_draws = 100 # Fixed number based on elbow error analysis
+        
+        n_draws = int(re.search(r"LHS_(\d+)_(\d+)", sets.draw).group(1))
+        sample = int(re.search(r"LHS_(\d+)_(\d+)", sets.draw).group(2))
 
         # Latin hypercube object for the 3x12 gammas, including seed for replication
         sampler = qmc.LatinHypercube(d=36, seed=42, scramble=True)
@@ -523,7 +609,8 @@ def ImportGammaCoefficients(sets):
     else:
         print(f"[1.3] Loading gamma coefficients - Random draw from the normal distribution...")
         gammas = np.random.multivariate_normal(mean=gammas, cov=vcv, size=1) 
-                
+        
+    
     return gammas.reshape(3,12).astype(np.float32), covar_idx.reshape(3,12).astype(int)
 
 
@@ -641,7 +728,7 @@ def ImportBaselineTemperatures(sets, fls, spatial_relation):
             t0_mean[year]  = xr.open_dataset(
                 sets.wdir +
                 f"/data/ClimateData/BaselineTemperatures/ERA5_tmean0_{year}.nc"
-                ).tmean0.values
+                ).tmean0.values.astype(np.float32)
             
     # -------------- Scenario data --------------
     else: 
@@ -657,9 +744,9 @@ def ImportBaselineTemperatures(sets, fls, spatial_relation):
         t0_mean = MSTemperature2IR(
             temp=daily_temperature,
             spatial_relation=spatial_relation
-            )
+            ).astype(np.float32)
     
-    return t0_mean.astype(np.float32)
+    return t0_mean
 
 
 
