@@ -175,13 +175,14 @@ def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, varia
         print(i)
         
         # Complete filename
+
         filename = re.search(r'([^\\/]+)\.nc$', file_list[i]).group(1)
         # Complete scenario name
         scenario = re.search(r'uncertainty_(.*?)_ssp', filename).group(1)
         # Climate variability filename
         variability = re.search(rf'{scenario}_(.*?)_2000', filename).group(1)
         # ERF draw name
-        draw = re.search(r'2000-2100_(.*)', filename).group(1)
+        draw = re.search(r'2000-2100_TRAP_(.*)', filename).group(1)
         # SSP of the scenario
         ssp = scenario[:4]
         # Climate target of the scenario
@@ -201,13 +202,16 @@ def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, varia
         # Assign variability label
         ds["variability"] = variability
         # Assign ERF draw label
-        ds["erf_draw"] = draw
+        # ds["erf_draw"] = draw
         # Assign SSP label
         ds["ssp"] = ssp
         # Assign climate target label
         ds["climate"] = climate
         # Merge with pop data (no row should be excluded)
-        ds = ds.merge(pop[ssp.lower()], on="year", how="left")
+        ds = ds.merge(pop[ssp.lower()], on="year", how="left")        
+        
+        intensity_erf = ([114.37473976, 143.82825596, 162.47447805, 176.7048847, 189.55993789, 202.39755928, 215.05416884, 229.89455102, 248.84048401, 281.24544739])
+        ds["erf_draw"] = intensity_erf[int(draw)]
         
         # Append in list
         final_list.append(ds)
@@ -219,65 +223,8 @@ def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, varia
     all_results.to_parquet(wdir + f"data4shapley_{region}_{age_group}.parquet", index=False)
     
     return all_results
-        
-        
-        
-def CalculateShapleyDecomposition(r2_results, predictors):
-    
-    n = len(predictors)
-    shapley_values = {}
-    
-    # Iterate for all predictors variables
-    for v in predictors:
-        
-        # Get the rest of the variables
-        other_vars = [x for x in predictors if x != v]
-        phi_v = 0.0
-        
-        # Iterate over the possible subsets
-        for s_size in range(1,n):
-            
-            # Iterate over all combinations
-            for comb in itertools.combinations(other_vars, s_size):
-                
-                # Sort subsets
-                subset_without = tuple(sorted(comb))
-                subset_with = tuple(sorted(comb + (v,)))
-                
-                # Calculate R2
-                r2_with = r2_results.get(subset_with, 0.0)
-                r2_without = r2_results.get(subset_without, 0.0)
-                
-                # Calculate marginal contribution
-                marginal_contribution = r2_with - r2_without
-                
-                # Calculate the regression contribution weighted by the number of permutations
-                weight = (math.factorial(s_size) * math.factorial(n - 1 - s_size)) / math.factorial(n)
-                
-                # Aggregate to the Shaley-Owen value
-                phi_v += marginal_contribution * weight
-                
-        # Save in dictionary the final Shapley value of variable v
-        shapley_values[f"R2_{v}_Shapley"] = phi_v
 
-    # Get R2 of the whole model using all preictors together
-    full_model_key = tuple(sorted(predictors))
-    r2_full_model = r2_results.get(full_model_key, 0.0)
-    
-    # Calculate the residual
-    shapley_values["R2_Residual"] = 1.0 - r2_full_model
-    
-    # Shapley test indicates sum of all Shapley values must EQUAL the model R2
-    total_shapley_sum = sum(shapley_values[f"R2_{v}_Shapley"] for v in predictors)
-    test_validation = r2_full_model - total_shapley_sum
 
-    shapley_values["Total_R2_Shapley"] = total_shapley_sum
-    shapley_values["R2_Full_Model"] = r2_full_model
-    shapley_values["Test_R2_Shapley_vs_R2"] = test_validation
-    
-    return shapley_values
-        
-        
         
 def ComputeRegressionsAndStats(data, year, target_variable, predictors):
     
@@ -293,13 +240,13 @@ def ComputeRegressionsAndStats(data, year, target_variable, predictors):
     stats = {}
     
     # Generate the basic descriptive stats for the dependent variable for each year
-    stats["avg"]=np.average(df_year[variable])
-    stats["median"]=np.median(df_year[variable])
-    stats["StDev"]=np.std(df_year[variable])
+    stats["avg"]=np.average(df_year[target_variable])
+    stats["median"]=np.median(df_year[target_variable])
+    stats["StDev"]=np.std(df_year[target_variable])
     
     # Generate the 75th and 90th percentile for the dependent variable for each year
-    stats["percentile_90"]=np.percentile(df_year[variable], 90)
-    stats["percentile_75"]=np.percentile(df_year[variable], 75)
+    stats["percentile_90"]=np.percentile(df_year[target_variable], 90)
+    stats["percentile_75"]=np.percentile(df_year[target_variable], 75)
     
     
     # Regressions ------------------------------------------------------------
@@ -313,8 +260,17 @@ def ComputeRegressionsAndStats(data, year, target_variable, predictors):
     for r in range(1, n + 1):
         for combo in itertools.combinations(predictors, r):
             
+            flattened_combo = []
+            for item in combo:
+                if isinstance(item, tuple):
+                    flattened_combo.extend(item)
+                else:
+                    flattened_combo.append(item)
+            
             # Sort alphabetically the predictors names
-            sorted_combo = tuple(sorted(list(combo)))
+            sorted_combo = tuple(sorted(list(flattened_combo)))
+            
+            # print(f"R2 for {sorted_combo}")
 
             # Build Patsy formula joining predictors using +
             patsy_formula = f"{target_variable} ~ {" + ".join(sorted_combo)}"
@@ -333,87 +289,84 @@ def ComputeRegressionsAndStats(data, year, target_variable, predictors):
                 r2_results[sorted_combo] = None
                 
     return stats, r2_results
-
-
-
-def prepare_shapley_plot_columns(shapley_values, avg, stdev, predictors_list):
-    """
-    Generaliza los cálculos de desviaciones estándar ponderadas (SD2) y las 
-    métricas de centrado para gráficos de barras apiladas de Shapley con N variables.
-    
-    Argumentos:
-    - shapley_values: Diccionario devuelto por la función anterior (calculate_shapley_decomposition).
-    - avg: Media de la variable dependiente para ese año/periodo (float).
-    - stdev: Desviación estándar de la variable dependiente para ese año/periodo (float).
-    - predictors_list: Lista con los nombres de las variables (ej. ['variability', 'gdppc', ...]).
-    
-    Retorna:
-    - Un diccionario con todas las métricas de graficación preparadas.
-    """
-    plot_metrics = {}
-    
-    # 1. Calcular el límite base (Avg_SD)
-    avg_sd = avg - stdev
-    plot_metrics["Avg_SD"] = avg_sd
-    
-    # 2. Lógica de control para valores negativos (Surrogate)
-    if avg_sd >= 0:
-        plot_metrics["Plot_Avg_SD"] = avg_sd
-        plot_metrics["Plot_Avg_SD_Surrogate"] = 0.0
-    else:
-        plot_metrics["Plot_Avg_SD"] = 0.0
-        plot_metrics["Plot_Avg_SD_Surrogate"] = avg_sd
         
-    # 3. Calcular dinámicamente las alturas de los efectos (2 * SD * R2_Shapley)
-    # Procesa automáticamente tus 5 variables independientes
-    total_sd2_predictors = 0.0
-    for v in predictors_list:
-        r2_shapley_key = f"R2_{v}_Shapley"
-        r2_value = shapley_values.get(r2_shapley_key, 0.0)
         
-        sd2_value = 2 * stdev * r2_value
-        plot_metrics[f"SD2_{v}"] = sd2_value
-        total_sd2_predictors += sd2_value
         
-    # 4. Calcular la altura para el Residuo
-    r2_residual = shapley_values.get("R2_Residual", 0.0)
-    sd2_resid = 2 * stdev * r2_residual
-    plot_metrics["SD2_Resid"] = sd2_resid
+def CalculateShapleyDecomposition(r2_results, predictors):
     
-    # 5. Cálculos de centrado matemático sobre la media
-    # Sumamos las alturas de todas las variables + el residuo + las bases de control
-    total_stacks_height = total_sd2_predictors + sd2_resid
     
-    low_end = plot_metrics["Plot_Avg_SD"] + plot_metrics["Plot_Avg_SD_Surrogate"]
-    high_end = total_stacks_height + low_end
+    def flatten_tuple(combo):
+        flattened = []
+        for item in combo:
+            if isinstance(item, tuple):
+                flattened.extend(item)
+            else:
+                flattened.append(item)
+        return tuple(sorted(flattened))
     
-    length = high_end + low_end
-    mid_point = length / 2
+    n = len(predictors)
+    shapley_values = {}
     
-    # Guardar métricas de control
-    plot_metrics["Low_end"] = low_end
-    plot_metrics["High_end"] = high_end
-    plot_metrics["Length"] = length
-    plot_metrics["Mid_point"] = mid_point
-    plot_metrics["Avg_vs_Mid_point"] = avg - mid_point  # Debe ser muy cercano a 0
-    
-    return plot_metrics
+    # Iterate for all predictors
+    for v in predictors:
+        
+        # Get the rest of the variables
+        other_vars = [x for x in predictors if x != v]
+        # Initialize the shapley value with 0
+        phi_v = 0.0
+        
+        # Iterate over the possible subsets
+        for s_size in range(0,n):
+            
+            # Iterate over all combinations
+            for comb in itertools.combinations(other_vars, s_size):
+                
+                # print(f"Shapley for {v} - subset size {s_size} - combination {comb}")
+                
+                # Sort subsets
+                subset_with = flatten_tuple(comb + (v,))
+                subset_without = flatten_tuple(comb)
+                
+                # Calculate R2
+                r2_with = r2_results.get(subset_with, 0.0)
+                r2_without = r2_results.get(subset_without, 0.0)
+                
+                # Calculate marginal contribution
+                marginal_contribution = r2_with - r2_without
+                
+                # Calculate the regression contribution weighted by the number of permutations
+                weight = (math.factorial(s_size) * math.factorial(n - 1 - s_size)) / math.factorial(n)
+                
+                # Aggregate to the Shaley-Owen value
+                phi_v += marginal_contribution * weight
+                
+        # Save in dictionary the final Shapley value of variable v
+        v_name = "_".join(v) if isinstance(v, tuple) else v
+        shapley_values[f"R2_{v_name}_Shapley"] = phi_v
 
+    # Get R2 of the whole model using all preictors together
+    r2_full_model = r2_results.get(flatten_tuple(predictors), 0.0)
+    
+    # Calculate the residual of the Shapley values (what's not explained by them)
+    shapley_values["R2_Residual"] = 1.0 - r2_full_model
+    
+    total_shapley_sum = r2_results.get(flatten_tuple(predictors), 0.0)
+    
+    # Shapley test indicates sum of all Shapley values must EQUAL the model R2
+    test_validation = r2_full_model - total_shapley_sum
 
+    shapley_values["Total_R2_Shapley"] = total_shapley_sum
+    shapley_values["R2_Full_Model"] = r2_full_model
+    shapley_values["Test_R2_Shapley_vs_R2"] = test_validation
+    
+    return shapley_values
+        
+        
 
 def BuildShapleyRow(variable_name, year, stats, r2_results, shapley_values, predictors):
-    """
-    Construye dinámicamente una fila estructurada con todas las métricas de Shapley
-    y graficación para N variables, adaptándose de forma automática.
     
-    Argumentos:
-    - variable_name: Nombre de la variable dependiente Y (str).
-    - year: Año analizado (int).
-    - stats: Diccionario con estadísticas descriptivas (Average, Median, StDev, etc.).
-    - r2_results: Diccionario con los R2 de todas las regresiones del bloque B.
-    - shapley_values: Diccionario con los Shapley del bloque C.
-    - plot_metrics: Diccionario con las métricas de centrado del bloque D.
-    - predictors_list: Lista con los nombres de tus variables (las 5 variables actuales).
+    """
+    Build needed rows for plotting
     """
     
     # 1. Información Básica y Estadísticas Descriptivas (Bloque A)
@@ -425,7 +378,7 @@ def BuildShapleyRow(variable_name, year, stats, r2_results, shapley_values, pred
         'StDev': stats.get('StDev'),
         'percentile_90': stats.get('percentile_90'),
         'percentile_75': stats.get('percentile_75'),
-        # 'Avg-SD': plot_metrics.get('Avg_SD')
+        'Avg-SD': stats.get('avg') - stats.get('StDev')
     }
     
     # Add all R2 combinations
@@ -437,35 +390,40 @@ def BuildShapleyRow(variable_name, year, stats, r2_results, shapley_values, pred
         
     # Add R2 of the whole model, residal and validations
     row['R2_Residual'] = shapley_values.get('R2_Residual')
+    
+    # Add total contributions of Shapley values
+    for v in predictors:
+        v_name = "_".join(v) if isinstance(v, tuple) else v
+        row[f"R2_{v_name}_Shapley"] = shapley_values[f"R2_{v_name}_Shapley"]
+    
     row['R2_Full_Model'] = shapley_values.get('R2_Full_Model')
     row['R2_Shapley_Sum'] = shapley_values.get('Total_R2_Shapley')
     row['Test_R2_Shapley_vs_R2'] = int(round(shapley_values.get('Test_R2_Shapley_vs_R2', 0)))
     
-    row["Avg-SD"] = row["Average"] - row["StDev"]
     row['Plot_Avg_SD'] = row["Avg-SD"] if row["Avg-SD"]>0 else 0
     row['Plot_Avg_SD_Surrogate'] = row["Avg-SD"] if row["Avg-SD"]<0 else 0
     row['Plot_Resid'] = (2 * row["StDev"] * row['R2_Residual'])
     
     # Caclulate Avg vs Midpoint
     Low_end = row['Plot_Avg_SD'] + row['Plot_Avg_SD_Surrogate']
-    High_end = sum([2 * row["StDev"] * shapley_values.get(f'R2_{predictor}_Shapley', 0) for predictor in predictors]) + row['Plot_Avg_SD'] + row['Plot_Avg_SD_Surrogate']
+    
+    SD2=0
+    for v in predictors:
+        v_name = "_".join(v) if isinstance(v, tuple) else v
+        row[f"Plot_{v_name}"] = 2 * row["StDev"] * shapley_values.get(f'R2_{v_name}_Shapley', 0)
+        SD2+=row[f"Plot_{v_name}"]
+    High_end = SD2 + row['Plot_Avg_SD'] + row['Plot_Avg_SD_Surrogate'] + row["Plot_Resid"]
     Length = High_end + Low_end
     Mid_point = Length / 2
     Avg_vs_Mid_point = row["Average"] - Mid_point # which must equal to zero in the final table
     
     row['Avg_vs_Mid_point'] = int(round(Avg_vs_Mid_point))
     
-    # Process independent variables
-    total_shapley = shapley_values.get('Total_R2_Shapley', 1.0) # Avoid division by 0
+    row["R2_Full_Model_sum"] = shapley_values.get('R2_Full_Model')
     
     for v in predictors:
-        sh_val = shapley_values.get(f"R2_{v}_Shapley", 0.0)
-        sd2_val = 2 * row["StDev"] * shapley_values.get(f'R2_{v}_Shapley', 0)
-        
-        # Dynamic columns per variable
-        row[f"R2_{v}_Shapley"] = sh_val
-        row[f"Plot_{v}"] = sd2_val
-        row[f"R2_{v}_Shapley_norm"] = sh_val / total_shapley if total_shapley != 0 else 0.0
+        v_name = "_".join(v) if isinstance(v, tuple) else v
+        row[f"R2_{v}_Shapley_norm"] = shapley_values[f"R2_{v_name}_Shapley"] / row["R2_Full_Model_sum"]
 
     return row
 
@@ -475,13 +433,13 @@ def ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, pr
     
     
     # Generate a clean dataframe of the mortality and its predictors
-    # data = GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, variable)
+    data = GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, variable)
     
-    data = replicateK(variable=variable)
+    # data = replicateK(variable=variable)
     
     df = []
     
-    for year in range(2000,2110,10):
+    for year in range(2010,2101):
         
         print(year)
         
@@ -504,12 +462,14 @@ def ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, pr
     'Plot_population':'C1', 
     'Plot_climate':'C2', 
     'Plot_variability':'C3',
-    "Plot_Resid":"C4" 
+    "Plot_erf_draw": "C4",
+    "Plot_Resid":"C5" 
     }
 
     fig, ax = plt.subplots()
-    ax = df[['Year','Plot_Avg_SD','Plot_Avg_SD_Surrogate',
-    'Plot_gdppc','Plot_population','Plot_climate', "Plot_variability",'Plot_Resid']].\
+    ax = df[['Year', 'Plot_Avg_SD', 'Plot_Avg_SD_Surrogate'] + 
+        [f"Plot_{p}" for p in predictors] + 
+        ['Plot_Resid']].\
         set_index('Year').\
         plot(
         kind='bar',
@@ -525,33 +485,29 @@ def ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, pr
         bbox_to_anchor=(1.05, 1), 
         loc='upper left'
     )
+    df[['Average']].\
+        plot(
+            kind='line', 
+            marker = 'd', 
+            color='black', 
+            ax=ax,
+            label=None
+            )
 
+    # The line plot for the Median
+    df[['Median']].\
+        plot(
+            kind='line', 
+            linestyle='--', 
+            color='r', 
+            ax=ax,
+            label=None
+        )
         
-scenarios =  [
-    "SSP2_M_CP_ERA_NoImpacts",
-    "SSP2_M_CP_ERA_AllImpacts",
-    "SSP2_M_CP_ERA_NoEcon",
-    "SSP2_M_CP_Default_NoEcon",
-    "SSP1_M_CP_ERA_AllImpacts",
-    "SSP1_M_CP_ERA_NoImpacts",
-    "SSP1_M_CP_ERA_NoEcon",
-    "SSP1_ML_ERA_NoImpacts",
-    "SSP2_ML_ERA_NoImpacts",
-    "SSP1_ML_ERA_AllImpacts",
-    "SSP2_ML_ERA_AllImpacts",
-    "SSP1_ML_ERA_NoEcon",
-    "SSP2_ML_ERA_NoEcon",
-    "SSP1_VLLO_ERA_NoImpacts",
-    "SSP2_VLLO_ERA_NoImpacts",
-    "SSP1_VLLO_ERA_AllImpacts",
-    "SSP2_VLLO_ERA_AllImpacts"
-]
-predictors = ["variability", "gdppc", "population", "climate", "erf_draw"]
-variable="mortality"
-age_group = "All ages"
-region = "World"
-gdp_dir =  "X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_5/IMPACTS/{scenario}/indicators/Economy/GDPpc_incl_impacts.out"
-wdir = "X:\\user\\liprandicn/Projects\\mt-comparison\\models/Carleton2022/output/SPARCCLE_uncertainty\\"
+    fig.tight_layout()
+    plt.show() 
+
+
 
 
 def replicateK(variable):
@@ -624,5 +580,32 @@ def replicateK(variable):
     return ssps_df
 
 
+
+        
+scenarios =  [
+    "SSP2_M_CP_ERA_NoImpacts",
+    "SSP2_M_CP_ERA_AllImpacts",
+    "SSP2_M_CP_ERA_NoEcon",
+    "SSP2_M_CP_Default_NoEcon",
+    "SSP1_M_CP_ERA_AllImpacts",
+    "SSP1_M_CP_ERA_NoImpacts",
+    "SSP1_M_CP_ERA_NoEcon",
+    "SSP1_ML_ERA_NoImpacts",
+    "SSP2_ML_ERA_NoImpacts",
+    "SSP1_ML_ERA_AllImpacts",
+    "SSP2_ML_ERA_AllImpacts",
+    "SSP1_ML_ERA_NoEcon",
+    "SSP2_ML_ERA_NoEcon",
+    "SSP1_VLLO_ERA_NoImpacts",
+    "SSP2_VLLO_ERA_NoImpacts",
+    "SSP1_VLLO_ERA_AllImpacts",
+    "SSP2_VLLO_ERA_AllImpacts"
+]
+predictors = ["variability", "gdppc", "population", "climate", "erf_draw"] #[("cumulative_emissions", "squared_cumulative_emissions"), "model", "scenario"]
+variable="mortality"#"Primary_Energy"
+age_group = "All ages"
+region = "World"
+gdp_dir =  "X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_5/IMPACTS/{scenario}/indicators/Economy/GDPpc_incl_impacts.out"
+wdir = "X:\\user\\liprandicn/Projects\\mt-comparison\\models/Carleton2022/output/SPARCCLE_uncertainty\\"
 
 ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, predictors)
