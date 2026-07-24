@@ -38,6 +38,7 @@ if __name__ == "__main__":
         counterfactual=config["counterfactual"], # Counterfactual climate scenario
         draw=config["draw"], # Mean or specific/random draw
         reporting_tool=config["reporting_tool"], # Report on or off
+        dask_on=config["dask_on"],
     )
     end=time.time()
     print(end-start)
