@@ -30,7 +30,8 @@ def CalculateMortality(
     adaptation: bool,
     counterfactual: bool,
     draw: any,
-    reporting_tool: any
+    reporting_tool: any,
+    dask_on: bool
 ):
 
     sets = ModelSettings(
@@ -43,7 +44,8 @@ def CalculateMortality(
         adaptation=adaptation,
         counterfactual=counterfactual,
         draw=draw,
-        reporting_tool=reporting_tool
+        reporting_tool=reporting_tool,
+        dask_on=dask_on
     )
 
     model = MortalityModel(sets=sets)
@@ -64,6 +66,7 @@ class ModelSettings:
     counterfactual: bool
     draw: any
     reporting_tool: any
+    dask_on: bool
     base_years: list = field(default_factory=lambda: list(range(2000, 2010)))
     age_groups: list = field(
         default_factory=lambda: ["young", "older", "oldest"]
@@ -162,28 +165,33 @@ class MortalityModel:
 
         print("[2] Starting mortality calculations...")
         
-        
-        ### ------------------ Code WITHOUT dask -------------------------
 
-        # rel_mor = []
-        # for year in self.sets.years:
+        if self.sets.dask_on == True: 
+            
+            ## -------------------- Code WITH dask --------------------------
 
-        #     rel_mor_year = CalculateMortalityEffects(self.sets, self.fls, self.baseline, year)
-        #     rel_mor.append(rel_mor_year)
+            client = get_client() 
 
-        ### -------------------- Code WITH dask --------------------------
+            sets_future = client.scatter(self.sets)
+            fls_future = client.scatter(self.fls)
+            baseline_future = client.scatter(self.baseline)
 
-        client = get_client() 
+            tasks = []
+            for year in self.sets.years:
+                task = dask.delayed(CalculateMortalityEffects)(sets_future, fls_future, baseline_future, year)
+                tasks.append(task)
+            rel_mor = dask.compute(*tasks)
+            
+        else:
+            
+            ### ------------------ Code WITHOUT dask -------------------------
+            
+            rel_mor = []
+            for year in self.sets.years:
 
-        sets_future = client.scatter(self.sets)
-        fls_future = client.scatter(self.fls)
-        baseline_future = client.scatter(self.baseline)
+                rel_mor_year = CalculateMortalityEffects(self.sets, self.fls, self.baseline, year)
+                rel_mor.append(rel_mor_year)
 
-        tasks = []
-        for year in self.sets.years:
-            task = dask.delayed(CalculateMortalityEffects)(sets_future, fls_future, baseline_future, year)
-            tasks.append(task)
-        rel_mor = dask.compute(*tasks)
 
 
         # ---------------------- POSTPROCESSING -----------------------
