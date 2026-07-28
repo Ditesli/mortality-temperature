@@ -1635,7 +1635,7 @@ def AggregateRegionalMortality(sets, fls, rel_mor):#
     # Merge all datasets from IMAGE and ISO3 regions
     xarray_unit = xr.concat(region_datasets, dim="region").set_index(geo=["region", "region_type"])
     
-    # Recalculate relative mortality in the final step (xarrray now includes global, all ages and all tempeeratures)
+    # Recalculate relative mortality in the final step (xarrray now includes global, all ages and all temperatures)
     xarray_unit["relative_mortality"] = xarray_unit["mortality"] * 1e5 / xarray_unit["population"]
     
     # Return only mortality and relative mortality
