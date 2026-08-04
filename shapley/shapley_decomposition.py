@@ -58,8 +58,6 @@ def ImportGDPpc(rel_path, scenarios, region):
         "RSAF"
         ]
 
-
-
     gdp = {}
 
     for scenario in scenarios:
@@ -107,6 +105,7 @@ def ImportGDPpc(rel_path, scenarios, region):
     return gdp
 
 
+
 def ImportPopulation(wdir, region, age_group):
     
     years = range(2000,2101)
@@ -148,81 +147,6 @@ def ImportPopulation(wdir, region, age_group):
         pop[ssp] = pop_ssp_all
         
     return pop
-
-
-
-def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, variable):
-    
-    """
-    Read in the uncertainty runs from the temperature-mortality model and concat all scenarios
-    in a single dataframe, including the predictors from the Shapley-Owen decompostion. Save
-    the dataframe as parquet file and return it in the function.
-    """
-
-    # Import annual GDPpc for all scenarios from TIMER
-    gdp = ImportGDPpc(gdp_dir, scenarios, region)
-    # Import annual population for all scenarios from IMAGE-Land
-    pop = ImportPopulation(wdir, region, age_group)
-
-    # All output files from the temperature-mortality model
-    file_list = sorted(glob.glob(wdir+"*.nc"))
-
-    # List to append mortality and predictors data
-    final_list = []
-
-    for i in range(len(file_list)):
-        
-        print(i)
-        
-        # Complete filename
-
-        filename = re.search(r'([^\\/]+)\.nc$', file_list[i]).group(1)
-        # Complete scenario name
-        scenario = re.search(r'uncertainty_(.*?)_ssp', filename).group(1)
-        # Climate variability filename
-        variability = re.search(rf'{scenario}_(.*?)_2000', filename).group(1)
-        # ERF draw name
-        draw = re.search(r'2000-2100_TRAP_(.*)', filename).group(1)
-        # SSP of the scenario
-        ssp = scenario[:4]
-        # Climate target of the scenario
-        climate = scenario[5:]
-        
-        # Load mortality file i given a region, temperature type and age group
-        cause=None
-        t_type="heat"
-        region_type="IMAGE"
-        ds = LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable)
-        
-        # Conver to dataframe and drop useless columns
-        ds = ds.to_dataframe().reset_index().drop(columns=["t_type", "geo", "region_type", "region"])
-        
-        # Merge with gdp data (no row should be excluded)
-        ds = ds.merge(gdp[scenario], on="year", how="left")
-        # Assign variability label
-        ds["variability"] = variability
-        # Assign ERF draw label
-        # ds["erf_draw"] = draw
-        # Assign SSP label
-        ds["ssp"] = ssp
-        # Assign climate target label
-        ds["climate"] = climate
-        # Merge with pop data (no row should be excluded)
-        ds = ds.merge(pop[ssp.lower()], on="year", how="left")        
-        
-        intensity_erf = ([114.37473976, 143.82825596, 162.47447805, 176.7048847, 189.55993789, 202.39755928, 215.05416884, 229.89455102, 248.84048401, 281.24544739])
-        ds["erf_draw"] = intensity_erf[int(draw)]
-        
-        # Append in list
-        final_list.append(ds)
-    
-    # Concat all dataframes thorugh axis 0 generating a single dataframe with all scenarios and predictors
-    all_results = pd.concat(final_list, axis=0, ignore_index=True)
-
-    # Save cleaned dataframe as parquet
-    all_results.to_parquet(wdir + f"data4shapley_{region}_{age_group}.parquet", index=False)
-    
-    return all_results
 
 
         
@@ -463,7 +387,9 @@ def ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, pr
     'Plot_climate':'C2', 
     'Plot_variability':'C3',
     "Plot_erf_draw": "C4",
-    "Plot_Resid":"C5" 
+    "Plot_gdp_impacts": "C5",
+    "Plot_ssp": "C6",
+    "Plot_Resid":"C7" 
     }
 
     fig, ax = plt.subplots()
@@ -499,11 +425,13 @@ def ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, pr
         plot(
             kind='line', 
             linestyle='--', 
-            color='r', 
+            color='k', 
             ax=ax,
             label=None
         )
-        
+
+    ax.tick_params(axis='x', labelrotation=45)
+
     fig.tight_layout()
     plt.show() 
 
@@ -581,31 +509,124 @@ def replicateK(variable):
 
 
 
+def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, variable):
+    
+    """
+    Read in the uncertainty runs from the temperature-mortality model and concat all scenarios
+    in a single dataframe, including the predictors from the Shapley-Owen decompostion. Save
+    the dataframe as parquet file and return it in the function.
+    """
+
+    # Import annual GDPpc for all scenarios from TIMER
+    gdp = ImportGDPpc(gdp_dir, scenarios, region)
+    # Import annual population for all scenarios from IMAGE-Land
+    pop = ImportPopulation(wdir, region, age_group)
+
+    # All output files from the temperature-mortality model
+    file_list = sorted(glob.glob(wdir+"*.nc"))
+
+    # List to append mortality and predictors data
+    final_list = []
+
+    for i in range(len(file_list)):
         
-scenarios =  [
-    "SSP2_M_CP_ERA_NoImpacts",
+        print(i)
+        
+        # Complete filename
+
+        filename = re.search(r'([^\\/]+)\.nc$', file_list[i]).group(1)
+        # Complete scenario name
+        scenario = re.search(r'climvar_(.*?)_ssp', filename).group(1)
+        # Climate variability filename
+        variability = re.search(rf'{scenario}_(.*?)_2000', filename).group(1)
+        # ERF draw name
+        # draw = re.search(r'2000-2100_TRAP_(.*)', filename).group(1)
+        # SSP of the scenario
+        ssp = scenario[:4]
+        # Climate target of the scenario
+        climate = re.search(rf'{ssp}_(.*?)_ERA', scenario).group(1)
+        
+        if "AllImpacts" in scenario:
+            gdp_impacts = 1
+        elif "NoEcon" in scenario:
+            gdp_impacts = 0
+        
+        # Load mortality file i given a region, temperature type and age group
+        cause=None
+        t_type="heat"
+        region_type="IMAGE"
+        ds = LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable)
+
+        # Conver to dataframe and drop useless columns
+        ds = ds.to_dataframe().reset_index().drop(columns=["t_type", "geo", "region_type", "region"])
+
+        # Merge with gdp data (no row should be excluded)
+        ds = ds.merge(gdp[scenario], on="year", how="left")
+        # Merge with pop data (no row should be excluded)
+        ds = ds.merge(pop[ssp.lower()], on="year", how="left") 
+        # Assign variability label
+        ds["variability"] = variability
+        # Assign ERF draw label
+        # ds["erf_draw"] = draw
+        # Assign SSP label
+        ds["ssp"] = ssp
+        # Assign climate target label
+        ds["climate"] = climate
+        ds["gdp_impacts"] = gdp_impacts
+        
+        # Append in list
+        final_list.append(ds)
+    
+    # Concat all dataframes thorugh axis 0 generating a single dataframe with all scenarios and predictors
+    all_results = pd.concat(final_list, axis=0, ignore_index=True)
+
+    # Save cleaned dataframe as parquet
+    all_results.to_parquet(wdir + f"data4shapley_{region}_{age_group}.parquet", index=False)
+    
+    return all_results
+
+        
+# scenarios = [
+#     "SSP2_M_CP_ERA_AllImpacts",
+#     "SSP2_M_CP_ERA_NoEcon",
+#     "SSP3_H_ERA_AllImpacts",
+#     "SSP3_H_ERA_NoEcon",
+#     "SSP1_M_CP_ERA_AllImpacts",
+#     "SSP1_M_CP_ERA_NoEcon",
+#     "SSP1_ML_ERA_AllImpacts",
+#     "SSP2_ML_ERA_AllImpacts",
+#     "SSP1_ML_ERA_NoEcon",
+#     "SSP2_ML_ERA_NoEcon",
+#     "SSP1_VLLO_ERA_AllImpacts",
+#     "SSP2_VLLO_ERA_AllImpacts",
+#     "SSP1_VLLO_ERA_NoEcon"
+#     ]
+
+scenarios_climvar = [
     "SSP2_M_CP_ERA_AllImpacts",
     "SSP2_M_CP_ERA_NoEcon",
-    "SSP2_M_CP_Default_NoEcon",
+    # "SSP3_H_ERA_AllImpacts",
+    # "SSP3_H_ERA_NoEcon",
     "SSP1_M_CP_ERA_AllImpacts",
-    "SSP1_M_CP_ERA_NoImpacts",
     "SSP1_M_CP_ERA_NoEcon",
-    "SSP1_ML_ERA_NoImpacts",
-    "SSP2_ML_ERA_NoImpacts",
     "SSP1_ML_ERA_AllImpacts",
     "SSP2_ML_ERA_AllImpacts",
     "SSP1_ML_ERA_NoEcon",
     "SSP2_ML_ERA_NoEcon",
-    "SSP1_VLLO_ERA_NoImpacts",
-    "SSP2_VLLO_ERA_NoImpacts",
     "SSP1_VLLO_ERA_AllImpacts",
-    "SSP2_VLLO_ERA_AllImpacts"
-]
-predictors = ["variability", "gdppc", "population", "climate", "erf_draw"] #[("cumulative_emissions", "squared_cumulative_emissions"), "model", "scenario"]
-variable="mortality"#"Primary_Energy"
+    "SSP2_VLLO_ERA_AllImpacts",
+    "SSP1_VLLO_ERA_NoEcon"
+    ]
+
+
+predictors =  ["gdppc", "population", "climate", "variability"] #["ssp", "gdp_impacts", "climate", "variability"]
+# ["variability", "gdppc", "population", "climate", "erf_draw"] 
+#[("cumulative_emissions", "squared_cumulative_emissions"), "model", "scenario"]
+variable="mortality"
+#"Primary_Energy"
 age_group = "All ages"
 region = "World"
 gdp_dir =  "X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_5/IMPACTS/{scenario}/indicators/Economy/GDPpc_incl_impacts.out"
-wdir = "X:\\user\\liprandicn/Projects\\mt-comparison\\models/Carleton2022/output/SPARCCLE_uncertainty\\"
+wdir = "X:\\user\\liprandicn/Projects\\mt-comparison\\models/Carleton2022/output/SPARCCLE_climvar\\"
 
-ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, predictors)
+ComputeShapleyOwen(wdir, gdp_dir, scenarios_climvar, region, age_group, variable, predictors)
