@@ -122,7 +122,6 @@ class MortalityModel:
     """
 
         
-    def run(self):
         
         
         print("----------------------------------------------------------------")
@@ -267,7 +266,7 @@ class LoadInputData:
         necessary data is located in the wdir/data folder.  
         """
         
-        print(f"[1.2] Loading temperature files for scenario {os.path.basename(sets.temp_dir)[:-3]}...")    
+        print(f"[1.2] Loading temperature files for scenario {sets.scenario}...")    
 
         print("[1.2.1] Loading temperature data from IMAGE")
         if "ERA5" not in sets.scenario:
@@ -539,7 +538,7 @@ def ImportGammaCoefficients(sets, draw):
         
         
     elif "LHScut_" in str(draw):
-        print("[1.4.1] Loading gamma coefficients using Latin Hypercube Sampling and 10-90 percentile")
+        print("[1.4.1] Loading gamma coefficients using Latin Hypercube Sampling and 25-75 percentile")
         
         n_draws = int(re.search(r"LHScut_(\d+)_(\d+)_p(\d+)-p(\d+)", draw).group(1))
         sample = int(re.search(r"LHScut_(\d+)_(\d+)_p(\d+)-p(\d+)", draw).group(2))
@@ -1112,7 +1111,7 @@ def ImportClimtas(sets, base, temp_mean):
         temp
         .sel(time=slice(f"{sets.base_years[0]}-01-01", f"{sets.base_years[-1]}-12-31"))
         .mean(dim="time")
-        .values 
+        .data
     )
 
     # Aggregate the 30-year running mean temperature at the impact region level using the spatial relationship
