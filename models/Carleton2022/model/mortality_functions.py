@@ -48,6 +48,7 @@ class ModelSettings:
     draw: any
     reporting_tool: any
     dask_on: bool
+    stochastic: bool
     base_years: list = field(default_factory=lambda: list(range(2000, 2010)))
     age_groups: list = field(
         default_factory=lambda: ["young", "older", "oldest"]
