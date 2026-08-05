@@ -22,37 +22,16 @@ from pathlib import Path
 ### ------------------------------------------------------------------------------
 
 
-def CalculateMortality(
-    wdir: str,
-    years: list,
-    temp_dir: str,
-    gdp_dir: str,
-    project: str,
-    scenario: str,
-    adaptation: bool,
-    counterfactual: bool,
-    draw: any,
-    reporting_tool: any,
-    dask_on: bool
-):
+def CalculateMortality(**config):
 
-    sets = ModelSettings(
-        temp_dir=temp_dir,
-        gdp_dir=gdp_dir,
-        wdir=wdir,
-        project=project,
-        scenario=scenario,
-        years=years,
-        adaptation=adaptation,
-        counterfactual=counterfactual,
-        draw=draw,
-        reporting_tool=reporting_tool,
-        dask_on=dask_on
-    )
+    sets = ModelSettings(**config)
 
     model = MortalityModel(sets=sets)
 
-    model.run()
+    if sets.stochastic:
+        model.runs_stochastic()
+    else:
+        model.run()
 
 
 
