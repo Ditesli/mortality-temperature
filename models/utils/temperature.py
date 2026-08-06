@@ -27,14 +27,6 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
     """
     Read daily ERA5 temperature data for a specific year, shift longitude coordinates,
     convert to Celsius, and match grid with population data.
-    Parameters:
-    - era5_dir: directory where ERA5 daily temperature data is stored
-    - year: year to read
-    - pop_map: population data xarray dataset to match grid
-    - to_array: boolean, if True return numpy array, if False return xarray dataset
-    Returns:
-    - daily_temp: daily temperature data for the year, either as numpy array or xarray dataset
-    - num_days: number of days in the year (365 or 366)
     """
     
     if year < 1970 or year > 2025:
@@ -155,19 +147,7 @@ def OpenMonthlyTemperatures(temp_dir, temp_type):
     
     """
     Read monthly statistics of daily temperature data (mean and standard deviation)
-    according to the temperature type (temp_type):
-    - temp_type = "MEAN": mean and std of daily mean temperatures
-    - temp_type = "MAX": mean and std of daily maximum temperatures
-    
-    -----------
-    Parameters:
-    - temp_dir: directory where monthly statistics files are stored (IMAGE folder)
-    - temp_type: type of temperature statistic ("MEAN", "MAX")
-    
-    ----------
-    Returns:
-    - temp_mean: xarray DataArray of monthly mean temperatures
-    - temp_std: xarray DataArray of monthly standard deviation of temperatures
+    according to the temperature type (temp_type).
     """
     
     temp_type_upper = temp_type.upper()
@@ -217,39 +197,3 @@ def DailyTemperatureFromNormalPDF(year, temp_daily_mean, temp_std, random_vals):
     final_result = temp_daily_mean + (random_vals * temp_std)
     
     return final_result
-
-
-
-def error_daily_stats(year, daily_temp, temp_mean, temp_std):
-    
-    """
-    Calculate error between generated daily temperature statistics and original monthly statistics.
-    Parameters:
-    - daily_temp: generated daily temperature data as numpy array
-    - temp_mean: xarray DataArray of original monthly mean temperatures
-    - temp_std: xarray DataArray of original monthly standard deviation of temperatures
-    Returns:
-    - mean_error: error in mean temperature between generated daily data and original monthly data
-    - std_error: error in standard deviation between generated daily data and original monthly data
-    """
-    
-    daily_dates = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D")
-    
-    daily_temp_xr = xr.DataArray(daily_temp,
-                               coords={"latitude":temp_mean.latitude,
-                                       "longitude":temp_mean.longitude,
-                                       "time":daily_dates},
-                              dims=["latitude", "longitude", "time"])
-    # Calculate monthly mean and std from generated daily data
-    monthly_mean = daily_temp_xr.resample(time="1M").mean()
-    monthly_std = daily_temp_xr.resample(time="1M").std()
-    
-    # Calculate error between generated monthly statistics and original monthly statistics
-    mean_error = (monthly_mean.mean(dim="time") - temp_mean).mean().item()
-    std_error = (monthly_std.mean(dim="time") - temp_std).mean().item()
-    
-    np.set_printoptions(suppress=True, precision=2)
-    print("Percentage error per month:", 
-          np.nanmean(np.nanmean((monthly_mean.values - temp_mean.values) / temp_mean.values, axis=0), axis=0) * 100)
-    
-    return mean_error, std_error
