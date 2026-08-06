@@ -1,4 +1,3 @@
-import dask.delayed
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -6,14 +5,11 @@ import geopandas as gpd
 from dataclasses import dataclass, field
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import re, sys, os, prism, dask, shapely, shutil, gc
+import re, sys, os, prism, dask, shapely
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils import temperature as tmp
 import numpy_groupies as npg
 from scipy.stats import qmc, norm, truncnorm
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from dask.delayed import delayed
 from dask.distributed import get_client
 from typing import Any, Optional
 from pathlib import Path
@@ -123,7 +119,7 @@ class MortalityModel:
     """
 
         
-        
+    def run(self):
         
         print("----------------------------------------------------------------")
         print(f"Running Mortality-Temperature model (Carleton et al., 2022 version)")
@@ -166,8 +162,6 @@ class MortalityModel:
                 tasks.append(task)
                 
             rel_mor = dask.compute(*tasks)
-            
-            
 
         ### ----------------------- Code WITHOUT dask ------------------------------
         else:                    
@@ -184,7 +178,63 @@ class MortalityModel:
         
         PostprocessResults(self.sets, self.base, self.scen, rel_mor_scenario)
                     
-          
+
+    def runs_stochastic(self):
+        
+        print("----------------------------------------------------------------")
+        print(f"Running Fully Parallelized Stochastic Mortality Model")
+        print("----------------------------------------------------------------")
+        print("----------------------------------------------------------------")
+        print(f"Running Mortality-Temperature model (Carleton et al., 2022 version)")
+        print(f"-----> Project: {self.sets.project}")
+        print(f"-----> Scenario: {self.sets.scenario}")
+        print(f"-----> Years: {self.sets.years[0]} to {self.sets.years[-1]}")
+        if self.sets.adaptation == True:
+            print("-----> Adaptation is ON: ERFs will be generated with adaptation.")
+        print("----------------------------------------------------------------")
+        
+        num_runs = 50  # Total number of stochastic runs
+        base_delayed = dask.delayed(LoadInputData.for_baseline)(sets=self.sets)        
+        tempe_delayed = dask.delayed(LoadInputData.for_temperature)(sets=self.sets, base=base_delayed)
+        scen_delayed = dask.delayed(LoadInputData.for_scenario)(sets=self.sets, base=base_delayed)
+
+        if self.sets.dask_on: 
+            client = get_client() 
+
+            # Delayed function
+            @dask.delayed
+            def process_single_run(base, tempe, scen, run_idx):
+                
+                import copy
+                local_sets = copy.copy(self.sets)
+                local_sets.draw = f"LHScut_50_{run_idx}_p25-p75" 
+                erf_data = LoadInputData.for_erf(sets=local_sets, tempe=tempe, scen=scen, base=base)
+                
+                # Get yealry mortality
+                run_yearly_results = []
+                for year in local_sets.years:
+                    rel_mor_year = CalculateMortalityEffects(local_sets, base, tempe, scen, erf_data, year)
+                    run_yearly_results.append(rel_mor_year)
+                
+                # Postprocess
+                rel_mor_scenario = np.stack(run_yearly_results, axis=-1)
+                PostprocessResults(local_sets, base, scen, rel_mor_scenario)
+                
+                return f"Run {run_idx} saved!"
+
+            # Group all tasks for parallel execution
+            pipeline_tasks = [
+                process_single_run(base_delayed, tempe_delayed, scen_delayed, i)
+                for i in range(num_runs)
+            ]
+            
+            # Compute all tasks in parallel
+            print("----> Running pipeline on the supercomputer...")
+            statuses = dask.compute(*pipeline_tasks)
+            
+            for status in statuses:
+                print(status)
+
 
 
 @dataclass
@@ -1112,7 +1162,7 @@ def ImportClimtas(sets, base, temp_mean):
         temp
         .sel(time=slice(f"{sets.base_years[0]}-01-01", f"{sets.base_years[-1]}-12-31"))
         .mean(dim="time")
-        .data
+        .values
     )
 
     # Aggregate the 30-year running mean temperature at the impact region level using the spatial relationship
