@@ -23,6 +23,17 @@ def CalculateMortality(**config):
     sets = ModelSettings(**config)
 
     model = MortalityModel(sets=sets)
+    
+            
+    print("----------------------------------------------------------------")
+    print(f"Running Mortality-Temperature model (Carleton et al., 2022 version)")
+    print(f"-----> Project: {sets.project}")
+    print(f"-----> Scenario: {sets.scenario}")
+    print(f"-----> Years: {sets.years[0]} to {sets.years[-1]}")
+    if sets.adaptation == True:
+        print("-----> Adaptation is ON: ERFs will be generated with adaptation.")
+    print("----------------------------------------------------------------")
+        
 
     if sets.stochastic:
         model.runs_stochastic()
@@ -39,6 +50,8 @@ class ModelSettings:
     project: any
     scenario: str
     years: list
+    monthly_output: bool
+    impact_regions: bool
     adaptation: bool
     counterfactual: bool
     draw: any
@@ -121,16 +134,6 @@ class MortalityModel:
         
     def run(self):
         
-        print("----------------------------------------------------------------")
-        print(f"Running Mortality-Temperature model (Carleton et al., 2022 version)")
-        print(f"-----> Project: {self.sets.project}")
-        print(f"-----> Scenario: {self.sets.scenario}")
-        print(f"-----> Years: {self.sets.years[0]} to {self.sets.years[-1]}")
-        if self.sets.adaptation == True:
-            print("-----> Adaptation is ON: ERFs will be generated with adaptation.")
-        print("----------------------------------------------------------------")
-            
-        
         self.base = LoadInputData.for_baseline(sets=self.sets)        
         self.tempe = LoadInputData.for_temperature(sets=self.sets, base=self.base)
         self.scen = LoadInputData.for_scenario(sets=self.sets, base=self.base)
@@ -182,16 +185,10 @@ class MortalityModel:
     def runs_stochastic(self):
         
         print("----------------------------------------------------------------")
+        print()
         print(f"Running Fully Parallelized Stochastic Mortality Model")
         print("----------------------------------------------------------------")
-        print("----------------------------------------------------------------")
-        print(f"Running Mortality-Temperature model (Carleton et al., 2022 version)")
-        print(f"-----> Project: {self.sets.project}")
-        print(f"-----> Scenario: {self.sets.scenario}")
-        print(f"-----> Years: {self.sets.years[0]} to {self.sets.years[-1]}")
-        if self.sets.adaptation == True:
-            print("-----> Adaptation is ON: ERFs will be generated with adaptation.")
-        print("----------------------------------------------------------------")
+
         
         num_runs = 50  # Total number of stochastic runs
         base_delayed = dask.delayed(LoadInputData.for_baseline)(sets=self.sets)        
@@ -1533,7 +1530,8 @@ def CalculateMarginalMortality(sets, base, tempe, scen, erf, year, daily_temp, c
         rows=rows, 
         erf=erfs_t, 
         tmin=erf.tmin_t0,
-        min_temp=min_temp, 
+        min_temp=min_temp,
+        months=sets.monthly_output
         )
 
     # Return mortality for heat and cold per age group        
@@ -1541,7 +1539,7 @@ def CalculateMarginalMortality(sets, base, tempe, scen, erf, year, daily_temp, c
 
     
 
-def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp):
+def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp, months):
     
     """
     The code gets the temperature indices for heat (temperatures above tmin) and 
@@ -1587,6 +1585,30 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp):
     return annual_mortality_heat.T, annual_mortality_cold.T
 
 
+
+def SaveImpactRegionResults(sets, base, scen, mor, rel_mor, pop):
+    
+    # Define coords with impact region level
+    coords = {
+            "t_type": ["heat", "cold", "all"],
+            "age_group": sets.age_groups + ["All ages"],
+            "region": base.region_class["hierid"],
+            "year": sets.years
+        }
+    
+    dims = ["t_type", "age_group", "region", "year"]
+    
+    mor_ages = np.concatenate(
+        [mor, np.sum(mor, axis=1, keepdims=True)], 
+        axis=1
+    )
+    
+    pop_ages = np.concatenate(
+        [pop, np.sum(pop, axis=1, keepdims=True)], 
+        axis=1
+    )
+
+
        
 def AggregateRegionalMortality(sets, base, scen, rel_mor):
     
@@ -1604,6 +1626,9 @@ def AggregateRegionalMortality(sets, base, scen, rel_mor):
         
     # Calculate total mortality from relative mortality and population
     mor = rel_mor * pop / 1e5
+    
+    if sets.impact_regions:
+        SaveImpactRegionResults(sets, base, scen, mor, rel_mor, pop)
     
     region_datasets = []
         
