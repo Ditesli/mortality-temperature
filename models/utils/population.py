@@ -57,8 +57,8 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     
     # Open IMAGE SSP population data
     pop = xr.open_dataset(
-        os.path.dirname(wdir) + # Move to general folder
-        f'/data/IMAGE/IMAGE_population/{ssp}/GPOP.nc'
+        os.path.dirname(os.path.dirname(os.path.dirname(wdir))) + # Move to general folder
+        f'/data/IMAGE/IMAGE_Population/{ssp}/GPOP.nc'
         )
     
     if re.search(r"ERA5", scenario):
