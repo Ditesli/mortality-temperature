@@ -122,10 +122,13 @@ def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group,
     # Open the NetCDF files using xarray
     ds = xr.open_mfdataset(files)
 
-    filters = {
-        "region_type":region_type,
-        "t_type":t_type
-        }
+    filters = {}
+    
+    if region_type is not None:
+        filters["region_type"] = region_type
+        
+    if t_type is not None:
+        filters["t_type"] = t_type
     
     if region is not None:
         filters["region"] = region
@@ -136,7 +139,10 @@ def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group,
     if "cause" in ds.variables:
         filters["cause"] = cause
 
-    da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+    if region_type is not None:
+        da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+    else:
+        da_selected = ds.sel(**filters)[variable]
     
     return da_selected
 
