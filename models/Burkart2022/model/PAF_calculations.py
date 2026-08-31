@@ -563,19 +563,6 @@ def ShiftRRfromTMREL(erf, pop_map, tmrel, temperature_zones, causes):
     return df_erf_tmrel
 
 
-
-# sets = ModelSettings(
-#         wdir="X:/user/liprandicn/mt-comparison/burkart2022",
-#         temp_dir="X:/user/liprandicn/Data/ERA5/t2m_daily",
-#         project=None,
-#         scenario="SSP2_ERA5",
-#         years=[2010],
-#         draw="mean",
-#         single_erf=False, 
-#         extrap_erf=False,
-#     )
-
-
 def LoadExposureResponseFunctionsAll(sets):
     
     
