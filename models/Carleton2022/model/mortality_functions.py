@@ -5,7 +5,7 @@ import geopandas as gpd
 from dataclasses import dataclass, field
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import re, sys, os, prism, dask, shapely
+import re, sys, os, prism, dask, shapely, copy
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from utils import temperature as tmp
 import numpy_groupies as npg
