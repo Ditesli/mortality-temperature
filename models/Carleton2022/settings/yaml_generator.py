@@ -12,19 +12,19 @@ def generate_config_yaml(path, scenario, project):
         
         # Define data
         data = {
-            "wdir": "X:/user/liprandicn/Projects/mt-comparison/models/carleton2022",
-            "temp_dir": f"X:\\user\\liprandicn\\data\\IMAGE_Temperatures\\ScenarioMIP7\\ACCESS-CM2_{climvar}i1p1f1\\{scenario}\\netcdf",
-            # f"X:/user/dekkerm/IMAGE_environments/IMPACTS/Z_Emulator_Standalone_Tool/{scenario_image_land}/netcdf", 
-            "gdp_dir": f"X:\\user\\boerdhs\\Projects\\ScenarioMIP\\2_TIMER\\outputlib\\TIMER_3_4\\ScenarioMIP\\SSP1_VLLO\\tuss\\global/GDP_ppp.scn",
+            "wdir": "",
+            "temp_dir": f"",
+            "gdp_dir": f"",
             "start_year": 2000,
             "end_year": 2100,
+            "monthly_output": False,
+            "impact_regions": False,
             "project": project,
-            "scenario": scenario+"_"+climvar,#+"_NoAdap",
-            "adaptation": True,
+            "scenario": scenario+"_"+climvar,
+            "adaptation": False,
             "counterfactual": True,
             "draw": "LHScut_50_0_p25-p75",
             "reporting_tool": False,
-                # "X:/user/dekkerm/IMAGE_environments/IMPACTS/7_Reporting_Tool/outxlsx",
             "dask_on":True,
             "stochastic": True
         }
@@ -44,14 +44,14 @@ def generate_config_yaml(path, scenario, project):
 
 SCENARIOS = []
 
-project="Project"
-path="Path"
+project=""
+path=""
 for scenario in SCENARIOS:
     generate_config_yaml(path, scenario, project)
-    
-    
 
-# SCENARIOMIP7 = [
+
+
+# scenariomip = [
 #   "SSP1_L",
 #   "SSP1_M",
 #   "SSP1_M_CP",
@@ -67,6 +67,7 @@ for scenario in SCENARIOS:
 #   "SSP3_H",
 #   "SSP5_H",
 #   "SSP5_HL",
+#   "SSP3_M_CP"
 # ]
 
 
