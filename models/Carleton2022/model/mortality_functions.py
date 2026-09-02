@@ -1595,7 +1595,7 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp, months)
 
 
 
-def SaveImpactRegionResults(sets, base, scen, mor, rel_mor, pop):
+def SaveImpactRegionResults(sets, base, mor, rel_mor, pop):
     
     # Define coords with impact region level
     coords = {
@@ -1604,19 +1604,36 @@ def SaveImpactRegionResults(sets, base, scen, mor, rel_mor, pop):
             "region": base.region_class["hierid"],
             "year": sets.years
         }
-    
     dims = ["t_type", "age_group", "region", "year"]
     
-    mor_ages = np.concatenate(
+    
+    pop = np.concatenate(
+        [pop, np.sum(pop, axis=1, keepdims=True)], 
+        axis=1
+    )
+    
+    mor = np.concatenate(
         [mor, np.sum(mor, axis=1, keepdims=True)], 
         axis=1
     )
     
-    pop_ages = np.concatenate(
-        [pop, np.sum(pop, axis=1, keepdims=True)], 
-        axis=1
-    )
+    mor = np.concatenate(
+            [mor, np.sum(mor, axis=0, keepdims=True)], 
+            axis=0
+        )
 
+    pop_wo_nan = np.where((np.isnan(pop) | (pop == 0)), 1, pop)
+    rel_mor = mor * 1e5 / pop_wo_nan
+    
+    mor_final = xr.Dataset(
+        data_vars={
+            "mortality": (dims, mor),
+            "relative_mortality": (dims, rel_mor)
+        },
+        coords=coords
+    )
+    
+    return mor_final
 
        
 def AggregateRegionalMortality(sets, base, scen, rel_mor):
@@ -1637,7 +1654,9 @@ def AggregateRegionalMortality(sets, base, scen, rel_mor):
     mor = rel_mor * pop / 1e5
     
     if sets.impact_regions:
-        SaveImpactRegionResults(sets, base, scen, mor, rel_mor, pop)
+        mor_ir = SaveImpactRegionResults(sets, base, mor, rel_mor, pop)
+    else:
+        mor_ir = None
     
     region_datasets = []
         
@@ -1685,7 +1704,7 @@ def AggregateRegionalMortality(sets, base, scen, rel_mor):
     xarray_unit["relative_mortality"] = xarray_unit["mortality"] * 1e5 / xarray_unit["population"]
     
     # Return only mortality and relative mortality
-    return xarray_unit.drop_vars(["population"])
+    return xarray_unit.drop_vars(["population"]), mor_ir
 
  
  
@@ -1778,7 +1797,7 @@ def PostprocessResults(sets, base, scen, rel_mor):
     print("[3] Postprocessing and saving results...")
     
     # Calculate total mortality and relative mortality for all-ages group
-    results = AggregateRegionalMortality(sets, base, scen, rel_mor)
+    results, results_ir = AggregateRegionalMortality(sets, base, scen, rel_mor)
     
     
     if sets.reporting_tool != False:
@@ -1824,6 +1843,13 @@ def PostprocessResults(sets, base, scen, rel_mor):
         f"/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.nc",
         encoding=encoding_total
     )
+    
+    if sets.impact_regions:
+        results_ir.to_netcdf(
+            output_dir +
+            f"/mortality_ir_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.nc",
+            encoding=encoding_total
+        )
 
     print("Scenario ran successfully!")
     
