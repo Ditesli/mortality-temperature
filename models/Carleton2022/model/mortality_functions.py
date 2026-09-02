@@ -19,8 +19,17 @@ from pathlib import Path
 
 
 def CalculateMortality(**config):
+    
+    # Flatten the config dictionary to pass it to ModelSettings
+    flattened_config = {}
+    for section, content in config.items():
+        if isinstance(content, dict):
+            flattened_config.update(content)
+        else:
+            flattened_config[section] = content
 
-    sets = ModelSettings(**config)
+    
+    sets = ModelSettings(**flattened_config)
 
     model = MortalityModel(sets=sets)
     
