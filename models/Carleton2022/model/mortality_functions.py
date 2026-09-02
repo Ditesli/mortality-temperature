@@ -200,10 +200,24 @@ class MortalityModel:
 
 
     def runs_stochastic(self):
+        
+        """
+        Code designed to optimized stochastic runs (that take into account many ERF draws).
+        The code will run in parallel both the years calculated and the stochastic runs.
+        Code is designed (for now) to run under ERF draws generated through the
+        Latin Hypercube Sampling (LHS) method, taking the interquartile uncertainty range
+        (25-75 percentile) of each scenario.
+        It is recommended to run this mode in a supercomputer with many CPUs and RAM memory,
+        as it will generate many tasks in parallel.
+        
+        TODO: Change the method to extract the ERF draws to make it more flexible 
+        (e.g., Monte Carlo, LHS with another uncertainty range, etc.)
+        """
+        
         print("----------------------------------------------------------------")
-        print()
         print(f"Running Fully Parallelized Stochastic Mortality Model")
         print("----------------------------------------------------------------")
+        
         num_runs = 50  # Total number of stochastic runs
         
         base_delayed = dask.delayed(LoadInputData.for_baseline)(sets=self.sets)
@@ -235,13 +249,12 @@ class MortalityModel:
                 
                 erf_data = dask.delayed(LoadInputData.for_erf)(sets=local_sets, tempe=tempe_delayed, scen=scen_delayed, base=base_delayed)
                 
-                # Crear una tarea Dask por cada año
+                # Create a task in dask for each year
                 year_tasks = [
                     process_single_year(local_sets, base_delayed, tempe_delayed, scen_delayed, erf_data, year)
                     for year in local_sets.years
                 ]
                 
-                # Agrupar el run pasando la lista de años retrasados
                 run_task = process_single_run(base_delayed, tempe_delayed, scen_delayed, i, year_tasks)
                 pipeline_tasks.append(run_task)
 
@@ -251,6 +264,7 @@ class MortalityModel:
             
             for status in statuses:
                 print(status)
+
 
 
 
