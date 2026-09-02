@@ -140,8 +140,15 @@ class MortalityModel:
         model will use the "present day" ERFs from the paper for all years and scenarios.
     """
 
-        
+    
     def run(self):
+        
+        """
+        Function to run a standard scenario given the parameters in the ModelSettings class. 
+        It will load the input data, calculate mortality per year and postprocess the results.
+        Code has the option to be optimized with dask, meaning that all years will be calculated 
+        parallel depending on the CPUs and RAM memory.
+        """
         
         self.base = LoadInputData.for_baseline(sets=self.sets)        
         self.tempe = LoadInputData.for_temperature(sets=self.sets, base=self.base)
@@ -191,49 +198,53 @@ class MortalityModel:
         PostprocessResults(self.sets, self.base, self.scen, rel_mor_scenario)
                     
 
+
     def runs_stochastic(self):
-        
         print("----------------------------------------------------------------")
         print()
         print(f"Running Fully Parallelized Stochastic Mortality Model")
         print("----------------------------------------------------------------")
-
-        
         num_runs = 50  # Total number of stochastic runs
-        base_delayed = dask.delayed(LoadInputData.for_baseline)(sets=self.sets)        
+        
+        base_delayed = dask.delayed(LoadInputData.for_baseline)(sets=self.sets)
         tempe_delayed = dask.delayed(LoadInputData.for_temperature)(sets=self.sets, base=base_delayed)
         scen_delayed = dask.delayed(LoadInputData.for_scenario)(sets=self.sets, base=base_delayed)
+        
+        if self.sets.dask_on:
+            client = get_client()
 
-        if self.sets.dask_on: 
-            client = get_client() 
-
-            # Delayed function
             @dask.delayed
-            def process_single_run(base, tempe, scen, run_idx):
+            def process_single_year(local_sets, base, tempe, scen, erf_data, year):
+                return CalculateMortalityEffects(local_sets, base, tempe, scen, erf_data, year)
+
+            @dask.delayed
+            def process_single_run(base, tempe, scen, run_idx, yearly_results_list):
                 
-                import copy
                 local_sets = copy.copy(self.sets)
-                local_sets.draw = f"LHScut_50_{run_idx}_p25-p75" 
-                erf_data = LoadInputData.for_erf(sets=local_sets, tempe=tempe, scen=scen, base=base)
+                local_sets.draw = f"LHScut_50_{run_idx}_p25-p75"
                 
-                # Get yealry mortality
-                run_yearly_results = []
-                for year in local_sets.years:
-                    rel_mor_year = CalculateMortalityEffects(local_sets, base, tempe, scen, erf_data, year)
-                    run_yearly_results.append(rel_mor_year)
-                
-                # Postprocess
-                rel_mor_scenario = np.stack(run_yearly_results, axis=-1)
+                rel_mor_scenario = np.stack(yearly_results_list, axis=-1)
                 PostprocessResults(local_sets, base, scen, rel_mor_scenario)
-                
                 return f"Run {run_idx} saved!"
 
-            # Group all tasks for parallel execution
-            pipeline_tasks = [
-                process_single_run(base_delayed, tempe_delayed, scen_delayed, i)
-                for i in range(num_runs)
-            ]
-            
+            pipeline_tasks = []
+            for i in range(num_runs):
+                
+                local_sets = copy.copy(self.sets)
+                local_sets.draw = f"LHScut_50_{i}_p25-p75"
+                
+                erf_data = dask.delayed(LoadInputData.for_erf)(sets=local_sets, tempe=tempe_delayed, scen=scen_delayed, base=base_delayed)
+                
+                # Crear una tarea Dask por cada año
+                year_tasks = [
+                    process_single_year(local_sets, base_delayed, tempe_delayed, scen_delayed, erf_data, year)
+                    for year in local_sets.years
+                ]
+                
+                # Agrupar el run pasando la lista de años retrasados
+                run_task = process_single_run(base_delayed, tempe_delayed, scen_delayed, i, year_tasks)
+                pipeline_tasks.append(run_task)
+
             # Compute all tasks in parallel
             print("----> Running pipeline on the supercomputer...")
             statuses = dask.compute(*pipeline_tasks)
