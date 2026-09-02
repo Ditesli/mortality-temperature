@@ -58,7 +58,8 @@ class ModelSettings:
     wdir: str
     project: any
     scenario: str
-    years: list
+    start_year: int
+    end_year: int
     monthly_output: bool
     impact_regions: bool
     adaptation: bool
@@ -84,8 +85,7 @@ class ModelSettings:
     def __post_init__(self):
         
         # Include last year 
-        if isinstance(self.years, range):
-            self.years = range(self.years.start, self.years.stop + 1)
+        self.years = range(self.start_year, self.end_year + 1)
             
         if "comparison" in str(self.project).lower():
             self.base_years = list(range(1980, 1990))
