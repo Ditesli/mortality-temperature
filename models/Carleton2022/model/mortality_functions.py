@@ -218,7 +218,8 @@ class MortalityModel:
         print(f"Running Fully Parallelized Stochastic Mortality Model")
         print("----------------------------------------------------------------")
         
-        num_runs = 50  # Total number of stochastic runs
+        # Total number of stochastic runs
+        num_runs = int(re.search(r"LHScut_(\d+)_", self.sets.draw).group(1))
         
         base_delayed = dask.delayed(LoadInputData.for_baseline)(sets=self.sets)
         tempe_delayed = dask.delayed(LoadInputData.for_temperature)(sets=self.sets, base=base_delayed)
@@ -232,10 +233,10 @@ class MortalityModel:
                 return CalculateMortalityEffects(local_sets, base, tempe, scen, erf_data, year)
 
             @dask.delayed
-            def process_single_run(base, tempe, scen, run_idx, yearly_results_list):
+            def process_single_run(base, tempe, scen, num_runs, run_idx, yearly_results_list):
                 
                 local_sets = copy.copy(self.sets)
-                local_sets.draw = f"LHScut_50_{run_idx}_p25-p75"
+                local_sets.draw = f"LHScut_{num_runs}_{run_idx}_p5-p95" #TODO: Make this authomatic
                 
                 rel_mor_scenario = np.stack(yearly_results_list, axis=-1)
                 PostprocessResults(local_sets, base, scen, rel_mor_scenario)
@@ -245,7 +246,7 @@ class MortalityModel:
             for i in range(num_runs):
                 
                 local_sets = copy.copy(self.sets)
-                local_sets.draw = f"LHScut_50_{i}_p25-p75"
+                local_sets.draw = f"LHScut_{num_runs}_{i}_p5-p95" #TODO: Make this authomatic
                 
                 erf_data = dask.delayed(LoadInputData.for_erf)(sets=local_sets, tempe=tempe_delayed, scen=scen_delayed, base=base_delayed)
                 
@@ -255,7 +256,7 @@ class MortalityModel:
                     for year in local_sets.years
                 ]
                 
-                run_task = process_single_run(base_delayed, tempe_delayed, scen_delayed, i, year_tasks)
+                run_task = process_single_run(base_delayed, tempe_delayed, scen_delayed, num_runs, i, year_tasks)
                 pipeline_tasks.append(run_task)
 
             # Compute all tasks in parallel
