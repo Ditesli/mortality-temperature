@@ -1476,13 +1476,24 @@ def CalculateMortalityEffects(sets, base, tempe, scen, erf, year):
         
     ### ---------------------- Locate annual results in array --------------------------------
    
-    # Create temporal array
-    mor_local = np.full((2, 3, 24378), np.nan, dtype=np.float32)
-   
-    # Locate mortality from heat in loc 0
-    mor_local[0, :, :] = mor_heat_min - mor_heat_sub
-    # Locate mortality from cold in loc 1
-    mor_local[1, :, :] = mor_cold_min - mor_cold_sub
+    if sets.monthly_output == False: 
+        # Create temporal array
+        mor_local = np.full((2, 3, 24378), np.nan, dtype=np.float32)
+    
+        # Locate mortality from heat in loc 0
+        mor_local[0, :, :] = mor_heat_min - mor_heat_sub
+        # Locate mortality from cold in loc 1
+        mor_local[1, :, :] = mor_cold_min - mor_cold_sub
+        
+    else:
+        # Create temporal array
+        mor_local = np.full((2, 3, 24378, 12), np.nan, dtype=np.float32)
+    
+        # Locate mortality from heat in loc 0
+        mor_local[0, ...] = mor_heat_min - mor_heat_sub
+        # Locate mortality from cold in loc 1
+        mor_local[1, ...] = mor_cold_min - mor_cold_sub
+        
 
     return mor_local
 
@@ -1613,21 +1624,43 @@ def MortalityFromTemperatureIndex(daily_temp, rows, erf, tmin, min_temp, months)
     idx_cold = np.round((np.minimum(daily_temp, tmin) - min_temp) * 10).astype(np.int16) 
 
     #  Extract values from erf using advanced indexing and sum along the days axis
-    annual_mortality_heat = erf[rows_grid, cat_grid, idx_heat].sum(axis=2)
-    annual_mortality_cold = erf[rows_grid, cat_grid, idx_cold].sum(axis=2)
+    mortality_heat = erf[rows_grid, cat_grid, idx_heat]
+    mortality_cold = erf[rows_grid, cat_grid, idx_cold]
     
-    return annual_mortality_heat.T, annual_mortality_cold.T
+    if months==False:
+        aggregated_mortality_heat = mortality_heat.sum(axis=2)
+        aggregated_mortality_cold = mortality_cold.sum(axis=2)
+    else:
+        if daily_temp.shape[-1] == 365:
+            days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        elif daily_temp.shape[-1] == 366:
+            days_in_month = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            
+        # Calculate monthly mortality by summing over the days of each month
+        aggregated_mortality_heat = np.array([
+            mortality_heat[:, :, sum(days_in_month[:i]):sum(days_in_month[:i+1])].sum(axis=2) 
+            for i in range(12)
+        ])
+        aggregated_mortality_cold = np.array([
+            mortality_cold[:, :, sum(days_in_month[:i]):sum(days_in_month[:i+1])].sum(axis=2) 
+            for i in range(12)
+        ])    
+    
+    return aggregated_mortality_heat.T, aggregated_mortality_cold.T
 
 
 
 def SaveImpactRegionResults(sets, base, mor, rel_mor, pop):
+    
+    if sets.monthly_output:
+        monthly_time = pd.date_range(start=f"{sets.years[0]}", end=f"{sets.years[-1]+1}", freq="ME")
     
     # Define coords with impact region level
     coords = {
             "t_type": ["heat", "cold", "all"],
             "age_group": sets.age_groups + ["All ages"],
             "region": base.region_class["hierid"],
-            "year": sets.years
+            "year": sets.years if not sets.monthly_output else monthly_time
         }
     dims = ["t_type", "age_group", "region", "year"]
     
@@ -1660,6 +1693,7 @@ def SaveImpactRegionResults(sets, base, mor, rel_mor, pop):
     
     return mor_final
 
+
        
 def AggregateRegionalMortality(sets, base, scen, rel_mor):
     
@@ -1675,16 +1709,28 @@ def AggregateRegionalMortality(sets, base, scen, rel_mor):
     # Load population data
     pop = scen.pop[None, :, :, :]
         
+        
+    if sets.monthly_output:
+        # Reshape relative mortality to get monthly time dimension
+        rel_mor = np.transpose(rel_mor, axes=(0, 1, 2, 4, 3)).reshape(2,3,24378,-1)
+        # Repeat population data 12 times to get monthly population data
+        pop = np.repeat(pop, 12, axis=-1)
+    
     # Calculate total mortality from relative mortality and population
     mor = rel_mor * pop / 1e5
-    
+        
+    # Do not aggregate mortality to larger regions to also output results at the regional mortality level
     if sets.impact_regions:
         mor_ir = SaveImpactRegionResults(sets, base, mor, rel_mor, pop)
     else:
         mor_ir = None
     
-    region_datasets = []
+    # Define monthly timeline if monthly output is selected
+    if sets.monthly_output:
+        monthly_time = pd.date_range(start=f"{sets.years[0]}", end=f"{sets.years[-1]+1}", freq="ME")
         
+    region_datasets = []
+    
     for region in ["ISO3", "IMAGE"]:
         
         # Define region characteristics
@@ -1696,7 +1742,7 @@ def AggregateRegionalMortality(sets, base, scen, rel_mor):
             "t_type": ["heat", "cold", "all"],
             "age_group": sets.age_groups + ["All ages"],
             "region": regions,
-            "year": sets.years
+            "year": sets.years if not sets.monthly_output else monthly_time
         }
 
         dims = ["t_type", "age_group", "region", "year"]
@@ -1845,6 +1891,10 @@ def PostprocessResults(sets, base, scen, rel_mor):
         draw = "_mean"
     else: 
         draw = f"_{sets.draw}"
+    if sets.monthly_output:
+        month = "_monthly"
+    else:
+        month = ""
         
     # Create folder to sabe files if not there yet
     output_dir = sets.wdir + "/output/" + f"{sets.project}"  
@@ -1865,14 +1915,14 @@ def PostprocessResults(sets, base, scen, rel_mor):
         
     results.to_netcdf(
         output_dir +
-        f"/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.nc",
+        f"/mortality_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{month}{draw}.nc",
         encoding=encoding_total
     )
     
     if sets.impact_regions:
         results_ir.to_netcdf(
             output_dir +
-            f"/mortality_ir_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{draw}.nc",
+            f"/mortality_ir_{project}_{sets.scenario}{adaptation}_{sets.years[0]}-{sets.years[-1]}{month}{draw}.nc",
             encoding=encoding_total
         )
 
