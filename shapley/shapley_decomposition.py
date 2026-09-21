@@ -10,23 +10,70 @@ import matplotlib.pyplot as plt
 
 
 
+IMAGE_REGIONS = {
+    # America
+    "CAN":["Canada", 1],
+    "USA":["USA", 2],
+    "MEX":["Mexico", 3],
+    "RCAM":["Central America", 4],
+    "BRA":["Brazil", 5],
+    "RSAM":["Rest of South America", 6],
+    # Africa
+    "NAF":["Northern Africa", 7],
+    "WAF":["Western Africa", 8],
+    "EAF":["Eastern Africa", 9],
+    "SAF":["South Africa", 10], 
+    # Europe
+    "WEU":["Western Europe", 11], 
+    "CEU":["Central Europe", 12], 
+    "TUR":["Turkey", 13], 
+    "UKR":["Ukraine region", 14],
+    # Asia
+    "STAN":["Central Asia", 15],
+    "RUS":["Russia region", 16], 
+    "ME":["Middle East", 17],
+    "INDIA":["India", 18], 
+    "KOR":["Korea region", 19], 
+    "CHN":["China region", 20], 
+    "SEAS":["Southeastern Asia", 21], 
+    "INDO":["Indonesia region", 22], 
+    "JAP":["Japan", 23],
+    # Oceania + other
+    "OCE": ["Oceania", 24],
+    "RSAS": ["Rest of South Asia", 25],
+    "RSAF": ["Rest of Southern Africa", 26]
+    } 
+
+
+
 def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
     
     files = wdir + "/" + filename + ".nc"
 
+    # Open the NetCDF files using xarray
     ds = xr.open_mfdataset(files)
+
+    filters = {}
     
-    filters = {
-    "region_type":region_type,
-    "region":region,
-    "t_type":t_type,
-    "age_group":age_group
-    }
+    if region_type is not None:
+        filters["region_type"] = region_type
+        
+    if t_type is not None:
+        filters["t_type"] = t_type
+    
+    if region is not None:
+        filters["region"] = region
+    
+    if age_group is not None:
+        filters["age_group"] = age_group
     
     if "cause" in ds.variables:
         filters["cause"] = cause
 
-    da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+    if region_type is not None:
+        da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+    else:
+        da_selected = ds.sel(**filters)[variable]
     
     return da_selected
 
@@ -62,9 +109,12 @@ def ImportGDPpc(rel_path, scenarios, region):
 
     for scenario in scenarios:
         
+        if "_NoAdap" in scenario:
+            scenario = scenario.replace("_NoAdap", "")
+
         gdp_dir = rel_path.format(scenario=scenario)
 
-        # Add extra regions depending on the file extension (always check if order is right with new files)
+        # Add extra regions depending on the file extension (always check if order is right with new file types)
         extra_regions = ["dummy", "World"] if gdp_dir[-3:] in ["scn", "dat"] else ["World"]
         prism_regions_world = prism.Dimension('region', _DIM_IMAGE_REGIONS + extra_regions)
         
@@ -140,11 +190,16 @@ def ImportPopulation(wdir, region, age_group):
                 pop_ssp_all = pop_ssp_group
             else:
                 pop_ssp_all = pop_ssp_all.add(pop_ssp_group, fill_value=0)
-                    
+        
+        # Sum global population
         if region == "World":
-            pop_ssp_all = pop_ssp_all.sum(axis=0).to_frame().reset_index().rename(columns={0:"population", "index":"year"})
+            pop_ssp = pop_ssp_all.sum(axis=0).to_frame().reset_index().rename(columns={0:"population", "index":"year"})
+        # Sum IMAGE region population
+        if region in IMAGE_REGIONS.keys():
+            df = pop_ssp_all.reset_index().merge(region_class[["hierid", "IMAGE"]], on="hierid")
+            pop_ssp = df[df["IMAGE"]==region].drop(columns = ["hierid", "IMAGE"]).sum(axis=0).reset_index().rename(columns={0:"population", "index":"year"})            
             
-        pop[ssp] = pop_ssp_all
+        pop[ssp] = pop_ssp
         
     return pop
 
@@ -353,17 +408,28 @@ def BuildShapleyRow(variable_name, year, stats, r2_results, shapley_values, pred
 
 
 
-def ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, predictors):
+def ComputeShapleyOwen(wdir, region, age_group, variable, predictors, show_plot, adap):
     
     
     # Generate a clean dataframe of the mortality and its predictors
-    data = GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, variable)
-    
+    # data = GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, variable)
     # data = replicateK(variable=variable)
     
+    if region == "All regions":
+        print("Opening all regions")
+        data = []
+        for region in list(IMAGE_REGIONS.keys()):
+            data_region = pd.read_parquet(wdir + f"data4shapley_{region}_{age_group}.parquet")
+            data.append(data_region)
+            
+        data = pd.concat(data, axis=0)
+    
+    else: 
+        data = pd.read_parquet(wdir + f"data4shapley_{region}_{age_group}.parquet")
+
     df = []
     
-    for year in range(2010,2101):
+    for year in range(2000,2101):
         
         print(year)
         
@@ -379,62 +445,69 @@ def ComputeShapleyOwen(wdir, gdp_dir, scenarios, region, age_group, variable, pr
 
     df = pd.DataFrame(df)
     
-    colours = {
-    'Plot_Avg_SD':'#FF000000', # note that the colour here is transparent on purpose
-    'Plot_Avg_SD_Surrogate':'C0', # note that the colour here is identical to Plot_Amb below
-    'Plot_gdppc':'C0', 
-    'Plot_population':'C1', 
-    'Plot_climate':'C2', 
-    'Plot_variability':'C3',
-    "Plot_erf_draw": "C4",
-    "Plot_gdp_impacts": "C5",
-    "Plot_ssp": "C6",
-    "Plot_Resid":"C7" 
-    }
+    if show_plot == False:
+        if adap == False:
+            df.to_parquet(wdir + f"ShapleyPlot_NoAdap_{region}_{age_group}.parquet")
+        else:
+            df.to_parquet(wdir + f"ShapleyPlot_{region}_{age_group}.parquet")
+        
+    else:
+    
+        colours = {
+        'Plot_Avg_SD':'#FF000000', # note that the colour here is transparent on purpose
+        'Plot_Avg_SD_Surrogate':'C0', # note that the colour here is identical to Plot_Amb below
+        'Plot_gdppc':'C0', 
+        'Plot_population':'C1', 
+        'Plot_climate':'C1', 
+        'Plot_variability':'C2',
+        "Plot_erf": "C3",
+        "Plot_gdp_impacts": "C5",
+        "Plot_ssp": "C0",
+        "Plot_Resid":"C7" 
+        }
 
-    fig, ax = plt.subplots()
-    ax = df[['Year', 'Plot_Avg_SD', 'Plot_Avg_SD_Surrogate'] + 
-        [f"Plot_{p}" for p in predictors] + 
-        ['Plot_Resid']].\
-        set_index('Year').\
-        plot(
-        kind='bar',
-        stacked=True, 
-        color=colours,
-        edgecolor = "none",
-        width=0.45,
-        title='Shapley-Owen Decomposition', 
-        ax=ax
+        fig, ax = plt.subplots()
+        ax = df[['Year', 'Plot_Avg_SD', 'Plot_Avg_SD_Surrogate'] + 
+            [f"Plot_{p}" for p in predictors] + 
+            ['Plot_Resid']].\
+            set_index('Year').\
+            plot(
+            kind='bar',
+            stacked=True, 
+            color=colours,
+            edgecolor = "none",
+            width=0.45,
+            title=f'{region} - Shapley-Owen Decomposition', 
+            ax=ax
+            )
+        ax.legend(
+            title="Predictors", 
+            bbox_to_anchor=(1.05, 1), 
+            loc='upper left'
         )
-    ax.legend(
-        title="Predictors", 
-        bbox_to_anchor=(1.05, 1), 
-        loc='upper left'
-    )
-    df[['Average']].\
-        plot(
-            kind='line', 
-            marker = 'd', 
-            color='black', 
-            ax=ax,
-            label=None
+        df[['Average']].\
+            plot(
+                kind='line', 
+                marker = 'd', 
+                color='black', 
+                ax=ax,
+                label=None
+                )
+
+        # The line plot for the Median
+        df[['Median']].\
+            plot(
+                kind='line', 
+                linestyle='--', 
+                color='k', 
+                ax=ax,
+                label=None
             )
 
-    # The line plot for the Median
-    df[['Median']].\
-        plot(
-            kind='line', 
-            linestyle='--', 
-            color='k', 
-            ax=ax,
-            label=None
-        )
+        ax.tick_params(axis='x', labelrotation=45)
 
-    ax.tick_params(axis='x', labelrotation=45)
-
-    fig.tight_layout()
-    plt.show() 
-
+        fig.tight_layout()
+        plt.show() 
 
 
 
@@ -442,7 +515,6 @@ def replicateK(variable):
     
     wdir = "C:/Users/liprandicn/Downloads/"
     ssps_df = pd.read_csv(wdir+"df_ssps_cleaned.csv")
-    
     
     # List of dependent variable that are of interest for this analysis
     variables = [
@@ -468,7 +540,6 @@ def replicateK(variable):
        'Primary_Energy_Gas',
        "Primary_Energy_Gas_w_CCS",
        "Primary_Energy_Gas_wo_CCS",
-
        # Final Energy
        'Final_Energy', 
        'Final_Energy_Electricity', 
@@ -482,7 +553,6 @@ def replicateK(variable):
        'Final_Energy_Residential_and_Commercial',
        'Final_Energy_Transportation',
        'Final_Energy_Electrification',
-       
        # Emissions
        'Emissions_CO2',
        'Emissions_CH4',
@@ -492,17 +562,14 @@ def replicateK(variable):
        'Emissions_CO2_Carbon_Capture_and_Storage_Biomass',
        'Emissions_CO2_Fossil_Fuels_and_Industry', 
        'Emissions_CO2_Land_Use',
-
        # Economic variables 
        'Price_Carbon',
        'GDP_PPP',
-        
        ]
     
     # Reorder SSPs to start with SSP2 such that the combination of AIM/CGE (model) + SSP2 (scenario) 
     # is used as the constant in the regressions, as per the analysis of this paper
     ssps_df['scenario'] = pd.Categorical(ssps_df['scenario'], ['SSP2', 'SSP1', 'SSP3', 'SSP4', 'SSP5'])
-    
     data = ssps_df.dropna(subset=[variable])
     
     return ssps_df
@@ -517,7 +584,7 @@ def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, varia
     the dataframe as parquet file and return it in the function.
     """
 
-    # Import annual GDPpc for all scenarios from TIMER
+    # Import annual GDPpc for all scenarios from TIMER output
     gdp = ImportGDPpc(gdp_dir, scenarios, region)
     # Import annual population for all scenarios from IMAGE-Land
     pop = ImportPopulation(wdir, region, age_group)
@@ -532,24 +599,29 @@ def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, varia
         
         print(i)
         
-        # Complete filename
-
+        # FILENAME #
         filename = re.search(r'([^\\/]+)\.nc$', file_list[i]).group(1)
-        # Complete scenario name
-        scenario = re.search(r'climvar_(.*?)_ssp', filename).group(1)
-        # Climate variability filename
-        variability = re.search(rf'{scenario}_(.*?)_2000', filename).group(1)
-        # ERF draw name
-        # draw = re.search(r'2000-2100_TRAP_(.*)', filename).group(1)
-        # SSP of the scenario
-        ssp = scenario[:4]
-        # Climate target of the scenario
-        climate = re.search(rf'{ssp}_(.*?)_ERA', scenario).group(1)
+        # PROJECT #
+        project = wdir.strip('\\').split('\\')[-1]
+        # SCENARIO #
+        scenario = re.search(rf'{project}_(.*?)_ssp', filename).group(1)
         
-        if "AllImpacts" in scenario:
-            gdp_impacts = 1
-        elif "NoEcon" in scenario:
-            gdp_impacts = 0
+        if scenario not in scenarios:
+            continue
+        if "NoAdap" in scenario:
+            scenario = scenario.replace("_NoAdap","")
+            final_name="_NoAdap"
+        else:
+            final_name=""
+        
+        # CLIMVAR #
+        variability = re.search(rf'{scenario}_(.*?)_2000', filename).group(1)
+        # ERF #
+        draw = re.search(r'2000-2100_LHScut_50_(.*)_p25', filename).group(1)
+        # SSP #
+        ssp = scenario[:4]
+        # CLIMATE TARGET #
+        climate = re.search(rf'{ssp}_(.*?)$', scenario).group(1)
         
         # Load mortality file i given a region, temperature type and age group
         cause=None
@@ -567,12 +639,15 @@ def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, varia
         # Assign variability label
         ds["variability"] = variability
         # Assign ERF draw label
-        # ds["erf_draw"] = draw
+        ds["erf"] = draw
         # Assign SSP label
         ds["ssp"] = ssp
         # Assign climate target label
         ds["climate"] = climate
-        ds["gdp_impacts"] = gdp_impacts
+        # Assign region label
+        ds["region"] = region
+        # Assign age group
+        ds["age"] = age_group
         
         # Append in list
         final_list.append(ds)
@@ -581,52 +656,9 @@ def GenerateDataframe4Shapley(wdir, gdp_dir, scenarios, region, age_group, varia
     all_results = pd.concat(final_list, axis=0, ignore_index=True)
 
     # Save cleaned dataframe as parquet
-    all_results.to_parquet(wdir + f"data4shapley_{region}_{age_group}.parquet", index=False)
+    if final_name=="_NoAdap":
+        all_results.to_parquet(wdir + f"Shapley/data4shapley{final_name}_{region}_{age_group}.parquet", index=False)
+    else:
+        all_results.to_parquet(wdir + f"Shapley/data4shapley_{region}_{age_group}.parquet", index=False)
     
     return all_results
-
-        
-# scenarios = [
-#     "SSP2_M_CP_ERA_AllImpacts",
-#     "SSP2_M_CP_ERA_NoEcon",
-#     "SSP3_H_ERA_AllImpacts",
-#     "SSP3_H_ERA_NoEcon",
-#     "SSP1_M_CP_ERA_AllImpacts",
-#     "SSP1_M_CP_ERA_NoEcon",
-#     "SSP1_ML_ERA_AllImpacts",
-#     "SSP2_ML_ERA_AllImpacts",
-#     "SSP1_ML_ERA_NoEcon",
-#     "SSP2_ML_ERA_NoEcon",
-#     "SSP1_VLLO_ERA_AllImpacts",
-#     "SSP2_VLLO_ERA_AllImpacts",
-#     "SSP1_VLLO_ERA_NoEcon"
-#     ]
-
-scenarios_climvar = [
-    "SSP2_M_CP_ERA_AllImpacts",
-    "SSP2_M_CP_ERA_NoEcon",
-    # "SSP3_H_ERA_AllImpacts",
-    # "SSP3_H_ERA_NoEcon",
-    "SSP1_M_CP_ERA_AllImpacts",
-    "SSP1_M_CP_ERA_NoEcon",
-    "SSP1_ML_ERA_AllImpacts",
-    "SSP2_ML_ERA_AllImpacts",
-    "SSP1_ML_ERA_NoEcon",
-    "SSP2_ML_ERA_NoEcon",
-    "SSP1_VLLO_ERA_AllImpacts",
-    "SSP2_VLLO_ERA_AllImpacts",
-    "SSP1_VLLO_ERA_NoEcon"
-    ]
-
-
-predictors =  ["gdppc", "population", "climate", "variability"] #["ssp", "gdp_impacts", "climate", "variability"]
-# ["variability", "gdppc", "population", "climate", "erf_draw"] 
-#[("cumulative_emissions", "squared_cumulative_emissions"), "model", "scenario"]
-variable="mortality"
-#"Primary_Energy"
-age_group = "All ages"
-region = "World"
-gdp_dir =  "X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_5/IMPACTS/{scenario}/indicators/Economy/GDPpc_incl_impacts.out"
-wdir = "X:\\user\\liprandicn/Projects\\mt-comparison\\models/Carleton2022/output/SPARCCLE_climvar\\"
-
-ComputeShapleyOwen(wdir, gdp_dir, scenarios_climvar, region, age_group, variable, predictors)
