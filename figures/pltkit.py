@@ -65,7 +65,7 @@ causes = {
 
 
 
-def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_group, variable, years): 
+def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_group, variable, years,range): 
     
     files = wdir + "/" + filename + ".nc"
     file_list = sorted(glob.glob(files))
@@ -83,15 +83,23 @@ def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_g
     
     filters = {
     "region_type":region_type,
-    "region":region,
     "t_type":t_type,
     "age_group":age_group
     }
     
+    if region is not None:
+        filters["region"] = region
+    
     if "cause" in ds.variables:
         filters["cause"] = cause
 
-    da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+
+    if "burkart" in filename.lower() and region_type=="ISO3":
+        da_selected = ds.set_xindex("region_type").isel(geo=0).sel(**filters)[variable]
+        
+    else:
+        da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+
 
     if "carleton" in filename.lower():
         dims = ["draw"]
@@ -101,17 +109,24 @@ def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_g
         dims = ["draw", "var_mor", "var_erf"]
         
     da_selected = da_selected.load() 
+    
+    if range is not None:
+        upper = range[1]
+        lower = range [0]
+    else:
+        upper = 0.975
+        lower = 0.025
 
     da_mean = da_selected.mean(dim=dims)
-    da_p025 = da_selected.quantile(0.025, dim=dims)
-    da_p975 = da_selected.quantile(0.975, dim=dims)
+    da_lower = da_selected.quantile(lower, dim=dims)
+    da_upper = da_selected.quantile(upper, dim=dims)
     
     if years is not None:
         da_mean = da_mean.sel(year=years).mean(dim="year")
-        da_p025 = da_p025.sel(year=years).mean(dim="year")
-        da_p975 = da_p975.sel(year=years).mean(dim="year")
+        da_lower = da_lower.sel(year=years).mean(dim="year")
+        da_upper = da_upper.sel(year=years).mean(dim="year")
         
-    return da_mean, da_p025, da_p975
+    return da_mean, da_lower, da_upper
 
 
 
