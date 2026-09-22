@@ -14,7 +14,7 @@ def LoadRegionClassificationDicts(wdir):
     # Create dictionaries to map location ids to ISO3 codes
     region_names = (
         pd.read_csv(
-            os.path.dirname(wdir) +
+            os.path.dirname(os.path.dirname(wdir)) +
             f"/data/RegionClassification/region_classification.csv")
         [["gbd_location_id", "ISO3"]]
         .drop_duplicates()
@@ -27,7 +27,7 @@ def LoadRegionClassificationDicts(wdir):
     
     # Dictionary to map location ids to IMAGE region names
     region_names = (
-        pd.read_csv(os.path.dirname(wdir) +
+        pd.read_csv(os.path.dirname(os.path.dirname(wdir)) +
             f"/data/RegionClassification/region_classification.csv")
         [["IMAGE26", "ISO3"]]
         .drop_duplicates()
@@ -84,7 +84,7 @@ def LoadGBDmortality(sets, fls, causes, model):
     """
     
     # Load GBD mortality records
-    gbd_mor = pd.read_csv(f"{os.path.dirname(sets.wdir)}/data/GBD/Mortality/IHME-GBD_2023_DATA.csv")
+    gbd_mor = pd.read_csv(f"{os.path.dirname(os.path.dirname(sets.wdir))}/data/GBD/Mortality/IHME-GBD_2023_DATA.csv")
 
     mask = (
         gbd_mor["cause_name"].isin(causes) & # Only selected causes of death
@@ -228,7 +228,7 @@ def LoadUNpopulationData(sets, model):
 
     # Load UN population data
     un_pop = (
-        pd.read_csv(os.path.dirname(sets.wdir)+"/data/un_population/unpopulation_dataportal.csv")
+        pd.read_csv(os.path.dirname(os.path.dirname(sets.wdir))+"/data/un_population/unpopulation_dataportal.csv")
         [["Iso3", "Time", "Age", "Value"]] # Keep relevant columns
         .rename(columns={"Value": "pop", "Time": "year", "Age": "age_group", "Iso3": "ISO3"})
         .set_index(["ISO3", "year", "age_group"]) 

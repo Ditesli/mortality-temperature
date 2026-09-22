@@ -57,8 +57,8 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     
     # Open IMAGE SSP population data
     pop = xr.open_dataset(
-        os.path.dirname(wdir) + # Move to general folder
-        f'/data/IMAGE/IMAGE_population/{ssp}/GPOP.nc'
+       os.path.dirname(os.path.dirname(wdir)) + # Move to general folder
+        f'/data/IMAGE/IMAGE_Population/{ssp}/GPOP.nc'
         )
     
     if re.search(r"ERA5", scenario):
@@ -103,7 +103,7 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_map)
         # Read in IMAGE region data and interpolate to match files resolution
         regions = (
             xr.open_dataset(
-                os.path.dirname(wdir) + #Move to general folder
+                os.path.dirname(os.path.dirname(wdir)) + #Move to general folder
                 '/data/IMAGE/IMAGE_Regions_Map/GREG_30MIN.nc')
             .mean(dim="time") # Mean over time dimension
             .interp(longitude=temp_grid.longitude,  # Match temperature data resolution 
@@ -120,7 +120,7 @@ def LoadRegionClassificationMap(wdir, temp_dir, region_class, scenario, pop_map)
         # Read in GBD LEVEL 3 region data: countries and territories
         regions = (
             xr.open_dataset(
-                os.path.dirname(wdir)
+                os.path.dirname(os.path.dirname(wdir))
                 +'/data/GBD/GBD_locations/GBD_locations_level3.nc')
             .interp(longitude=temp_grid.longitude, 
                                      latitude=temp_grid.latitude, 

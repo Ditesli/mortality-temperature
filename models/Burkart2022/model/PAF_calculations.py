@@ -233,9 +233,9 @@ class LoadInputData:
         
         print(f"[1.3] Calculating population per impact region for SSP: {ssp}...")
         pop_region = pop.IMAGEPopulation2Regions(
-            shp_dir=os.path.dirname(sets.wdir)+"/data/GBD/GBD_locations/gbd_shapefiles/", 
+            shp_dir=os.path.dirname(os.path.dirname(sets.wdir))+"/data/GBD/GBD_locations/gbd_shapefiles/", 
             shp_name="GBD_shapefile",
-            pop_dir=os.path.dirname(sets.wdir)+"/data", 
+            pop_dir=os.path.dirname(os.path.dirname(sets.wdir))+"/data", 
             ssp="SSP2",
             years=sets.years)   
         
@@ -561,19 +561,6 @@ def ShiftRRfromTMREL(erf, pop_map, tmrel, temperature_zones, causes):
     )
 
     return df_erf_tmrel
-
-
-
-# sets = ModelSettings(
-#         wdir="X:/user/liprandicn/mt-comparison/burkart2022",
-#         temp_dir="X:/user/liprandicn/Data/ERA5/t2m_daily",
-#         project=None,
-#         scenario="SSP2_ERA5",
-#         years=[2010],
-#         draw="mean",
-#         single_erf=False, 
-#         extrap_erf=False,
-#     )
 
 
 def LoadExposureResponseFunctionsAll(sets):

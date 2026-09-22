@@ -64,134 +64,42 @@ causes = {
 
 
 
-def LoadMortalityold(wdir, filename, years, region, temp_type, unit, age_group, cause, val_mor, val_erf):
-    
-    """
-    Load mortality from ANY calculation method as time series and constrained to 
-    the parameters:
-    - years: Years range
-    - region: IMAGE region or "World"
-    - temp_type: "Heat", "Cold", "All"
-    - unit: "relative" (Relative mortality) or "total" (total mortality)
-    - age_group: "young", "older", "oldest" (only valid for Carleton)
-    - cause: cause of death (only valid for Burkart method)
-    """
-    
-    df = pd.read_csv(wdir + filename + ".csv")
 
-    # Initialize filter as True to not filter anything initially
-    filter = pd.Series(True, index=df.index)
-
-    # Apply age_group condition only if the column exists
-    if "age_group" in df.columns:
-        filter &= df["age_group"].str.lower().str.contains(age_group.lower())
-        
-    # Apply age_group condition only if the column exists
-    if "cause" in df.columns:
-        filter &= df["cause"].str.lower().str.contains(cause.lower())
-
-    # Condition for t_type
-    filter &= df["t_type"].str.lower() == temp_type.lower()
-
-    # Condition for region
-    filter &= df["region"] == region
-    
-    # Condition for value
-    if "val_mor" in df.columns:
-        filter &= df["val_mor"].str.lower() == val_mor.lower()
-        
-    if "val_erf" in df.columns:
-        filter &= df["val_erf"].str.lower() == val_erf.lower()
-
-    # Condition for units
-    if "units" in df.columns:
-        filter &= df["units"].str.lower().str.contains(unit.lower())
-
-    # Apply filter and select columns starting from the 5th column
-    df = df[filter][[str(y) for y in years if str(y) in df.columns]]
-
-    # Convert column names to int
-    df.columns = df.columns.astype(int)
-    
-    return df
-
-
-
-def LoadScatter(wdir, filename, years, temp_type, unit, age_group, cause):
-    
-    # Load the CSV file into a DataFrame
-    df = pd.read_csv(wdir + filename + ".csv")
-
-    # Initialize filter as True to not filter anything initially
-    filter = pd.Series(True, index=df.index)
-
-    # Apply age_group condition only if the column exists
-    if "age_group" in df.columns:
-        filter &= df["age_group"].str.lower().str.contains(age_group.lower())
-        
-    # Apply age_group condition only if the column exists
-    if "cause" in df.columns:
-        filter &= df["cause"].str.lower().str.contains(cause.lower())
-
-    # Condition for t_type
-    filter &= df["t_type"].str.lower() == temp_type.lower()
-
-    # Condition for units
-    if "units" in df.columns:
-        filter &= df["units"].str.lower().str.contains(unit.lower())
-        
-    # Load region classification    
-    region_class = (
-        pd.read_csv(wdir+"data/region_classification.csv")
-        [["ISO3", "continents"]]
-        .drop_duplicates()
-        )
-
-    # Apply filter and select columns starting from the 5th column
-    df = df[filter][["region"]+[str(y) for y in years if str(y) in df.columns]]
-
-    # Merge with region classification and group by continents, summing the values
-    df = df.merge(region_class, left_on="region", right_on="ISO3", how="left").groupby("continents").sum().drop(columns=["ISO3", "region"])
-    
-    # Add a row for the world total by summing all the continents
-    df.loc["World"] = df.sum(numeric_only=True)
-    
-    # Convert column names to int
-    df.columns = df.columns.astype(int)
-    
-    final_df = pd.DataFrame(index=df.index)
-    final_df["mean"] = df.mean(axis=1)
-    final_df["p95"] = df.quantile(0.95, axis=1)
-    final_df["p5"] = df.quantile(0.05, axis=1)
-    
-    final_df.sort_index(inplace=True)
-    
-    return final_df
-
-
-
-def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
+def LoadMortalityDraws(wdir, filename, region_type, region, t_type, cause, age_group, variable, years,range): 
     
     files = wdir + "/" + filename + ".nc"
     file_list = sorted(glob.glob(files))
 
     if file_list:
-        ds = xr.open_mfdataset(file_list, combine="nested", concat_dim="draw")
+        ds = xr.open_mfdataset(
+            file_list,
+            combine="nested",
+            concat_dim="draw",
+            coords="minimal",
+            compat="override"
+            )
     else:
         print("Files not found.")
     
     filters = {
     "region_type":region_type,
-    "region":region,
     "t_type":t_type,
     "age_group":age_group
     }
+    
+    if region is not None:
+        filters["region"] = region
     
     if "cause" in ds.variables:
         filters["cause"] = cause
 
 
-    da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+    if "burkart" in filename.lower() and region_type=="ISO3":
+        da_selected = ds.set_xindex("region_type").isel(geo=0).sel(**filters)[variable]
+        
+    else:
+        da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+
 
     if "carleton" in filename.lower():
         dims = ["draw"]
@@ -199,12 +107,59 @@ def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group,
         dims = ["draw", "var_mor"]
     else:
         dims = ["draw", "var_mor", "var_erf"]
+        
+    da_selected = da_selected.load() 
+    
+    if range is not None:
+        upper = range[1]
+        lower = range [0]
+    else:
+        upper = 0.975
+        lower = 0.025
 
     da_mean = da_selected.mean(dim=dims)
-    da_p025 = da_selected.quantile(0.025, dim=dims)
-    da_p975 = da_selected.quantile(0.975, dim=dims)
+    da_lower = da_selected.quantile(lower, dim=dims)
+    da_upper = da_selected.quantile(upper, dim=dims)
     
-    return da_mean, da_p025, da_p975
+    if years is not None:
+        da_mean = da_mean.sel(year=years).mean(dim="year")
+        da_lower = da_lower.sel(year=years).mean(dim="year")
+        da_upper = da_upper.sel(year=years).mean(dim="year")
+        
+    return da_mean, da_lower, da_upper
+
+
+
+def LoadMortality(wdir, filename, region_type, region, t_type, cause, age_group, variable): 
+    
+    files = wdir + "/" + filename + ".nc"
+
+    # Open the NetCDF files using xarray
+    ds = xr.open_mfdataset(files)
+
+    filters = {}
+    
+    if region_type is not None:
+        filters["region_type"] = region_type
+        
+    if t_type is not None:
+        filters["t_type"] = t_type
+    
+    if region is not None:
+        filters["region"] = region
+    
+    if age_group is not None:
+        filters["age_group"] = age_group
+    
+    if "cause" in ds.variables:
+        filters["cause"] = cause
+
+    if region_type is not None:
+        da_selected = ds.set_index(geo=["region_type", "region"]).sel(**filters)[variable]
+    else:
+        da_selected = ds.sel(**filters)[variable]
+    
+    return da_selected
 
 
 

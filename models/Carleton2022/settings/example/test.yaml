@@ -1,0 +1,15 @@
+wdir: X:/user/liprandicn/Projects/mt-comparison/models/carleton2022
+temp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/Z_Emulator_Standalone_Tool/SSP2_M_CP_ERA_AllImpacts/netcdf
+gdp_dir: X:/user/dekkerm/IMAGE_environments/IMPACTS/2_TIMER/outputlib/TIMER_3_5/IMPACTS/SSP2_M_CP_ERA_AllImpacts_extra/indicators/Economy/GDPpc_incl_impacts.out
+start_year: 2050
+end_year: 2052
+monthly_output: true
+impact_regions: true
+project: SPARCCLE
+scenario: SSP2_M_CP_ERA_AllImpacts_extra
+adaptation: true
+counterfactual: true
+draw: mean
+reporting_tool: false
+stochastic: false
+dask_on: false

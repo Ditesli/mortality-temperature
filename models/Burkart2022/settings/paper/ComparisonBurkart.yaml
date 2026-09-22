@@ -1,5 +1,5 @@
 # Paths to main directory and temeprature files
-wdir: "X:/user/liprandicn/mt-comparison/burkart2022"
+wdir: "X:/user/liprandicn/projects/mt-comparison/models/burkart2022"
 temp_dir: "X:/user/liprandicn/Data/ERA5/t2m_daily"
 
 # Scenario settings
