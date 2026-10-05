@@ -507,6 +507,7 @@ def LoadTMRELsMap(sets, year):
         tmrel = tmrel.sel(draw=random.randint(1,100)).tmrel.values
     elif isinstance(sets.draw, int):
         draw = sets.draw % 100 if sets.draw > 100 else sets.draw
+        draw = max(draw,1)
         tmrel = tmrel.sel(draw=draw).tmrel.values
     
     # Change to float64
