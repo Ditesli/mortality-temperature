@@ -91,7 +91,7 @@ class ModelSettings:
             self.base_years = list(range(1980, 1990))
         
         # Reduce range years if working with ERA5 data
-        ERA5_END_YEAR = 2025
+        ERA5_END_YEAR = 2026
 
         if "ERA5" in self.scenario:
             self.years = [
@@ -318,7 +318,12 @@ class LoadInputData:
             ir = pd.read_parquet(cache_dir+f"/{name}_ir.parquet")[0].values
             
         else:
-            temp_mean = xr.open_dataset(os.path.join(sets.temp_dir, "GTMP_30MIN.nc"))
+            
+            if name == "IMAGE":
+                temp_mean = xr.open_dataset(os.path.join(sets.temp_dir, "GTMP_30MIN.nc"))
+            else: 
+                temp_mean = xr.open_dataset(sets.temp_dir+f"/era5_t2m_mean_day_{sets.years[0]}.nc")
+                
             spatial_relation, ir = GridRelationship(sets, temp_mean)
             
             spatial_relation.to_parquet(cache_dir+f"/{name}_spatial_relation.parquet")
@@ -1453,7 +1458,8 @@ def CalculateMortalityEffects(sets, base, tempe, scen, erf, year):
                 sets=sets, 
                 base=base,
                 erf=erf,
-                temper=tempe
+                tempe=tempe,
+                scen=scen
                 )
         
         else:
@@ -1500,7 +1506,7 @@ def CalculateMortalityEffects(sets, base, tempe, scen, erf, year):
 
         
         
-def CalculateERA5baselineMortality(sets, base, erf, tempe):
+def CalculateERA5baselineMortality(sets, base, erf, tempe, scen):
     
     """
     Calculate "baseline" mortality for a 10-year period, calculating first the annual
@@ -1517,6 +1523,8 @@ def CalculateERA5baselineMortality(sets, base, erf, tempe):
             sets=sets, 
             base=base,
             erf=erf,
+            tempe=tempe,
+            scen=scen,
             year=pd_year,
             daily_temp=tempe.daily_temp_t0[pd_year],
             counterfactual=True
