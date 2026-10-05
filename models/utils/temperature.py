@@ -29,10 +29,10 @@ def DailyTemperatureERA5(era5_dir, year, temp_type, pop_map=None, to_array=False
     convert to Celsius, and match grid with population data.
     """
     
-    if year < 1970 or year > 2025:
+    if year < 1970 or year > 2026:
         raise ValueError(
             f"ERA5 data for year {year} is not available "
-            f"(valid range: 1970–2025)."
+            f"(valid range: 1970–2026)."
       )        
     
     # Read file and shift longitude coordinates
