@@ -57,7 +57,7 @@ def LoadPopulationMap(wdir, scenario, ssp, years):
     
     # Open IMAGE SSP population data
     pop = xr.open_dataset(
-       os.path.dirname(os.path.dirname(wdir)) + # Move to general folder
+       os.path.dirname(os.path.dirname(os.path.dirname(wdir))) + # Move to general folder
         f'/data/IMAGE/IMAGE_Population/{ssp}/GPOP.nc'
         )
     
