@@ -1348,6 +1348,9 @@ def DailyTemperature2IR(sets, base, tempe, year):
             temp=daily_temperature,
             spatial_relation=base.spatial_relation
             )
+    
+    # Save daily temperature data for the given year at the impact region level (for plots)
+    # np.save(f'X:\\user\\liprandicn\\projects\\mt-comparison\\figures\\Other figures\\STS1\\DailyTemperature_ir_{year}.npy', daily_temperature)
 
     return daily_temperature
 
